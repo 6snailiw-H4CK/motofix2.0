@@ -13,7 +13,7 @@ import {
   BarChart3, Calendar, ShieldCheck, Download, FileText, X,
   PieChart, LayoutDashboard, ArrowUpRight, ArrowDownRight,
   TrendingDown, Bike, Users, AlertTriangle, ChevronLeft,
-  Droplets, Shield, Lock
+  Droplets, Shield, Lock, DollarSign
 } from 'lucide-react';
 import { 
   format, parseISO, addDays, isAfter, isBefore, startOfMonth, 
@@ -171,7 +171,7 @@ const LoadingScreen = () => {
         </a>
         <span className="text-slate-600">|</span>
         <a 
-          href="https://instagram.com"
+          href="https://instagram.com/motofix_recorrentes"
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-2 text-xs text-slate-400 hover:text-primary transition-colors"
@@ -480,6 +480,7 @@ export default function App() {
   });
   const [isSaving, setIsSaving] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [expandedHistoryClients, setExpandedHistoryClients] = useState<Set<string>>(new Set());
 
   const ADMIN_EMAILS = ['6snailiw@gmail.com', 'emailgithubb@gmail.com'];
 
@@ -516,52 +517,77 @@ export default function App() {
     return last6Months;
   }, [clients]);
 
-  // Auth listener
+  // Auth listener - simplified without aggressive retries
   useEffect(() => {
-    return onAuthStateChanged(auth, async (user) => {
+    let isMounted = true;
+    
+    const loadUserProfile = async (user: User) => {
       try {
-        setUser(user);
-        if (user) {
-          // Fetch or create user profile
-          const userDoc = doc(db, 'users', user.uid);
-          const userSnap = await getDoc(userDoc);
-          
-          const userExists = userSnap.exists();
-          setIsNewUser(!userExists);
-          
-          if (userExists) {
-            setUserProfile(userSnap.data() as UserProfile);
-          } else {
-            const isAdminUser = ADMIN_EMAILS.includes(user.email || '');
-            const newProfile: UserProfile = {
-              uid: user.uid,
-              email: user.email || '',
-              displayName: user.displayName || 'Usuário',
-              role: isAdminUser ? 'admin' : 'user',
-              isActive: isAdminUser, // Admin is active by default, others need approval
-              subscription: {
-                status: isAdminUser ? 'active' : 'inactive',
-                plan: 'free',
-                startsAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
-                expiresAt: format(addDays(new Date(), 30), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
-                currentPeriodEnd: format(addDays(new Date(), 30), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
-                autoRenew: false
-              },
-              subscriptionExpiresAt: format(addDays(new Date(), 30), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
-              createdAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
-            };
-            await setDoc(userDoc, newProfile);
-            setUserProfile(newProfile);
-          }
+        const userDoc = doc(db, 'users', user.uid);
+        
+        // Increase timeout to 20 seconds for slow connections
+        const userSnap = await Promise.race([
+          getDoc(userDoc),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Timeout loading user profile (>20s)')), 20000)
+          )
+        ]) as any;
+        
+        if (!isMounted) return;
+        
+        const userExists = userSnap.exists();
+        setIsNewUser(!userExists);
+        
+        if (userExists) {
+          setUserProfile(userSnap.data() as UserProfile);
         } else {
-          setUserProfile(null);
-          setIsNewUser(null);
+          const isAdminUser = ADMIN_EMAILS.includes(user.email || '');
+          const newProfile: UserProfile = {
+            uid: user.uid,
+            email: user.email || '',
+            displayName: user.displayName || 'Usuário',
+            role: isAdminUser ? 'admin' : 'user',
+            isActive: isAdminUser,
+            subscription: {
+              status: isAdminUser ? 'active' : 'inactive',
+              plan: 'free',
+              startsAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
+              expiresAt: format(addDays(new Date(), 30), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
+              currentPeriodEnd: format(addDays(new Date(), 30), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
+              autoRenew: false
+            },
+            subscriptionExpiresAt: format(addDays(new Date(), 30), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
+            createdAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
+          };
+          await setDoc(userDoc, newProfile);
+          setUserProfile(newProfile);
         }
         setLoading(false);
       } catch (error) {
-        console.error('Auth listener error:', error);
-        setLoading(false);
+        console.error('Failed to load user profile:', error);
+        if (isMounted) {
+          // Allow app to continue but mark as not fully loaded
+          setUserProfile(null);
+          setIsNewUser(false);
+          setLoading(false);
+        }
       }
+    };
+    
+    return onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setUser(user);
+        setLoading(true);
+        loadUserProfile(user);
+      } else {
+        if (isMounted) {
+          setUser(null);
+          setUserProfile(null);
+          setIsNewUser(null);
+          setLoading(false);
+        }
+      }
+      return () => { isMounted = false; };
     });
   }, []);
 
@@ -707,14 +733,19 @@ export default function App() {
   }, [user, userProfile]);
 
   // Status calculation logic
-  const getStatus = (nextDateStr: string): MaintenanceStatus => {
-    const nextDate = parseISO(nextDateStr);
-    const today = startOfDay(new Date());
-    const daysUntil = differenceInDays(nextDate, today);
+  const getStatus = (nextDateStr?: string): MaintenanceStatus => {
+    if (!nextDateStr) return 'OK'; // Default to OK if no date
+    try {
+      const nextDate = parseISO(nextDateStr);
+      const today = startOfDay(new Date());
+      const daysUntil = differenceInDays(nextDate, today);
 
-    if (daysUntil < 0) return 'OVERDUE';
-    if (daysUntil <= 3) return 'WARNING';
-    return 'OK';
+      if (daysUntil < 0) return 'OVERDUE';
+      if (daysUntil <= 3) return 'WARNING';
+      return 'OK';
+    } catch {
+      return 'OK'; // If date parsing fails, return OK
+    }
   };
 
   // Update statuses periodically without infinite loops
@@ -724,6 +755,7 @@ export default function App() {
     const checkStatuses = async () => {
       // Usamos o estado atual de clients de forma segura
       for (const client of clients) {
+        if (!client.nextMaintenanceDate) continue; // Skip if no date
         const currentStatus = getStatus(client.nextMaintenanceDate);
         if (currentStatus !== client.status) {
           try {
@@ -795,11 +827,15 @@ export default function App() {
     }
   };
 
+  // Helper: Normalize client name (lowercase + trim) to avoid duplicates
+  const normalizeClientName = (name: string): string => name.toLowerCase().trim();
+
   const handleClientNameChange = (value: string) => {
     setClientNameInput(value);
     if (value.length > 0) {
+      const normalizedInput = normalizeClientName(value);
       const filtered = clients.filter(c => 
-        c.name.toLowerCase().includes(value.toLowerCase())
+        normalizeClientName(c.name).includes(normalizedInput)
       );
       setClientSuggestions(filtered);
     } else {
@@ -807,19 +843,49 @@ export default function App() {
     }
   };
 
+  // 📝 Load client data and last maintenance CORRECTLY to avoid zero values
   const handleSelectClientSuggestion = (client: Client) => {
     setClientNameInput(client.name);
     setClientSuggestions([]);
-    // Aqui você pode preencher outros campos com dados do cliente
+    
+    // 🔍 CRITICO: Find the last maintenance for this client to populate form correctly
+    const clientMaintenance = maintenances
+      .filter(m => m.clientId === client.id)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+    
+    // ℹ️ Merge client data with last maintenance data to avoid zero values
+    // 💡 Try multiple fallbacks to ensure serviceValue is never 0
+    const finalServiceValue = 
+      clientMaintenance?.serviceValue || 
+      client.lastServiceValue || 
+      client.serviceValue ||
+      client.oilPrice || 
+      0;
+    
     setEditingClient({
       ...client,
-      lastMaintenanceDate: format(new Date(), 'yyyy-MM-ddT00:00:00Z')
+      // 💡 Keep original values from last maintenance (don't use new date)
+      serviceValue: finalServiceValue,
+      valorPago: clientMaintenance?.valorPago || client.valorPago || 0,
+      statusPagamento: clientMaintenance?.statusPagamento || client.statusPagamento || 'Pago',
+      saldoDevedor: clientMaintenance?.saldoDevedor || client.saldoDevedor || 0,
+      // Use date from last maintenance if exists, don't reset to today
+      lastMaintenanceDate: clientMaintenance?.date || client.lastMaintenanceDate || format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
     });
   };
 
   const handleSaveClient = async (clientData: Partial<Client> & { serviceType?: string, serviceValue?: number, statusPagamento?: string, valorPago?: number, notes?: string }) => {
     if (!user) return;
     setIsSaving(true);
+
+    // Check for potential duplicates (normalized name comparison)
+    if (!editingClient && clientData.name) {
+      const normalizedNewName = normalizeClientName(clientData.name);
+      const potentialDuplicate = clients.find(c => normalizeClientName(c.name) === normalizedNewName);
+      if (potentialDuplicate) {
+        console.warn(`Possível cliente duplicado encontrado: "${potentialDuplicate.name}". Prosseguindo com novaentrada...`);
+      }
+    }
 
     const lastDate = clientData.lastMaintenanceDate || format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'");
     const recurrence = clientData.recurrenceDays || 29;
@@ -863,8 +929,9 @@ export default function App() {
         clientId = docRef.id;
       }
 
-      // If it's a new service, record it in history
-      if (isNewService || !editingClient) {
+      // If it's a new service (has serviceType), create maintenance record
+      // But if editingClient exists, don't auto-create (user must explicitly edit service)
+      if (clientData.serviceType && !editingClient) {
         await addDoc(collection(db, 'users', user.uid, 'maintenances'), {
           clientId: clientId,
           clientName: clientData.name,
@@ -882,6 +949,24 @@ export default function App() {
           userId: user.uid
         });
         sonnerToast.success("Serviço registrado com sucesso!");
+      } else if (editingClient && clientData.serviceType) {
+        // When editing existing client with service info, UPDATE only the saldo/status
+        // Find the most recent maintenance for this client
+        const clientMaintenances = maintenances.filter(m => m.clientId === clientId).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        
+        if (clientMaintenances.length > 0) {
+          const latestMaintenance = clientMaintenances[0];
+          // Only update payment-related fields, don't change serviceValue to avoid duplicating amounts
+          await updateDoc(
+            doc(db, 'users', user.uid, 'maintenances', latestMaintenance.id),
+            {
+              statusPagamento: clientData.statusPagamento || latestMaintenance.statusPagamento || 'Pago',
+              valorPago: valorPago !== undefined ? valorPago : (latestMaintenance.valorPago || 0),
+              saldoDevedor: saldoDevedor
+            }
+          );
+        }
+        sonnerToast.success("Cliente e pagamento atualizados com sucesso!");
       } else {
         sonnerToast.success("Cliente atualizado com sucesso!");
       }
@@ -960,6 +1045,50 @@ export default function App() {
       setDeleteConfirm(null);
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, 'maintenances');
+    }
+  };
+
+  // 💚 Confirm Payment: Mark as fully paid
+  const handleConfirmPayment = async (maintenanceId: string, maintenance: MaintenanceRecord) => {
+    if (!user?.uid) return;
+    try {
+      setProcessingId(maintenanceId);
+      await updateDoc(
+        doc(db, 'users', user.uid, 'maintenances', maintenanceId),
+        {
+          statusPagamento: 'Pago',
+          valorPago: maintenance.serviceValue,
+          saldoDevedor: 0
+        }
+      );
+      sonnerToast.success('✅ Pagamento confirmado!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'maintenances');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  // 💸 Settle Partial Debt: Move saldoDevedor to valorPago (pay the outstanding balance)
+  const handleSettleDebt = async (maintenanceId: string, maintenance: MaintenanceRecord) => {
+    if (!user?.uid) return;
+    try {
+      setProcessingId(maintenanceId);
+      const newValorPago = (maintenance.valorPago || 0) + (maintenance.saldoDevedor || 0);
+      
+      await updateDoc(
+        doc(db, 'users', user.uid, 'maintenances', maintenanceId),
+        {
+          statusPagamento: 'Pago',
+          valorPago: newValorPago,
+          saldoDevedor: 0
+        }
+      );
+      sonnerToast.success('💸 Débito quitado com sucesso!');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'maintenances');
+    } finally {
+      setProcessingId(null);
     }
   };
 
@@ -1061,7 +1190,7 @@ export default function App() {
 
     // Footer
     doc.setFontSize(7);
-    const now = format(new Date(), 'dd/MM/yyyy, HH:mm:ss');
+    const now = format(new Date(), "dd/MM/yyyy', 'HH:mm:ss");
     doc.text(`Emitido automaticamente em ${now}`, pageWidth - margin, 265, { align: 'right' });
 
     doc.save(`Garantia_${warranty.warrantyNumber}_${warranty.clientName}.pdf`);
@@ -1213,6 +1342,45 @@ export default function App() {
     return warranties.filter(w => isAfter(parseISO(w.expiryDate), new Date())).length;
   }, [warranties]);
 
+  // 💰 Cash Flow Stats: Recebido vs A Receber (per month + overall)
+  const cashFlowStats = useMemo(() => {
+    const today = new Date();
+    const currentMonth = today.getMonth();
+    const currentYear = today.getFullYear();
+    
+    let totalRecebidoMes = 0;      // Valor pago este mês
+    let aReceber = 0;               // Saldo devedor aberto (geral)
+    let faturamentoBrutoMes = 0;   // Valor total de serviços this month
+    
+    maintenances.forEach(m => {
+      // Check if maintenance is in current month
+      const mDate = parseISO(m.date);
+      const isCurrentMonth = mDate.getMonth() === currentMonth && mDate.getFullYear() === currentYear;
+      
+      // Calculate A Receber (all open balances)
+      aReceber += m.saldoDevedor || 0;
+      
+      // Month totals
+      if (isCurrentMonth) {
+        totalRecebidoMes += m.valorPago || 0;
+        faturamentoBrutoMes += m.serviceValue || 0;
+      }
+    });
+    
+    return { 
+      totalRecebidoMes, 
+      aReceber, 
+      faturamentoBrutoMes,
+      // Useful derived values
+      aReceberMes: maintenances
+        .filter(m => {
+          const mDate = parseISO(m.date);
+          return mDate.getMonth() === currentMonth && mDate.getFullYear() === currentYear;
+        })
+        .reduce((sum, m) => sum + (m.saldoDevedor || 0), 0)
+    };
+  }, [maintenances]);
+
   // ✅ Hook calls MUST always be called in the same order
   // Even if we return early, we call the hooks first
   const overdueClients = useMemo(() => clients.filter(c => c.status === 'OVERDUE'), [clients]);
@@ -1234,6 +1402,51 @@ export default function App() {
         position: index + 1
       }));
   }, [maintenances]);
+
+  // Calculate saldo devedor (outstanding balance) per client
+  const clientBalanceMap = useMemo(() => {
+    const map = new Map<string, number>();
+    maintenances.forEach(m => {
+      if (m.clientId) {
+        const currentBalance = map.get(m.clientId) || 0;
+        map.set(m.clientId, currentBalance + (m.saldoDevedor || 0));
+      }
+    });
+    return map;
+  }, [maintenances]);
+
+  // Group maintenances by client for history accordion view
+  const groupedHistory = useMemo(() => {
+    const filtered = maintenances
+      .filter(record => {
+        const recordDate = parseISO(record.date);
+        const start = parseISO(historyFilters.startDate);
+        const end = parseISO(historyFilters.endDate);
+        const matchesDate = isWithinInterval(recordDate, { start, end });
+        const matchesClient = record.clientName.toLowerCase().includes(historyFilters.clientName.toLowerCase());
+        const matchesType = historyFilters.serviceType === 'all' || record.serviceType === historyFilters.serviceType;
+        const matchesRecurring = historyFilters.isRecurring === 'all' || 
+          (historyFilters.isRecurring === 'yes' && record.isRecurringRevenue) ||
+          (historyFilters.isRecurring === 'no' && !record.isRecurringRevenue);
+        
+        return matchesDate && matchesClient && matchesType && matchesRecurring;
+      })
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    // Group by clientName
+    const grouped = new Map<string, MaintenanceRecord[]>();
+    filtered.forEach(record => {
+      if (!grouped.has(record.clientName)) {
+        grouped.set(record.clientName, []);
+      }
+      grouped.get(record.clientName)!.push(record);
+    });
+
+    // Convert to sorted array
+    return Array.from(grouped.entries())
+      .map(([clientName, services]) => ({ clientName, services }))
+      .sort((a, b) => a.clientName.localeCompare(b.clientName));
+  }, [maintenances, historyFilters]);
 
   // Early returns AFTER all hooks
   if (loading) return <LoadingScreen />;
@@ -1314,6 +1527,24 @@ export default function App() {
         <main className="max-w-5xl mx-auto p-4 space-y-6">
           {view === 'dashboard' && (
             <div className="space-y-8">
+              {/* 💰 Fluxo de Caixa: Recebido vs A Receber */}
+              <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
+                <div className="bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/20 flex flex-col justify-between">
+                  <p className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest mb-3">💰 Total Recebido</p>
+                  <div>
+                    <p className="text-2xl font-bold text-emerald-400">R$ {cashFlowStats.totalRecebidoMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    <p className="text-[10px] text-emerald-600/70 mt-1">Este mês</p>
+                  </div>
+                </div>
+                <div className="bg-amber-500/10 p-4 rounded-2xl border border-amber-500/20 flex flex-col justify-between">
+                  <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest mb-3">⏳ A Receber</p>
+                  <div>
+                    <p className="text-2xl font-bold text-amber-400">R$ {cashFlowStats.aReceber.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    <p className="text-[10px] text-amber-600/70 mt-1">Pendências abertas</p>
+                  </div>
+                </div>
+              </div>
+
               {/* Resumo Financeiro */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/20 flex flex-col justify-between">
@@ -1612,6 +1843,35 @@ export default function App() {
                               {processingId === client.id ? "Salvando..." : "Concluir"}
                             </span>
                           </button>
+                          
+                          {/* 💚 NOVO: Botão Quitar Débito - Aparece quando há saldoDevedor */}
+                          {(clientBalanceMap.get(client.id) || 0) > 0 && (
+                            <button 
+                              onClick={() => {
+                                // Find the most recent maintenance for this client and settle debt
+                                const maintenanceToSettle = maintenances
+                                  .filter(m => m.clientId === client.id && (m.saldoDevedor || 0) > 0)
+                                  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+                                
+                                if (maintenanceToSettle) {
+                                  handleSettleDebt(maintenanceToSettle.id, maintenanceToSettle);
+                                }
+                              }}
+                              disabled={processingId === client.id}
+                              className="p-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-all active:scale-95 flex items-center gap-1.5 disabled:opacity-50"
+                              title={`Quitar R$ ${(clientBalanceMap.get(client.id) || 0).toFixed(2)} de débito`}
+                            >
+                              {processingId === client.id ? (
+                                <RefreshCw className="w-5 h-5 animate-spin" />
+                              ) : (
+                                <DollarSign className="w-5 h-5" />
+                              )}
+                              <span className="text-[10px] font-bold uppercase hidden sm:inline">
+                                {processingId === client.id ? "Salvando..." : "Quitar"}
+                              </span>
+                            </button>
+                          )}
+                          
                           <button 
                             onClick={() => sendWhatsApp(client)}
                             className="p-2 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition-all active:scale-95 flex items-center gap-1.5"
@@ -1646,7 +1906,7 @@ export default function App() {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-700/20">
+                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-700/20">
                       <div>
                         <p className="text-[8px] uppercase font-bold text-slate-500 tracking-widest">Último Serviço</p>
                         <p className="text-[10px] font-medium">{safeFormat(client.lastMaintenanceDate, 'dd/MM/yyyy')}</p>
@@ -1665,7 +1925,19 @@ export default function App() {
                           client.status === 'OK' ? 'text-white' : 
                           client.status === 'WARNING' ? 'text-yellow-500' : 'text-red-500'
                         )}>
-                          {format(parseISO(client.nextMaintenanceDate), 'dd/MM/yyyy')}
+                          {safeFormat(client.nextMaintenanceDate, 'dd/MM/yyyy')}
+                        </p>
+                      </div>
+                      <div>
+                        <p className={cn(
+                          "text-[8px] uppercase font-bold tracking-widest",
+                          (clientBalanceMap.get(client.id) || 0) > 0 ? 'text-red-500' : 'text-slate-500'
+                        )}>Saldo Devedor</p>
+                        <p className={cn(
+                          "text-[10px] font-bold",
+                          (clientBalanceMap.get(client.id) || 0) > 0 ? 'text-red-400' : 'text-emerald-400'
+                        )}>
+                          R$ {(clientBalanceMap.get(client.id) || 0).toFixed(2)}
                         </p>
                       </div>
                     </div>
@@ -1761,68 +2033,145 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Grouped History with Accordion */}
               <div className="space-y-2">
-                {maintenances
-                  .filter(record => {
-                    const recordDate = parseISO(record.date);
-                    const start = parseISO(historyFilters.startDate);
-                    const end = parseISO(historyFilters.endDate);
-                    const matchesDate = isWithinInterval(recordDate, { start, end });
-                    const matchesClient = record.clientName.toLowerCase().includes(historyFilters.clientName.toLowerCase());
-                    const matchesType = historyFilters.serviceType === 'all' || record.serviceType === historyFilters.serviceType;
-                    const matchesRecurring = historyFilters.isRecurring === 'all' || 
-                      (historyFilters.isRecurring === 'yes' && record.isRecurringRevenue) ||
-                      (historyFilters.isRecurring === 'no' && !record.isRecurringRevenue);
-                    
-                    return matchesDate && matchesClient && matchesType && matchesRecurring;
-                  })
-                  .sort((a, b) => b.date.localeCompare(a.date))
-                  .map(record => (
-                    <div key={record.id} className="bg-slate-800/30 p-3 rounded-xl border border-slate-700/40 flex items-center justify-between group hover:bg-slate-800/50 transition-all">
-                      <div className="flex items-center gap-3">
-                        <div className={cn(
-                          "p-2 rounded-lg",
-                          record.isRecurringRevenue ? "bg-primary/10 text-primary" : "bg-slate-700/50 text-slate-400"
-                        )}>
-                          {record.isRecurringRevenue ? <RefreshCw className="w-4 h-4" /> : <Wrench className="w-4 h-4" />}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-bold text-sm leading-tight">{record.clientName}</p>
-                            {record.isRecurringRevenue && (
-                              <span className="text-[7px] bg-primary/20 text-primary px-1 rounded uppercase font-bold">Recorrente</span>
-                            )}
+                {groupedHistory.length === 0 ? (
+                  <div className="text-center py-8 bg-slate-800/10 rounded-xl border border-dashed border-slate-700/30">
+                    <p className="text-[10px] text-slate-600">Nenhum serviço registrado no período.</p>
+                  </div>
+                ) : (
+                  groupedHistory.map(({ clientName, services }) => (
+                    <div key={clientName} className="bg-slate-800/30 rounded-xl border border-slate-700/40 overflow-hidden">
+                      {/* Accordion Header */}
+                      <button
+                        onClick={() => {
+                          const newSet = new Set(expandedHistoryClients);
+                          if (newSet.has(clientName)) {
+                            newSet.delete(clientName);
+                          } else {
+                            newSet.add(clientName);
+                          }
+                          setExpandedHistoryClients(newSet);
+                        }}
+                        className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-800/50 transition-all"
+                      >
+                        <div className="flex items-center gap-3 flex-1 text-left">
+                          <ChevronRight className={cn(
+                            "w-5 h-5 transition-transform",
+                            expandedHistoryClients.has(clientName) ? 'rotate-90' : ''
+                          )} />
+                          <div>
+                            <p className="font-bold text-sm">{clientName}</p>
+                            <p className="text-[9px] text-slate-500">{services.length} serviço(s)</p>
                           </div>
-                          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">
-                            {record.bikeModel} • {record.serviceType} • R$ {record.serviceValue?.toFixed(2)}
-                          </p>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-3">
                         <div className="text-right">
-                          <p className="font-bold text-xs text-white">{format(parseISO(record.date), 'dd/MM/yyyy')}</p>
-                          <p className="text-[8px] text-slate-500 uppercase font-bold tracking-widest">Data</p>
+                          <p className="text-[10px] font-bold text-primary">R$ {services.reduce((sum, s) => sum + s.serviceValue, 0).toFixed(2)}</p>
+                          <p className="text-[8px] text-slate-500">Total</p>
                         </div>
-                        <button 
-                          onClick={() => {
-                            if (deleteConfirm?.id === record.id) {
-                              handleDeleteMaintenance(record.id);
-                            } else {
-                              setDeleteConfirm({ id: record.id, type: 'maintenance' });
-                            }
-                          }}
-                          className={cn(
-                            "p-2 rounded-lg transition-colors opacity-0 group-hover:opacity-100",
-                            deleteConfirm?.id === record.id 
-                              ? "bg-red-500 text-white animate-pulse opacity-100" 
-                              : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
-                          )}
-                        >
-                          {deleteConfirm?.id === record.id ? <CheckCircle className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
-                        </button>
-                      </div>
+                      </button>
+
+                      {/* Accordion Body */}
+                      {expandedHistoryClients.has(clientName) && (
+                        <div className="border-t border-slate-700/40 divide-y divide-slate-700/40 bg-slate-900/20">
+                          {services.map(record => (
+                            <div key={record.id} className="px-4 py-3 flex items-center justify-between group hover:bg-slate-800/30 transition-all">
+                              <div className="flex items-center gap-3 flex-1">
+                                <div className={cn(
+                                  "p-2 rounded-lg",
+                                  record.isRecurringRevenue ? "bg-primary/10 text-primary" : "bg-slate-700/50 text-slate-400"
+                                )}>
+                                  {record.isRecurringRevenue ? <RefreshCw className="w-4 h-4" /> : <Wrench className="w-4 h-4" />}
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-bold text-xs">{record.serviceType}</p>
+                                    {record.isRecurringRevenue && (
+                                      <span className="text-[7px] bg-primary/20 text-primary px-1 rounded uppercase font-bold">Recorrente</span>
+                                    )}
+                                    {record.saldoDevedor && record.saldoDevedor > 0 && (
+                                      <span className="text-[7px] bg-red-500/20 text-red-400 px-1 rounded uppercase font-bold">Débito</span>
+                                    )}
+                                  </div>
+                                  <p className="text-[9px] text-slate-500">
+                                    {record.bikeModel} • R$ {record.serviceValue?.toFixed(2)}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <div className="text-right">
+                                  <p className="font-bold text-[9px] text-white">{format(parseISO(record.date), 'dd/MM/yyyy')}</p>
+                                  {record.statusPagamento && (
+                                    <p className={cn(
+                                      "text-[8px] font-bold tracking-widest",
+                                      record.statusPagamento === 'Pago' ? 'text-emerald-400' :
+                                      record.statusPagamento === 'Pendente' ? 'text-yellow-400' :
+                                      'text-slate-400'
+                                    )}>
+                                      {record.statusPagamento}
+                                    </p>
+                                  )}
+                                </div>
+                                {(record.statusPagamento === 'Pendente' || record.statusPagamento === 'Parcial') && record.saldoDevedor && record.saldoDevedor > 0 && (
+                                  <div className="flex gap-1">
+                                    {/* 💸 Quitar Débito: Pay only the outstanding balance (for Parcial status) */}
+                                    {record.statusPagamento === 'Parcial' && (
+                                      <button 
+                                        onClick={() => handleSettleDebt(record.id, record)}
+                                        disabled={processingId === record.id}
+                                        className="p-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50 flex items-center gap-1"
+                                        title={`Quitar R$ ${record.saldoDevedor?.toFixed(2) || '0'} de débito`}
+                                      >
+                                        {processingId === record.id ? (
+                                          <RefreshCw className="w-4 h-4 animate-spin" />
+                                        ) : (
+                                          <DollarSign className="w-4 h-4" />
+                                        )}
+                                      </button>
+                                    )}
+                                    
+                                    {/* ✅ Confirmar Recebimento: Mark full service as paid (for Pendente or when no previous payment) */}
+                                    {record.statusPagamento === 'Pendente' || (record.statusPagamento === 'Parcial' && record.valorPago === 0) ? (
+                                      <button 
+                                        onClick={() => handleConfirmPayment(record.id, record)}
+                                        disabled={processingId === record.id}
+                                        className="p-2 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50 flex items-center gap-1"
+                                        title="Confirmar pagamento completo"
+                                      >
+                                        {processingId === record.id ? (
+                                          <RefreshCw className="w-4 h-4 animate-spin" />
+                                        ) : (
+                                          <CheckCircle2 className="w-4 h-4" />
+                                        )}
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                )}
+                                <button 
+                                  onClick={() => {
+                                    if (deleteConfirm?.id === record.id) {
+                                      handleDeleteMaintenance(record.id);
+                                    } else {
+                                      setDeleteConfirm({ id: record.id, type: 'maintenance' });
+                                    }
+                                  }}
+                                  className={cn(
+                                    "p-2 rounded-lg transition-colors opacity-0 group-hover:opacity-100",
+                                    deleteConfirm?.id === record.id 
+                                      ? "bg-red-500 text-white animate-pulse opacity-100" 
+                                      : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                                  )}
+                                >
+                                  {deleteConfirm?.id === record.id ? <CheckCircle className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  ))}
+                  ))
+                )}
               </div>
 
               <div className="space-y-3 pt-8 border-t border-slate-800/50">
@@ -2454,6 +2803,8 @@ export default function App() {
                     oilPrice: parseFloat(formData.get('oilPrice') as string) || 0,
                     serviceType: formData.get('serviceType') as string,
                     serviceValue: parseFloat(formData.get('serviceValue') as string) || 0,
+                    statusPagamento: (formData.get('statusPagamento') as 'Pago' | 'Pendente' | 'Parcial') || 'Pago',
+                    valorPago: parseFloat(formData.get('valorPago') as string) || 0,
                     isRecurringRevenue: formData.get('isRecurringRevenue') === 'on',
                     recurrenceDays: parseInt(formData.get('recurrenceDays') as string) || 29,
                     lastMaintenanceDate: formData.get('lastMaintenanceDate') ? `${formData.get('lastMaintenanceDate')}T12:00:00Z` : undefined,
@@ -2520,7 +2871,7 @@ export default function App() {
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Tipo de Serviço</label>
-                    <select name="serviceType" defaultValue={editingClient?.oilType === 'Revisão' ? 'Revisão' : 'Troca de Óleo'} className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none">
+                    <select name="serviceType" defaultValue={editingClient?.lastServiceType || 'Troca de Óleo'} className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none">
                       <option value="Troca de Óleo">Troca de Óleo</option>
                       <option value="Revisão">Revisão</option>
                       <option value="Pneus">Pneus</option>
@@ -2549,7 +2900,7 @@ export default function App() {
                     <input 
                       name="lastMaintenanceDate" 
                       type="date" 
-                      defaultValue={editingClient ? format(parseISO(editingClient.lastMaintenanceDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd')} 
+                      defaultValue={editingClient?.lastMaintenanceDate ? format(parseISO(editingClient.lastMaintenanceDate), 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd')} 
                       required 
                       className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" 
                     />
