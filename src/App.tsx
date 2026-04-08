@@ -776,19 +776,19 @@ export default function App() {
   // --- Handlers ---
 
   const handleAddMaintenance = async (client: Client, date: string = format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")) => {
-    if (!user || processingId === client.id) return;
+    if (!user || processingId === client?.id) return;
 
     // CORREÇÃO 1: Impedir marcação dupla de serviço realizado
-    if (client.status === 'OK') {
-      sonnerToast.error(`O serviço para ${client.name} já foi registrado recentemente.`);
+    if (client?.status === 'OK') {
+      sonnerToast.error(`O serviço para ${client?.name} já foi registrado recentemente.`);
       return;
     }
 
-    setProcessingId(client.id);
-    const nextDate = format(addDays(parseISO(date), client.recurrenceDays), "yyyy-MM-dd'T'HH:mm:ss'Z'");
+    setProcessingId(client?.id);
+    const nextDate = format(addDays(parseISO(date), client?.recurrenceDays || 30), "yyyy-MM-dd'T'HH:mm:ss'Z'");
     
-    const serviceValue = client.lastServiceValue || client.oilPrice || 0;
-    const serviceType = client.lastServiceType || 'Troca de Óleo';
+    const serviceValue = client?.lastServiceValue || client?.oilPrice || 0;
+    const serviceType = client?.lastServiceType || 'Troca de Óleo';
 
     try {
       // 1. Add to history
@@ -845,32 +845,32 @@ export default function App() {
 
   // 📝 Load client data and last maintenance CORRECTLY to avoid zero values
   const handleSelectClientSuggestion = (client: Client) => {
-    setClientNameInput(client.name);
+    setClientNameInput(client?.name || '');
     setClientSuggestions([]);
     
     // 🔍 CRITICO: Find the last maintenance for this client to populate form correctly
     const clientMaintenance = maintenances
-      .filter(m => m.clientId === client.id)
+      .filter(m => m.clientId === client?.id)
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
     
     // ℹ️ Merge client data with last maintenance data to avoid zero values
     // 💡 Try multiple fallbacks to ensure serviceValue is never 0
     const finalServiceValue = 
       clientMaintenance?.serviceValue || 
-      client.lastServiceValue || 
-      client.serviceValue ||
-      client.oilPrice || 
+      client?.lastServiceValue || 
+      client?.serviceValue ||
+      client?.oilPrice || 
       0;
     
     setEditingClient({
       ...client,
       // 💡 Keep original values from last maintenance (don't use new date)
       serviceValue: finalServiceValue,
-      valorPago: clientMaintenance?.valorPago || client.valorPago || 0,
-      statusPagamento: clientMaintenance?.statusPagamento || client.statusPagamento || 'Pago',
-      saldoDevedor: clientMaintenance?.saldoDevedor || client.saldoDevedor || 0,
+      valorPago: clientMaintenance?.valorPago || client?.valorPago || 0,
+      statusPagamento: clientMaintenance?.statusPagamento || client?.statusPagamento || 'Pago',
+      saldoDevedor: clientMaintenance?.saldoDevedor || client?.saldoDevedor || 0,
       // Use date from last maintenance if exists, don't reset to today
-      lastMaintenanceDate: clientMaintenance?.date || client.lastMaintenanceDate || format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
+      lastMaintenanceDate: clientMaintenance?.date || client?.lastMaintenanceDate || format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
     });
   };
 
@@ -1049,20 +1049,26 @@ export default function App() {
   };
 
   // 💚 Confirm Payment: Mark as fully paid
-  const handleConfirmPayment = async (maintenanceId: string, maintenance: MaintenanceRecord) => {
-    if (!user?.uid) return;
+  const handleConfirmPayment = async (maintenanceId: string | undefined, maintenance: MaintenanceRecord | undefined) => {
+    // ✅ SAFETY CHECK: Ensure we have required data before proceeding
+    if (!user?.uid || !maintenanceId || !maintenance) {
+      sonnerToast.error('❌ Erro: Dados incompletos para confirmação');
+      return;
+    }
+    
     try {
       setProcessingId(maintenanceId);
       await updateDoc(
         doc(db, 'users', user.uid, 'maintenances', maintenanceId),
         {
           statusPagamento: 'Pago',
-          valorPago: maintenance.serviceValue,
+          valorPago: maintenance.serviceValue || 0,
           saldoDevedor: 0
         }
       );
       sonnerToast.success('✅ Pagamento confirmado!');
     } catch (error) {
+      console.error('handleConfirmPayment error:', error);
       handleFirestoreError(error, OperationType.UPDATE, 'maintenances');
     } finally {
       setProcessingId(null);
@@ -1070,22 +1076,29 @@ export default function App() {
   };
 
   // 💸 Settle Partial Debt: Move saldoDevedor to valorPago (pay the outstanding balance)
-  const handleSettleDebt = async (maintenanceId: string, maintenance: MaintenanceRecord) => {
-    if (!user?.uid) return;
+  const handleSettleDebt = async (maintenanceId: string | undefined, maintenance: MaintenanceRecord | undefined) => {
+    // ✅ SAFETY CHECK: Ensure we have required data before proceeding
+    if (!user?.uid || !maintenanceId || !maintenance) {
+      sonnerToast.error('❌ Erro: Dados incompletos para quitação');
+      return;
+    }
+    
     try {
       setProcessingId(maintenanceId);
-      const newValorPago = (maintenance.valorPago || 0) + (maintenance.saldoDevedor || 0);
+      // Calculate new payment: existing payment + outstanding balance
+      const newValorPago = Math.min(maintenance.serviceValue || 0, (maintenance.valorPago || 0) + (maintenance.saldoDevedor || 0));
       
       await updateDoc(
         doc(db, 'users', user.uid, 'maintenances', maintenanceId),
         {
           statusPagamento: 'Pago',
           valorPago: newValorPago,
-          saldoDevedor: 0
+          saldoDevedor: Math.max(0, (maintenance.serviceValue || 0) - newValorPago)
         }
       );
       sonnerToast.success('💸 Débito quitado com sucesso!');
     } catch (error) {
+      console.error('handleSettleDebt error:', error);
       handleFirestoreError(error, OperationType.UPDATE, 'maintenances');
     } finally {
       setProcessingId(null);
@@ -1754,13 +1767,13 @@ export default function App() {
                             <Bike className="w-4.5 h-4.5 text-slate-400" />
                           </div>
                           <div>
-                            <p className="font-bold text-xs">{client.name}</p>
-                            <p className="text-[10px] text-slate-500">{client.bikeModel}</p>
+                            <p className="font-bold text-xs">{client?.name || 'N/A'}</p>
+                            <p className="text-[10px] text-slate-500">{client?.bikeModel || 'N/A'}</p>
                           </div>
                         </div>
                         <div className="text-right">
                           <p className="text-red-500 font-bold text-[10px]">Vencido</p>
-                          <p className="text-[9px] text-slate-500">{safeFormat(client.nextMaintenanceDate, 'dd/MM/yyyy')}</p>
+                          <p className="text-[9px] text-slate-500">{safeFormat(client?.nextMaintenanceDate, 'dd/MM/yyyy')}</p>
                         </div>
                       </div>
                     ))}
@@ -1806,33 +1819,33 @@ export default function App() {
                   <div key={client.id} className="bg-slate-800/30 p-3 rounded-xl border border-slate-700/40 space-y-2.5 relative overflow-hidden">
                     <div className={cn(
                       "absolute top-0 right-0 w-0.5 h-full opacity-50",
-                      client.status === 'OK' ? 'bg-emerald-500' : 
-                      client.status === 'WARNING' ? 'bg-yellow-500' : 'bg-red-500'
+                      client?.status === 'OK' ? 'bg-emerald-500' : 
+                      client?.status === 'WARNING' ? 'bg-yellow-500' : 'bg-red-500'
                     )} />
                     
                     <div className="flex justify-between items-start">
                       <div className="flex items-center gap-2">
                         <div className={cn(
                           "w-1 h-1 rounded-full",
-                          client.status === 'OK' ? 'bg-emerald-500' : 
-                          client.status === 'WARNING' ? 'bg-yellow-500' : 'bg-red-500'
+                          client?.status === 'OK' ? 'bg-emerald-500' : 
+                          client?.status === 'WARNING' ? 'bg-yellow-500' : 'bg-red-500'
                         )} />
                         <div>
-                          <h3 className="font-bold text-sm leading-tight">{client.name}</h3>
-                          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">{client.bikeModel}</p>
+                          <h3 className="font-bold text-sm leading-tight">{client?.name || 'N/A'}</h3>
+                          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-tighter">{client?.bikeModel || 'N/A'}</p>
                         </div>
                       </div>
                         <div className="flex gap-2">
                           <button 
                             onClick={() => handleAddMaintenance(client)}
-                            disabled={client.status === 'OK' || processingId === client.id}
+                            disabled={client?.status === 'OK' || processingId === client?.id}
                             className={cn(
                               "p-2 rounded-lg transition-all flex items-center gap-1.5",
-                              (client.status === 'OK' || processingId === client.id)
+                              (client?.status === 'OK' || processingId === client?.id)
                                 ? "bg-slate-700/30 text-slate-500 cursor-not-allowed opacity-50" 
                                 : "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 active:scale-95"
                             )}
-                            title={client.status === 'OK' ? "Serviço já realizado" : "Confirmar Serviço Realizado"}
+                            title={client?.status === 'OK' ? "Serviço já realizado" : "Confirmar Serviço Realizado"}
                           >
                             {processingId === client.id ? (
                               <RefreshCw className="w-5 h-5 animate-spin" />
@@ -1850,16 +1863,16 @@ export default function App() {
                               onClick={() => {
                                 // Find the most recent maintenance for this client and settle debt
                                 const maintenanceToSettle = maintenances
-                                  .filter(m => m.clientId === client.id && (m.saldoDevedor || 0) > 0)
+                                  .filter(m => m.clientId === client?.id && (m.saldoDevedor || 0) > 0)
                                   .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
                                 
                                 if (maintenanceToSettle) {
                                   handleSettleDebt(maintenanceToSettle.id, maintenanceToSettle);
                                 }
                               }}
-                              disabled={processingId === client.id}
+                              disabled={processingId === client?.id}
                               className="p-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-all active:scale-95 flex items-center gap-1.5 disabled:opacity-50"
-                              title={`Quitar R$ ${(clientBalanceMap.get(client.id) || 0).toFixed(2)} de débito`}
+                              title={`Quitar R$ ${(clientBalanceMap.get(client?.id) || 0).toFixed(2)} de débito`}
                             >
                               {processingId === client.id ? (
                                 <RefreshCw className="w-5 h-5 animate-spin" />
@@ -1909,42 +1922,42 @@ export default function App() {
                     <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-700/20">
                       <div>
                         <p className="text-[8px] uppercase font-bold text-slate-500 tracking-widest">Último Serviço</p>
-                        <p className="text-[10px] font-medium">{safeFormat(client.lastMaintenanceDate, 'dd/MM/yyyy')}</p>
-                        {client.lastServiceType && (
-                          <p className="text-[9px] text-slate-400 mt-0.5">{client.lastServiceType} • R$ {client.lastServiceValue?.toFixed(2)}</p>
+                        <p className="text-[10px] font-medium">{safeFormat(client?.lastMaintenanceDate, 'dd/MM/yyyy')}</p>
+                        {client?.lastServiceType && (
+                          <p className="text-[9px] text-slate-400 mt-0.5">{client?.lastServiceType} • R$ {(client?.lastServiceValue || 0).toFixed(2)}</p>
                         )}
                       </div>
                       <div>
                         <p className={cn(
                           "text-[8px] uppercase font-bold tracking-widest",
-                          client.status === 'OK' ? 'text-slate-500' : 
-                          client.status === 'WARNING' ? 'text-yellow-500' : 'text-red-500'
+                          client?.status === 'OK' ? 'text-slate-500' : 
+                          client?.status === 'WARNING' ? 'text-yellow-500' : 'text-red-500'
                         )}>Próximo Alerta</p>
                         <p className={cn(
                           "text-[10px] font-bold",
-                          client.status === 'OK' ? 'text-white' : 
-                          client.status === 'WARNING' ? 'text-yellow-500' : 'text-red-500'
+                          client?.status === 'OK' ? 'text-white' : 
+                          client?.status === 'WARNING' ? 'text-yellow-500' : 'text-red-500'
                         )}>
-                          {safeFormat(client.nextMaintenanceDate, 'dd/MM/yyyy')}
+                          {safeFormat(client?.nextMaintenanceDate, 'dd/MM/yyyy')}
                         </p>
                       </div>
                       <div>
                         <p className={cn(
                           "text-[8px] uppercase font-bold tracking-widest",
-                          (clientBalanceMap.get(client.id) || 0) > 0 ? 'text-red-500' : 'text-slate-500'
+                          (clientBalanceMap.get(client?.id) || 0) > 0 ? 'text-red-500' : 'text-slate-500'
                         )}>Saldo Devedor</p>
                         <p className={cn(
                           "text-[10px] font-bold",
-                          (clientBalanceMap.get(client.id) || 0) > 0 ? 'text-red-400' : 'text-emerald-400'
+                          (clientBalanceMap.get(client?.id) || 0) > 0 ? 'text-red-400' : 'text-emerald-400'
                         )}>
-                          R$ {(clientBalanceMap.get(client.id) || 0).toFixed(2)}
+                          R$ {(clientBalanceMap.get(client?.id) || 0).toFixed(2)}
                         </p>
                       </div>
                     </div>
-                    {client.lastServiceNotes && (
+                    {client?.lastServiceNotes && (
                       <div className="pt-1.5">
                         <p className="text-[8px] uppercase font-bold text-slate-500 tracking-widest">Observações</p>
-                        <p className="text-[9px] text-slate-400 line-clamp-1 italic">"{client.lastServiceNotes}"</p>
+                        <p className="text-[9px] text-slate-400 line-clamp-1 italic">"{client?.lastServiceNotes}"</p>
                       </div>
                     )}
                   </div>
@@ -2079,29 +2092,29 @@ export default function App() {
                               <div className="flex items-center gap-3 flex-1">
                                 <div className={cn(
                                   "p-2 rounded-lg",
-                                  record.isRecurringRevenue ? "bg-primary/10 text-primary" : "bg-slate-700/50 text-slate-400"
+                                  record?.isRecurringRevenue ? "bg-primary/10 text-primary" : "bg-slate-700/50 text-slate-400"
                                 )}>
-                                  {record.isRecurringRevenue ? <RefreshCw className="w-4 h-4" /> : <Wrench className="w-4 h-4" />}
+                                  {record?.isRecurringRevenue ? <RefreshCw className="w-4 h-4" /> : <Wrench className="w-4 h-4" />}
                                 </div>
                                 <div>
                                   <div className="flex items-center gap-2">
-                                    <p className="font-bold text-xs">{record.serviceType}</p>
-                                    {record.isRecurringRevenue && (
+                                    <p className="font-bold text-xs">{record?.serviceType || 'Serviço'}</p>
+                                    {record?.isRecurringRevenue && (
                                       <span className="text-[7px] bg-primary/20 text-primary px-1 rounded uppercase font-bold">Recorrente</span>
                                     )}
-                                    {record.saldoDevedor && record.saldoDevedor > 0 && (
+                                    {record?.saldoDevedor && record.saldoDevedor > 0 && (
                                       <span className="text-[7px] bg-red-500/20 text-red-400 px-1 rounded uppercase font-bold">Débito</span>
                                     )}
                                   </div>
                                   <p className="text-[9px] text-slate-500">
-                                    {record.bikeModel} • R$ {record.serviceValue?.toFixed(2)}
+                                    {record?.bikeModel || 'N/A'} • R$ {(record?.serviceValue || 0).toFixed(2)}
                                   </p>
                                 </div>
                               </div>
                               <div className="flex items-center gap-3">
                                 <div className="text-right">
-                                  <p className="font-bold text-[9px] text-white">{format(parseISO(record.date), 'dd/MM/yyyy')}</p>
-                                  {record.statusPagamento && (
+                                  <p className="font-bold text-[9px] text-white">{safeFormat(record?.date, 'dd/MM/yyyy')}</p>
+                                  {record?.statusPagamento && (
                                     <p className={cn(
                                       "text-[8px] font-bold tracking-widest",
                                       record.statusPagamento === 'Pago' ? 'text-emerald-400' :
@@ -2112,17 +2125,17 @@ export default function App() {
                                     </p>
                                   )}
                                 </div>
-                                {(record.statusPagamento === 'Pendente' || record.statusPagamento === 'Parcial') && record.saldoDevedor && record.saldoDevedor > 0 && (
+                                {(record?.statusPagamento === 'Pendente' || record?.statusPagamento === 'Parcial') && record?.saldoDevedor && record.saldoDevedor > 0 && (
                                   <div className="flex gap-1">
                                     {/* 💸 Quitar Débito: Pay only the outstanding balance (for Parcial status) */}
-                                    {record.statusPagamento === 'Parcial' && (
+                                    {record?.statusPagamento === 'Parcial' && (
                                       <button 
-                                        onClick={() => handleSettleDebt(record.id, record)}
-                                        disabled={processingId === record.id}
+                                        onClick={() => handleSettleDebt(record?.id, record)}
+                                        disabled={processingId === record?.id}
                                         className="p-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50 flex items-center gap-1"
-                                        title={`Quitar R$ ${record.saldoDevedor?.toFixed(2) || '0'} de débito`}
+                                        title={`Quitar R$ ${record?.saldoDevedor?.toFixed(2) || '0'} de débito`}
                                       >
-                                        {processingId === record.id ? (
+                                        {processingId === record?.id ? (
                                           <RefreshCw className="w-4 h-4 animate-spin" />
                                         ) : (
                                           <DollarSign className="w-4 h-4" />
@@ -2131,14 +2144,14 @@ export default function App() {
                                     )}
                                     
                                     {/* ✅ Confirmar Recebimento: Mark full service as paid (for Pendente or when no previous payment) */}
-                                    {record.statusPagamento === 'Pendente' || (record.statusPagamento === 'Parcial' && record.valorPago === 0) ? (
+                                    {record?.statusPagamento === 'Pendente' || (record?.statusPagamento === 'Parcial' && (record?.valorPago || 0) === 0) ? (
                                       <button 
-                                        onClick={() => handleConfirmPayment(record.id, record)}
-                                        disabled={processingId === record.id}
+                                        onClick={() => handleConfirmPayment(record?.id, record)}
+                                        disabled={processingId === record?.id}
                                         className="p-2 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50 flex items-center gap-1"
                                         title="Confirmar pagamento completo"
                                       >
-                                        {processingId === record.id ? (
+                                        {processingId === record?.id ? (
                                           <RefreshCw className="w-4 h-4 animate-spin" />
                                         ) : (
                                           <CheckCircle2 className="w-4 h-4" />
