@@ -2000,34 +2000,59 @@ export default function App() {
                   <ArrowLeft className="w-5 h-5" />
                 </button>
                 <h2 className="text-xl font-bold">Agenda de Clientes</h2>
+                <div className="ml-auto bg-primary/20 px-2 py-1 rounded-full">
+                  <span className="text-xs font-bold text-primary">{clients.length}</span>
+                </div>
               </div>
 
-              <button 
-                onClick={() => { setEditingClient(null); setView('clients-schedule-add'); }}
-                className="w-full bg-primary p-3 rounded-xl flex items-center justify-center gap-2 text-white hover:bg-primary/90 transition-all shadow-lg"
-              >
-                <Plus className="w-4 h-4" />
-                <span className="font-bold">Adicionar Cliente</span>
-              </button>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {clients.map(client => (
-                  <div key={client.id} className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 space-y-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <h3 className="font-bold text-sm">{client?.name}</h3>
-                        <p className="text-[10px] text-slate-500">{client?.bikeModel}</p>
-                        <p className="text-[9px] text-slate-600 mt-1">📱 {client?.contact}</p>
+              {clients.length === 0 ? (
+                <div className="text-center py-12 bg-slate-800/40 rounded-xl border border-dashed border-slate-700/50">
+                  <Users className="w-8 h-8 text-slate-600 mx-auto mb-3" />
+                  <p className="text-slate-400 text-sm font-bold">Nenhum cliente cadastrado</p>
+                  <p className="text-slate-600 text-xs mt-1">Registre serviços em "Serviços Rápidos" para adicionar clientes</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {clients.map(client => (
+                    <div key={client.id} className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 space-y-3 hover:border-primary/50 transition-all cursor-pointer group" onClick={() => { setEditingClient(client); setView('clients-schedule-add'); }}>
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <h3 className="font-bold text-sm group-hover:text-primary transition-colors">{client?.name}</h3>
+                          <p className="text-[10px] text-slate-500">{client?.bikeModel}</p>
+                          <p className="text-[9px] text-slate-600 mt-1">📱 {client?.contact}</p>
+                        </div>
+                        <div className={cn(
+                          "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold",
+                          client?.status === 'OK' ? 'bg-emerald-500/20 text-emerald-500' : 
+                          client?.status === 'WARNING' ? 'bg-yellow-500/20 text-yellow-500' : 
+                          'bg-red-500/20 text-red-500'
+                        )}>
+                          {client?.status === 'OK' ? '✅' : client?.status === 'WARNING' ? '⚠️' : '🔴'}
+                        </div>
                       </div>
-                      <div className="flex gap-1">
+                      <div className="text-[9px] text-slate-600 pt-2 border-t border-slate-700/30">
+                        <p>🔄 Recorrência: {client?.recurrenceDays}d</p>
+                        {client?.lastMaintenanceDate && (
+                          <p className="mt-1">📅 Último: {safeFormat(client?.lastMaintenanceDate, 'dd/MM/yyyy')}</p>
+                        )}
+                        {(clientBalanceMap.get(client?.id) || 0) > 0 && (
+                          <p className="mt-1 text-red-500 font-bold">💰 Débito: R$ {(clientBalanceMap.get(client?.id) || 0).toFixed(2)}</p>
+                        )}
+                      </div>
+                      <div className="flex gap-2 pt-2 border-t border-slate-700/30 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button 
-                          onClick={() => { setEditingClient(client); setView('clients-schedule-add'); }}
-                          className="p-2 rounded-lg bg-slate-700/50 text-slate-300 hover:bg-slate-700 transition-colors"
+                          onClick={(e) => { 
+                            e.stopPropagation();
+                            setEditingClient(client); 
+                            setView('clients-schedule-add'); 
+                          }}
+                          className="flex-1 px-2 py-1.5 rounded-lg bg-slate-700/50 text-slate-300 hover:bg-primary/20 hover:text-primary transition-colors text-[9px] font-bold"
                         >
-                          <ChevronRight className="w-4 h-4" />
+                          ✏️ Editar
                         </button>
                         <button 
-                          onClick={() => {
+                          onClick={(e) => { 
+                            e.stopPropagation();
                             if (deleteConfirm?.id === client.id) {
                               handleDeleteClient(client.id);
                             } else {
@@ -2035,21 +2060,19 @@ export default function App() {
                             }
                           }}
                           className={cn(
-                            "p-2 rounded-lg transition-colors",
-                            deleteConfirm?.id === client.id ? "bg-red-500 text-white" : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                            "flex-1 px-2 py-1.5 rounded-lg transition-colors text-[9px] font-bold",
+                            deleteConfirm?.id === client.id 
+                              ? "bg-red-500 text-white" 
+                              : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
                           )}
                         >
-                          {deleteConfirm?.id === client.id ? <CheckCircle className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                          {deleteConfirm?.id === client.id ? '✓ Confirmar' : '🗑️ Deletar'}
                         </button>
                       </div>
                     </div>
-                    <div className="text-[9px] text-slate-600 pt-2 border-t border-slate-700/30">
-                      <p>Recorrência: {client?.recurrenceDays} dias</p>
-                      <p className="mt-1">Status: {client?.status === 'OK' ? '✅ OK' : client?.status === 'WARNING' ? '⚠️ Aviso' : '🔴 Vencido'}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
