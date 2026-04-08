@@ -454,7 +454,7 @@ export default function App() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'dashboard' | 'clients' | 'history' | 'settings' | 'new-client' | 'warranties' | 'new-warranty' | 'admin' | 'report' | 'checkout' | 'subscription-expired'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'clients' | 'clients-schedule' | 'clients-schedule-add' | 'history' | 'settings' | 'new-client' | 'new-service' | 'warranties' | 'new-warranty' | 'admin' | 'report' | 'checkout' | 'subscription-expired'>('dashboard');
   const [clients, setClients] = useState<Client[]>([]);
   const [maintenances, setMaintenances] = useState<MaintenanceRecord[]>([]);
   const [warranties, setWarranties] = useState<Warranty[]>([]);
@@ -481,6 +481,7 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [expandedHistoryClients, setExpandedHistoryClients] = useState<Set<string>>(new Set());
+  const [showMoreDetails, setShowMoreDetails] = useState(false);
 
   const ADMIN_EMAILS = ['6snailiw@gmail.com', 'emailgithubb@gmail.com'];
 
@@ -1791,6 +1792,32 @@ export default function App() {
 
           {view === 'clients' && (
             <div className="space-y-3">
+              {/* Tab Toggle: Serviços Rápidos vs Agenda */}
+              <div className="flex gap-2 bg-slate-800/40 p-1 rounded-xl border border-slate-700/50">
+                <button 
+                  onClick={() => setIsNewService(false)}
+                  className={cn(
+                    "flex-1 px-4 py-2 rounded-lg font-bold text-sm transition-all",
+                    !isNewService 
+                      ? "bg-primary text-white shadow-lg" 
+                      : "text-slate-400 hover:text-slate-300"
+                  )}
+                >
+                  ⚡ Serviços Rápidos
+                </button>
+                <button 
+                  onClick={() => { setIsNewService(true); setView('clients-schedule'); }}
+                  className={cn(
+                    "flex-1 px-4 py-2 rounded-lg font-bold text-sm transition-all",
+                    isNewService
+                      ? "bg-primary text-white shadow-lg"
+                      : "text-slate-400 hover:text-slate-300"
+                  )}
+                >
+                  📋 Agenda de Clientes
+                </button>
+              </div>
+
               {/* Quick Action at Top for Mobile Access */}
               <button 
                 onClick={() => { setEditingClient(null); setView('new-client'); }}
@@ -1963,6 +1990,195 @@ export default function App() {
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {view === 'clients-schedule' && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <button onClick={() => setView('dashboard')} className="p-1.5 rounded-full hover:bg-slate-800 transition-colors">
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <h2 className="text-xl font-bold">Agenda de Clientes</h2>
+              </div>
+
+              <button 
+                onClick={() => { setEditingClient(null); setView('clients-schedule-add'); }}
+                className="w-full bg-primary p-3 rounded-xl flex items-center justify-center gap-2 text-white hover:bg-primary/90 transition-all shadow-lg"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="font-bold">Adicionar Cliente</span>
+              </button>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {clients.map(client => (
+                  <div key={client.id} className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 space-y-3">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <h3 className="font-bold text-sm">{client?.name}</h3>
+                        <p className="text-[10px] text-slate-500">{client?.bikeModel}</p>
+                        <p className="text-[9px] text-slate-600 mt-1">📱 {client?.contact}</p>
+                      </div>
+                      <div className="flex gap-1">
+                        <button 
+                          onClick={() => { setEditingClient(client); setView('clients-schedule-add'); }}
+                          className="p-2 rounded-lg bg-slate-700/50 text-slate-300 hover:bg-slate-700 transition-colors"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => {
+                            if (deleteConfirm?.id === client.id) {
+                              handleDeleteClient(client.id);
+                            } else {
+                              setDeleteConfirm({ id: client.id, type: 'client' });
+                            }
+                          }}
+                          className={cn(
+                            "p-2 rounded-lg transition-colors",
+                            deleteConfirm?.id === client.id ? "bg-red-500 text-white" : "bg-red-500/10 text-red-500 hover:bg-red-500/20"
+                          )}
+                        >
+                          {deleteConfirm?.id === client.id ? <CheckCircle className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="text-[9px] text-slate-600 pt-2 border-t border-slate-700/30">
+                      <p>Recorrência: {client?.recurrenceDays} dias</p>
+                      <p className="mt-1">Status: {client?.status === 'OK' ? '✅ OK' : client?.status === 'WARNING' ? '⚠️ Aviso' : '🔴 Vencido'}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {view === 'clients-schedule-add' && (
+            <div className="max-w-xl mx-auto space-y-4">
+              <div className="flex items-center gap-3">
+                <button onClick={() => setView('clients-schedule')} className="p-1.5 rounded-full hover:bg-slate-800 transition-colors">
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <h2 className="text-xl font-bold">{editingClient ? 'Editar Cliente' : 'Adicionar Cliente'}</h2>
+              </div>
+
+              <form 
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const formData = new FormData(e.currentTarget);
+                  handleSaveClient({
+                    name: formData.get('name') as string,
+                    bikeModel: formData.get('bikeModel') as string,
+                    contact: formData.get('contact') as string,
+                    oilType: formData.get('oilType') as string,
+                    oilPrice: parseFloat(formData.get('oilPrice') as string) || 0,
+                    recurrenceDays: parseInt(formData.get('recurrenceDays') as string) || 29,
+                    notes: formData.get('notes') as string
+                  });
+                  setView('clients-schedule');
+                }}
+                className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50 space-y-4"
+              >
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome do Cliente</label>
+                    <input 
+                      name="name" 
+                      defaultValue={editingClient?.name || ''} 
+                      required 
+                      placeholder="Ex: João Silva" 
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" 
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Modelo da Moto</label>
+                    <input 
+                      name="bikeModel" 
+                      defaultValue={editingClient?.bikeModel || ''} 
+                      required 
+                      placeholder="Ex: Honda CG 160" 
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" 
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">WhatsApp</label>
+                    <input 
+                      name="contact" 
+                      defaultValue={editingClient?.contact || ''} 
+                      required 
+                      placeholder="Ex: (69) 99999-9999" 
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" 
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Tipo de Óleo</label>
+                    <select name="oilType" defaultValue={editingClient?.oilType || '10W30'} className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none">
+                      {settings?.oilTypes?.map(type => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Preço Padrão (R$)</label>
+                    <input 
+                      name="oilPrice" 
+                      type="number" 
+                      step="0.01" 
+                      defaultValue={editingClient?.oilPrice || 0} 
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" 
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Recorrência (Dias)</label>
+                    <input 
+                      name="recurrenceDays" 
+                      type="number" 
+                      defaultValue={editingClient?.recurrenceDays || 29} 
+                      required 
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" 
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Observações</label>
+                    <textarea 
+                      name="notes" 
+                      defaultValue={editingClient?.lastServiceNotes || ''} 
+                      placeholder="Informações adicionais..." 
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none h-16" 
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button 
+                    type="submit" 
+                    disabled={isSaving}
+                    className="flex-1 bg-primary py-3 rounded-xl font-bold hover:bg-primary/90 transition-all text-sm shadow-lg disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {isSaving ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Salvando...
+                      </>
+                    ) : (
+                      editingClient ? 'Salvar Alterações' : 'Adicionar Cliente'
+                    )}
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={() => setView('clients-schedule')} 
+                    className="px-6 bg-slate-700/50 py-3 rounded-xl font-bold hover:bg-slate-700 transition-all text-sm"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </form>
             </div>
           )}
 
