@@ -1418,27 +1418,39 @@ export default function App() {
       }));
   }, [maintenances]);
 
-  // 💰 FINANCIAL STATISTICS (for Dashboard)
+  // 💰 FINANCIAL STATISTICS (for Dashboard) - Lógica Corrigida
   const financialStats = useMemo(() => {
-    // Receita Total: Soma de valorPago de TODOS os serviços
-    const totalReceita = maintenances.reduce((sum, m) => sum + (m.valorPago || 0), 0);
+    // ✅ Receita Total (Dinheiro em Caixa):
+    // - Se Pago: soma serviceValue (valor total do serviço)
+    // - Se Pendente/Parcial: soma valorPago (somente o que foi pago)
+    const totalReceita = maintenances.reduce((sum, m) => {
+      if (m.statusPagamento === 'Pago') {
+        return sum + (m.serviceValue || 0);
+      } else if (m.statusPagamento === 'Parcial' || m.statusPagamento === 'Pendente') {
+        return sum + (m.valorPago || 0);
+      }
+      return sum;
+    }, 0);
     
-    // Contas a Receber: Soma de saldoDevedor de serviços Parciais ou Pendentes
+    // ✅ Contas a Receber (O que falta cair)
+    // Soma saldoDevedor APENAS de Pendentes e Parciais
     const contasAReceber = maintenances
       .filter(m => m.statusPagamento === 'Parcial' || m.statusPagamento === 'Pendente')
       .reduce((sum, m) => sum + (m.saldoDevedor || 0), 0);
     
-    // Recorrentes: Soma de valorPago onde isRecurringRevenue === true
+    // ✅ Recorrentes: Soma de valorPago onde isRecurringRevenue === true
     const recurrentRevenue = maintenances
       .filter(m => m.isRecurringRevenue === true)
       .reduce((sum, m) => sum + (m.valorPago || 0), 0);
     
-    // Contadores
+    // ✅ Contadores
     const totalClientes = clients.length;
     const totalGarantias = warranties.length;
     
-    // Despesas (subtração da receita total)
-    const totalDespesas = (settings?.expenses || []).reduce((sum, e) => sum + (e.valor || 0), 0);
+    // ✅ Despesas: Soma de todos os expenses
+    const totalDespesas = (settings?.expenses || []).reduce((sum, e) => sum + (Number(e.value) || Number(e.valor) || 0), 0);
+    
+    // ✅ Lucro Líquido: Receita - Despesas
     const lucroLiquido = totalReceita - totalDespesas;
     
     return {
@@ -1790,28 +1802,6 @@ export default function App() {
                     </div>
                   ))}
                 </div>
-              </div>
-
-              {/* Quick Actions */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <button 
-                  onClick={() => { setEditingClient(null); setValorPagoInput(''); setView('new-client'); }}
-                  className="bg-primary py-4 px-6 rounded-2xl flex items-center justify-center gap-3 text-white hover:bg-primary/90 transition-all shadow-xl shadow-primary/10 group"
-                >
-                  <div className="bg-white/20 p-2 rounded-full group-hover:scale-105 transition-transform">
-                    <Plus className="w-5 h-5" />
-                  </div>
-                  <span className="text-base font-bold">Registrar Serviço</span>
-                </button>
-                <button 
-                  onClick={() => { setEditingWarranty(null); setView('new-warranty'); }}
-                  className="bg-slate-800 py-4 px-6 rounded-2xl border border-slate-700 flex items-center justify-center gap-3 text-white hover:bg-slate-700 transition-all group"
-                >
-                  <div className="bg-slate-700 p-2 rounded-full group-hover:scale-105 transition-transform">
-                    <ShieldCheck className="w-5 h-5 text-primary" />
-                  </div>
-                  <span className="text-base font-bold">Registrar Garantia</span>
-                </button>
               </div>
 
               {/* Urgent Alerts */}
