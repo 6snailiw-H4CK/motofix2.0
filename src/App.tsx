@@ -1666,13 +1666,51 @@ export default function App() {
 
               {/* Stats */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-2.5">
+                <div className="bg-slate-800/40 p-3 rounded-xl border border-emerald-500/20 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-0.5 h-full bg-emerald-500/50" />
+                  <div className="flex justify-between items-center mb-0.5">
+                    <p className="text-[9px] font-bold text-emerald-500/80 uppercase tracking-widest">Receita Total</p>
+                    <TrendingUp className="w-3 h-3 text-emerald-500/60" />
+                  </div>
+                  <p className="text-xl font-bold text-emerald-500">R$ {financialStats.totalReceita.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                </div>
+
+                <div className="bg-slate-800/40 p-3 rounded-xl border border-amber-500/20 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-0.5 h-full bg-amber-500/50" />
+                  <div className="flex justify-between items-center mb-0.5">
+                    <p className="text-[9px] font-bold text-amber-500/80 uppercase tracking-widest">Contas a Receber</p>
+                    <TrendingDown className="w-3 h-3 text-amber-500/60" />
+                  </div>
+                  <p className="text-xl font-bold text-amber-500">R$ {financialStats.contasAReceber.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                </div>
+
+                <div className="bg-slate-800/40 p-3 rounded-xl border border-red-500/20 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-0.5 h-full bg-red-500/50" />
+                  <div className="flex justify-between items-center mb-0.5">
+                    <p className="text-[9px] font-bold text-red-500/80 uppercase tracking-widest">Despesas</p>
+                    <AlertTriangle className="w-3 h-3 text-red-500/60" />
+                  </div>
+                  <p className="text-xl font-bold text-red-500">R$ {financialStats.totalDespesas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                </div>
+
+                <div className="bg-slate-800/40 p-3 rounded-xl border border-slate-700/50">
+                  <div className="flex justify-between items-center mb-0.5">
+                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Lucro Líquido</p>
+                    <DollarSign className="w-3 h-3 text-primary/60" />
+                  </div>
+                  <p className={cn("text-xl font-bold", financialStats.lucroLiquido >= 0 ? 'text-primary' : 'text-red-500')}>
+                    R$ {financialStats.lucroLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                </div>
+
                 <div className="bg-slate-800/40 p-3 rounded-xl border border-slate-700/50">
                   <div className="flex justify-between items-center mb-0.5">
                     <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Total Clientes</p>
                     <Users className="w-3 h-3 text-primary/60" />
                   </div>
-                  <p className="text-xl font-bold text-white">{clients.length}</p>
+                  <p className="text-xl font-bold text-white">{financialStats.totalClientes}</p>
                 </div>
+
                 <div className="bg-slate-800/40 p-3 rounded-xl border border-slate-700/50">
                   <div className="flex justify-between items-center mb-0.5">
                     <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Serviços Hoje</p>
@@ -1682,14 +1720,7 @@ export default function App() {
                     {maintenances.filter(m => safeFormat(m.date, 'yyyy-MM-dd') === safeFormat(new Date(), 'yyyy-MM-dd')).length}
                   </p>
                 </div>
-                <div className="bg-slate-800/40 p-3 rounded-xl border border-amber-500/20 relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-0.5 h-full bg-amber-500/50" />
-                  <div className="flex justify-between items-center mb-0.5">
-                    <p className="text-[9px] font-bold text-amber-500/80 uppercase tracking-widest">Contas a Receber</p>
-                    <TrendingDown className="w-3 h-3 text-amber-500/60" />
-                  </div>
-                  <p className="text-xl font-bold text-amber-500">R$ {(maintenances.reduce((sum, m) => sum + (m.saldoDevedor || 0), 0)).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                </div>
+
                 <div className="bg-slate-800/40 p-3 rounded-xl border border-red-500/20 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-0.5 h-full bg-red-500/50" />
                   <div className="flex justify-between items-center mb-0.5">
