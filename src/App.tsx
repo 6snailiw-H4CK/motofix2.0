@@ -482,6 +482,7 @@ export default function App() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [expandedHistoryClients, setExpandedHistoryClients] = useState<Set<string>>(new Set());
   const [showMoreDetails, setShowMoreDetails] = useState(false);
+  const [valorPagoInput, setValorPagoInput] = useState<string>('');
 
   const ADMIN_EMAILS = ['6snailiw@gmail.com', 'emailgithubb@gmail.com'];
 
@@ -1404,7 +1405,7 @@ export default function App() {
   // Top Serviços ranking - MUST be at top level, not inside JSX
   const topServicesData = useMemo(() => {
     const servicesByRevenue = maintenances.reduce((acc: Record<string, number>, m) => {
-      acc[m.serviceType] = (acc[m.serviceType] || 0) + m.serviceValue;
+      acc[m.serviceType] = (acc[m.serviceType] || 0) + (m.valorPago || 0);
       return acc;
     }, {});
     return Object.entries(servicesByRevenue)
@@ -1416,6 +1417,40 @@ export default function App() {
         position: index + 1
       }));
   }, [maintenances]);
+
+  // 💰 FINANCIAL STATISTICS (for Dashboard)
+  const financialStats = useMemo(() => {
+    // Receita Total: Soma de valorPago de TODOS os serviços
+    const totalReceita = maintenances.reduce((sum, m) => sum + (m.valorPago || 0), 0);
+    
+    // Contas a Receber: Soma de saldoDevedor de serviços Parciais ou Pendentes
+    const contasAReceber = maintenances
+      .filter(m => m.statusPagamento === 'Parcial' || m.statusPagamento === 'Pendente')
+      .reduce((sum, m) => sum + (m.saldoDevedor || 0), 0);
+    
+    // Recorrentes: Soma de valorPago onde isRecurringRevenue === true
+    const recurrentRevenue = maintenances
+      .filter(m => m.isRecurringRevenue === true)
+      .reduce((sum, m) => sum + (m.valorPago || 0), 0);
+    
+    // Contadores
+    const totalClientes = clients.length;
+    const totalGarantias = warranties.length;
+    
+    // Despesas (subtração da receita total)
+    const totalDespesas = (settings?.expenses || []).reduce((sum, e) => sum + (e.valor || 0), 0);
+    const lucroLiquido = totalReceita - totalDespesas;
+    
+    return {
+      totalReceita,
+      contasAReceber,
+      recurrentRevenue,
+      totalClientes,
+      totalGarantias,
+      totalDespesas,
+      lucroLiquido
+    };
+  }, [maintenances, clients, warranties, settings?.expenses]);
 
   // Calculate saldo devedor (outstanding balance) per client
   const clientBalanceMap = useMemo(() => {
@@ -1729,7 +1764,7 @@ export default function App() {
               {/* Quick Actions */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <button 
-                  onClick={() => { setEditingClient(null); setView('new-client'); }}
+                  onClick={() => { setEditingClient(null); setValorPagoInput(''); setView('new-client'); }}
                   className="bg-primary py-4 px-6 rounded-2xl flex items-center justify-center gap-3 text-white hover:bg-primary/90 transition-all shadow-xl shadow-primary/10 group"
                 >
                   <div className="bg-white/20 p-2 rounded-full group-hover:scale-105 transition-transform">
@@ -1842,7 +1877,7 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                {filteredClients.map(client => (
+                {(filteredClients || []).map(client => (
                   <div key={client.id} className="bg-slate-800/30 p-3 rounded-xl border border-slate-700/40 space-y-2.5 relative overflow-hidden">
                     <div className={cn(
                       "absolute top-0 right-0 w-0.5 h-full opacity-50",
@@ -2013,7 +2048,7 @@ export default function App() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {clients.map(client => (
+                  {(clients || []).map(client => (
                     <div key={client.id} className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 space-y-3 hover:border-primary/50 transition-all cursor-pointer group" onClick={() => { setEditingClient(client); setView('clients-schedule-add'); }}>
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
@@ -2139,9 +2174,12 @@ export default function App() {
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Tipo de Óleo</label>
                     <select name="oilType" defaultValue={editingClient?.oilType || '10W30'} className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none">
-                      {settings?.oilTypes?.map(type => (
+                      {(settings?.oilTypes || []).map(type => (
                         <option key={type} value={type}>{type}</option>
                       ))}
+                      {!settings?.oilTypes || settings.oilTypes.length === 0 && (
+                        <option value="10W30">10W30</option>
+                      )}
                     </select>
                   </div>
 
@@ -2326,7 +2364,7 @@ export default function App() {
                       {/* Accordion Body */}
                       {expandedHistoryClients.has(clientName) && (
                         <div className="border-t border-slate-700/40 divide-y divide-slate-700/40 bg-slate-900/20">
-                          {services.map(record => (
+                          {(services || []).map(record => (
                             <div key={record.id} className="px-4 py-3 flex items-center justify-between group hover:bg-slate-800/30 transition-all">
                               <div className="flex items-center gap-3 flex-1">
                                 <div className={cn(
@@ -2718,7 +2756,7 @@ export default function App() {
                       {editingWarranty?.serviceType && !settings?.warrantyCategories?.includes(editingWarranty.serviceType) && (
                         <option value={editingWarranty.serviceType}>{editingWarranty.serviceType}</option>
                       )}
-                      {settings?.warrantyCategories?.map(cat => (
+                      {(settings?.warrantyCategories || []).map(cat => (
                         <option key={cat} value={cat}>{cat}</option>
                       ))}
                     </select>
@@ -2926,7 +2964,7 @@ export default function App() {
                   <h3 className="font-bold">Categorias de Itens/Serviços Disponíveis</h3>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {settings?.oilTypes?.map((type, index) => (
+                  {(settings?.oilTypes || []).map((type, index) => (
                     <div key={index} className="bg-slate-900 px-3 py-1 rounded-lg border border-slate-700 flex items-center gap-2 group">
                       <span className="text-sm">{type}</span>
                       <button 
@@ -2979,7 +3017,7 @@ export default function App() {
                   <h3 className="font-bold">Categorias de Garantia</h3>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {settings?.warrantyCategories?.map((cat, index) => (
+                  {(settings?.warrantyCategories || []).map((cat, index) => (
                     <div key={index} className="bg-slate-900 px-3 py-1 rounded-lg border border-slate-700 flex items-center gap-2 group">
                       <span className="text-sm">{cat}</span>
                       <button 
@@ -3145,7 +3183,15 @@ export default function App() {
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Valor Pago (R$)</label>
-                    <input name="valorPago" type="number" step="0.01" defaultValue={editingClient?.valorPago || 0} className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
+                    <input 
+                      name="valorPago" 
+                      type="number" 
+                      step="0.01" 
+                      value={valorPagoInput === '' ? '' : valorPagoInput}
+                      onChange={(e) => setValorPagoInput(e.target.value)}
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" 
+                    />
+                    <p className="text-[8px] text-slate-600 px-1">Deixe vazio para limpar</p>
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Data do Serviço</label>
