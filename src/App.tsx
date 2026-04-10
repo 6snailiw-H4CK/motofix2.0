@@ -1677,6 +1677,7 @@ export default function App() {
               )}
 
               {/* Stats */}
+              {/* Stats - Linha 1 */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-2.5">
                 <div className="bg-slate-800/40 p-3 rounded-xl border border-emerald-500/20 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-0.5 h-full bg-emerald-500/50" />
@@ -1696,25 +1697,6 @@ export default function App() {
                   <p className="text-xl font-bold text-amber-500">R$ {financialStats.contasAReceber.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                 </div>
 
-                <div className="bg-slate-800/40 p-3 rounded-xl border border-red-500/20 relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-0.5 h-full bg-red-500/50" />
-                  <div className="flex justify-between items-center mb-0.5">
-                    <p className="text-[9px] font-bold text-red-500/80 uppercase tracking-widest">Despesas</p>
-                    <AlertTriangle className="w-3 h-3 text-red-500/60" />
-                  </div>
-                  <p className="text-xl font-bold text-red-500">R$ {financialStats.totalDespesas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                </div>
-
-                <div className="bg-slate-800/40 p-3 rounded-xl border border-slate-700/50">
-                  <div className="flex justify-between items-center mb-0.5">
-                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Lucro Líquido</p>
-                    <DollarSign className="w-3 h-3 text-primary/60" />
-                  </div>
-                  <p className={cn("text-xl font-bold", financialStats.lucroLiquido >= 0 ? 'text-primary' : 'text-red-500')}>
-                    R$ {financialStats.lucroLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                </div>
-
                 <div className="bg-slate-800/40 p-3 rounded-xl border border-slate-700/50">
                   <div className="flex justify-between items-center mb-0.5">
                     <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Total Clientes</p>
@@ -1732,6 +1714,27 @@ export default function App() {
                     {maintenances.filter(m => safeFormat(m.date, 'yyyy-MM-dd') === safeFormat(new Date(), 'yyyy-MM-dd')).length}
                   </p>
                 </div>
+              </div>
+
+              {/* Stats - Linha 2 */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-2.5">
+                <div className="bg-slate-800/40 p-3 rounded-xl border border-emerald-500/20 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-0.5 h-full bg-emerald-500/50" />
+                  <div className="flex justify-between items-center mb-0.5">
+                    <p className="text-[9px] font-bold text-emerald-500/80 uppercase tracking-widest">Receita (Mês)</p>
+                    <TrendingUp className="w-3 h-3 text-emerald-500/60" />
+                  </div>
+                  <p className="text-xl font-bold text-emerald-500">R$ {financialStats.totalReceita.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                </div>
+
+                <div className="bg-slate-800/40 p-3 rounded-xl border border-red-500/20 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-0.5 h-full bg-red-500/50" />
+                  <div className="flex justify-between items-center mb-0.5">
+                    <p className="text-[9px] font-bold text-red-500/80 uppercase tracking-widest">Recorrente</p>
+                    <AlertTriangle className="w-3 h-3 text-red-500/60" />
+                  </div>
+                  <p className="text-xl font-bold text-red-500">R$ {financialStats.recurrentRevenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                </div>
 
                 <div className="bg-slate-800/40 p-3 rounded-xl border border-red-500/20 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-0.5 h-full bg-red-500/50" />
@@ -1740,6 +1743,14 @@ export default function App() {
                     <AlertTriangle className="w-3 h-3 text-red-500/60" />
                   </div>
                   <p className="text-xl font-bold text-red-500">{overdueClients.length}</p>
+                </div>
+
+                <div className="bg-slate-800/40 p-3 rounded-xl border border-slate-700/50">
+                  <div className="flex justify-between items-center mb-0.5">
+                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Garantias</p>
+                    <ShieldCheck className="w-3 h-3 text-primary/60" />
+                  </div>
+                  <p className="text-xl font-bold text-white">{financialStats.totalGarantias}</p>
                 </div>
               </div>
 
