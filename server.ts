@@ -1,4 +1,5 @@
 import "dotenv/config";
+import fs from "node:fs";
 import express, { Request, Response } from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,15 +19,17 @@ let db: any = null;
 let firebaseInitialized = false;
 
 const serviceAccountFile = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || "./firebase-service-account.json";
+const serviceAccountFilePath = path.resolve(process.cwd(), serviceAccountFile);
 try {
+  const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountFilePath, "utf8"));
   admin.initializeApp({
-    credential: admin.credential.cert(require(serviceAccountFile)),
+    credential: admin.credential.cert(serviceAccount),
   });
   db = admin.firestore();
   firebaseInitialized = true;
 } catch (error) {
   console.warn("⚠️ Firebase initialization failed. Webhook functionality may be limited.");
-  console.warn("Ensure FIREBASE_SERVICE_ACCOUNT_PATH is set for webhook processing.");
+  console.warn(`Ensure FIREBASE_SERVICE_ACCOUNT_PATH is set and points to a valid JSON file: ${serviceAccountFilePath}`);
 }
 
 const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID || "price_monthly_49_90"; // Preço mensal R$ 49,90
