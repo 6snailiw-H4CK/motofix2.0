@@ -2,6 +2,7 @@
   "name": "MotoFix Recorrentes",
   "short_name": "MotoFix",
   "description": "Gerenciamento de troca de óleo e garantias de serviço",
+  "version": "2.1.0",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0a0a",

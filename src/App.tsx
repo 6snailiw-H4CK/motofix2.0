@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   Plus, Search, History, Bell, Settings as SettingsIcon, LogOut, 
   ChevronRight, Trash2, CheckCircle, MessageSquare, ArrowLeft, 
@@ -13,7 +13,7 @@ import {
   BarChart3, Calendar, ShieldCheck, Download, FileText, X,
   PieChart, LayoutDashboard, ArrowUpRight, ArrowDownRight,
   TrendingDown, Bike, Users, AlertTriangle, ChevronLeft,
-  Droplets, Shield, Lock, DollarSign
+  Droplets, Shield, Lock, DollarSign, ChevronDown, Sun, Moon, Mail
 } from 'lucide-react';
 import { 
   format, parseISO, addDays, isAfter, isBefore, startOfMonth, 
@@ -28,7 +28,7 @@ import {
 import { 
   collection, addDoc, query, where, onSnapshot, 
   updateDoc, doc, deleteDoc, getDocs, getDoc,
-  getDocFromServer, serverTimestamp, setDoc
+  getDocFromServer, serverTimestamp, setDoc, arrayUnion
 } from 'firebase/firestore';
 import { 
   signInWithPopup, GoogleAuthProvider, onAuthStateChanged, 
@@ -44,6 +44,8 @@ import { Toaster, toast as sonnerToast } from 'sonner';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { AlertService } from './services/alertService';
+
+const APP_VERSION = '2.1.0';
 
 // Toast Component
 const Toast = ({ message, type, onClose }: { message: string, type: 'success' | 'error', onClose: () => void }) => (
@@ -184,128 +186,105 @@ const LoadingScreen = () => {
 };
 
 const AuthScreen = () => (
-  <div className="min-h-screen flex flex-col bg-gradient-to-b from-black via-slate-900 to-black overflow-hidden">
-    {/* Animated background elements */}
-    <div className="fixed top-0 left-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
-    <div className="fixed bottom-0 right-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl translate-x-1/2 translate-y-1/2 pointer-events-none" />
+  <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-950 via-slate-900 to-black text-slate-100 overflow-x-hidden">
+    <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-primary/15 via-transparent to-transparent" />
+    <div className="pointer-events-none fixed bottom-0 right-0 h-[420px] w-[420px] rounded-full bg-primary/10 blur-3xl translate-x-1/3 translate-y-1/3" />
 
-    {/* Navigation placeholder */}
-    <nav className="relative z-10 flex justify-between items-center px-6 py-4 border-b border-slate-800/50">
-      <div className="flex items-center gap-2">
-        <div className="bg-gradient-to-br from-primary to-primary/60 p-2 rounded-xl">
-          <Bike className="w-5 h-5 text-white" />
+    <nav className="relative z-10 border-b border-white/5 bg-black/20 backdrop-blur-md">
+      <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4 sm:px-6">
+        <div className="flex items-center gap-3">
+          <div className="rounded-xl bg-gradient-to-br from-primary to-orange-600 p-2 shadow-lg shadow-primary/25">
+            <Bike className="h-6 w-6 text-white" />
+          </div>
+          <div>
+            <p className="text-sm font-bold tracking-tight text-white">MotoFix</p>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Gestão automotiva</p>
+          </div>
         </div>
-        <span className="text-lg font-bold text-white">MotoFix</span>
+        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-bold text-slate-400">
+          v{APP_VERSION}
+        </span>
       </div>
-      <div className="text-xs text-slate-500">Versão 1.0</div>
     </nav>
 
-    {/* Main content */}
-    <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 py-12">
-      <div className="max-w-2xl w-full space-y-12">
-        {/* Hero section */}
-        <div className="space-y-6 text-center">
-          <div className="inline-block">
-            <div className="bg-gradient-to-br from-primary/30 to-primary/10 backdrop-blur-xl p-4 rounded-2xl border border-primary/20">
-              <Bike className="w-12 h-12 text-primary" />
-            </div>
+    <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col px-4 py-10 sm:px-6 sm:py-14">
+      <div className="grid flex-1 gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+        <div className="space-y-8">
+          <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-primary">
+            Plataforma SaaS · Oficinas e centros automotivos
           </div>
-          
-          <div className="space-y-3">
-            <h1 className="text-5xl md:text-6xl font-black text-white leading-tight">
-              MotoFix <span className="bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">Manager</span>
+          <div className="space-y-4">
+            <h1 className="text-4xl font-black leading-[1.1] tracking-tight text-white sm:text-5xl lg:text-6xl">
+              Operação profissional.
+              <span className="block bg-gradient-to-r from-primary via-orange-400 to-amber-200 bg-clip-text text-transparent">
+                Clientes, serviços e caixa no mesmo lugar.
+              </span>
             </h1>
-            <p className="text-lg md:text-xl text-slate-300">
-              Gerencie sua oficina com inteligência. Alertas automáticos, garantias organizadas e receita crescente.
+            <p className="max-w-xl text-base leading-relaxed text-slate-300 sm:text-lg">
+              Controle recorrências, alertas por WhatsApp, histórico de serviços, garantias e indicadores financeiros com a clareza de um painel premium.
             </p>
           </div>
-
-          {/* Stats */}
-          <div className="flex justify-center gap-8 pt-4">
-            <div className="text-center">
-              <p className="text-2xl font-bold text-primary">100%</p>
-              <p className="text-xs text-slate-400 uppercase tracking-wide">Automático</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-primary">24/7</p>
-              <p className="text-xs text-slate-400 uppercase tracking-wide">Disponível</p>
-            </div>
-            <div className="text-center">
-              <p className="text-2xl font-bold text-primary">+50%</p>
-              <p className="text-xs text-slate-400 uppercase tracking-wide">Receita</p>
-            </div>
-          </div>
+          <ul className="grid gap-3 sm:grid-cols-2 text-sm text-slate-300">
+            <li className="flex gap-2 rounded-xl border border-white/5 bg-white/5 px-3 py-2">
+              <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <span>Fluxo de caixa alinhado ao status real de cada serviço.</span>
+            </li>
+            <li className="flex gap-2 rounded-xl border border-white/5 bg-white/5 px-3 py-2">
+              <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <span>Agenda e ficha de cliente separadas do cadastro de serviço.</span>
+            </li>
+            <li className="flex gap-2 rounded-xl border border-white/5 bg-white/5 px-3 py-2">
+              <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <span>Ranking de serviços com visão por óleo / subcategoria.</span>
+            </li>
+            <li className="flex gap-2 rounded-xl border border-white/5 bg-white/5 px-3 py-2">
+              <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <span>Experiência otimizada para mobile e equipe em campo.</span>
+            </li>
+          </ul>
+          <button
+            type="button"
+            onClick={() => signInWithPopup(auth, googleProvider)}
+            className="group flex w-full max-w-md items-center justify-center gap-3 rounded-2xl bg-gradient-to-r from-primary to-orange-600 px-8 py-4 text-base font-bold text-white shadow-xl shadow-primary/30 transition hover:brightness-110 active:scale-[0.99] sm:text-lg"
+          >
+            <img src="https://www.google.com/favicon.ico" alt="" className="h-5 w-5" />
+            Entrar com Google
+            <ArrowUpRight className="h-5 w-5 opacity-70 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:opacity-100" />
+          </button>
+          <p className="text-xs text-slate-500">
+            Ao continuar, você concorda com o uso seguro dos seus dados conforme as políticas do Google e da sua oficina.
+          </p>
         </div>
 
-        {/* CTA Button */}
-        <button 
-          onClick={() => signInWithPopup(auth, googleProvider)}
-          className="w-full group relative px-8 py-4 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 text-white font-bold rounded-2xl transition-all duration-300 shadow-2xl shadow-primary/20 hover:shadow-primary/40 active:scale-95 flex items-center justify-center gap-3"
-        >
-          <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
-          <span className="text-lg">Entrar com Google</span>
-          <ArrowUpRight className="w-5 h-5 opacity-0 group-hover:opacity-100 transition-all -translate-y-1 group-hover:translate-y-0" />
-        </button>
-
-        {/* Features grid */}
-        <div className="grid md:grid-cols-2 gap-4 pt-8">
-          <div className="group bg-gradient-to-br from-slate-800/50 to-slate-800/20 backdrop-blur-sm border border-slate-700/50 hover:border-primary/30 rounded-2xl p-6 transition-all duration-300 hover:shadow-xl hover:shadow-primary/10">
-            <div className="bg-gradient-to-br from-primary/20 to-primary/5 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-              <Bell className="w-6 h-6 text-primary" />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-sm">
+            <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/20">
+              <LayoutDashboard className="h-6 w-6 text-primary" />
             </div>
-            <h3 className="font-bold text-white mb-2 text-lg">Alertas Inteligentes</h3>
-            <p className="text-sm text-slate-400">Rastreamento automático de manutenções com envio simplificado via WhatsApp</p>
+            <h3 className="mb-1 text-base font-bold text-white">Dashboard executivo</h3>
+            <p className="text-sm text-slate-400">Recebido, pendências, ranking e alertas em um único panorama.</p>
           </div>
-
-          <div className="group bg-gradient-to-br from-slate-800/50 to-slate-800/20 backdrop-blur-sm border border-slate-700/50 hover:border-primary/30 rounded-2xl p-6 transition-all duration-300 hover:shadow-xl hover:shadow-primary/10">
-            <div className="bg-gradient-to-br from-primary/20 to-primary/5 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-              <ShieldCheck className="w-6 h-6 text-primary" />
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-sm">
+            <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/20">
+              <Bell className="h-6 w-6 text-primary" />
             </div>
-            <h3 className="font-bold text-white mb-2 text-lg">Garantias Organizadas</h3>
-            <p className="text-sm text-slate-400">Certificados automáticos e gestão de prazos de garantia</p>
+            <h3 className="mb-1 text-base font-bold text-white">Relacionamento</h3>
+            <p className="text-sm text-slate-400">Lembretes e mensagens com contexto do veículo e do serviço.</p>
           </div>
-
-          <div className="group bg-gradient-to-br from-slate-800/50 to-slate-800/20 backdrop-blur-sm border border-slate-700/50 hover:border-primary/30 rounded-2xl p-6 transition-all duration-300 hover:shadow-xl hover:shadow-primary/10">
-            <div className="bg-gradient-to-br from-primary/20 to-primary/5 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-              <BarChart3 className="w-6 h-6 text-primary" />
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-sm sm:col-span-2 lg:col-span-1">
+            <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/20">
+              <ShieldCheck className="h-6 w-6 text-primary" />
             </div>
-            <h3 className="font-bold text-white mb-2 text-lg">Dashboard em Tempo Real</h3>
-            <p className="text-sm text-slate-400">Visualize sua receita, clientes e performance instantaneamente</p>
-          </div>
-
-          <div className="group bg-gradient-to-br from-slate-800/50 to-slate-800/20 backdrop-blur-sm border border-slate-700/50 hover:border-primary/30 rounded-2xl p-6 transition-all duration-300 hover:shadow-xl hover:shadow-primary/10">
-            <div className="bg-gradient-to-br from-primary/20 to-primary/5 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-              <Users className="w-6 h-6 text-primary" />
-            </div>
-            <h3 className="font-bold text-white mb-2 text-lg">Gestão de Clientes</h3>
-            <p className="text-sm text-slate-400">Base de dados organizada com histórico completo de serviços</p>
-          </div>
-        </div>
-
-        {/* Trust indicators */}
-        <div className="flex flex-col items-center gap-4 pt-8 border-t border-slate-800/50">
-          <p className="text-sm text-slate-400">Confie em uma solução testada e validada</p>
-          <div className="flex items-center justify-center gap-6 text-slate-500">
-            <div className="flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-primary" />
-              <span className="text-xs">Seguro</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-primary" />
-              <span className="text-xs">Rápido</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <CheckCircle className="w-4 h-4 text-primary" />
-              <span className="text-xs">Confiável</span>
-            </div>
+            <h3 className="mb-1 text-base font-bold text-white">Garantias e histórico</h3>
+            <p className="text-sm text-slate-400">Rastreabilidade completa para transmitir confiança ao cliente final.</p>
           </div>
         </div>
       </div>
     </div>
 
-    {/* Footer */}
-    <footer className="relative z-10 border-t border-slate-800/50 bg-slate-900/50 px-4 py-6 text-center text-xs text-slate-500">
-      <p>© 2026 MotoFix Manager. Desenvolvido para oficinas que crescem.</p>
+    <footer className="relative z-10 border-t border-white/5 bg-black/30 px-4 py-6 text-center text-xs text-slate-500 backdrop-blur-sm">
+      <p className="font-medium text-slate-400">© {new Date().getFullYear()} MotoFix · Versão {APP_VERSION}</p>
+      <p className="mt-1">Suporte: WhatsApp e Instagram disponíveis após o login em Ajustes.</p>
     </footer>
   </div>
 );
@@ -437,13 +416,17 @@ const CheckoutScreen = ({ user, onPaymentSuccess }: { user: User; onPaymentSucce
 
 // --- Main App ---
 
+const DEFAULT_SERVICE_TYPES = ['Troca de Óleo', 'Revisão', 'Pneus', 'Freios', 'Outros'] as const;
+
 const DEFAULT_SETTINGS: Settings = {
   userId: '',
   whatsappTemplate: "Olá {client}, sua {bike} está agendada para manutenção em {date}. Nos vemos lá!",
   oilTypes: ['10W30', '10W40', '20W50', 'Motul 3000', 'Motul 5000', 'Yamalube'],
+  serviceTypes: [],
   warrantyCategories: ['Motor', 'Câmbio', 'Elétrica', 'Suspensão', 'Freios', 'Pintura', 'Geral'],
   businessName: 'Minha Oficina',
   businessPhone: '',
+  businessEmail: '',
   businessInstagram: '',
   businessAddress: '',
   isProfileComplete: false
@@ -482,7 +465,13 @@ export default function App() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [expandedHistoryClients, setExpandedHistoryClients] = useState<Set<string>>(new Set());
   const [showMoreDetails, setShowMoreDetails] = useState(false);
-  const [valorPagoInput, setValorPagoInput] = useState<string>('');
+  const [expandedTopService, setExpandedTopService] = useState<string | null>(null);
+  const [newClientServiceType, setNewClientServiceType] = useState('Troca de Óleo');
+  const [colorMode, setColorMode] = useState<'dark' | 'light'>(() => {
+    if (typeof window === 'undefined') return 'dark';
+    const saved = localStorage.getItem('motofix-theme');
+    return saved === 'light' ? 'light' : 'dark';
+  });
 
   const ADMIN_EMAILS = ['6snailiw@gmail.com', 'emailgithubb@gmail.com'];
 
@@ -492,6 +481,28 @@ export default function App() {
       return () => clearTimeout(timer);
     }
   }, [toast]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.documentElement.classList.toggle('light', colorMode === 'light');
+    try {
+      localStorage.setItem('motofix-theme', colorMode);
+    } catch {
+      /* ignore */
+    }
+  }, [colorMode]);
+
+  useEffect(() => {
+    if (view !== 'new-client') return;
+    if (!editingClient) {
+      setNewClientServiceType('Troca de Óleo');
+      return;
+    }
+    const latest = maintenances
+      .filter(m => m.clientId === editingClient.id)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+    setNewClientServiceType(latest?.serviceType || editingClient.lastServiceType || 'Troca de Óleo');
+  }, [view, editingClient?.id, maintenances, editingClient?.lastServiceType]);
 
   // Chart Data Calculation
   const chartData = useMemo(() => {
@@ -647,9 +658,11 @@ export default function App() {
           userId: user.uid,
           whatsappTemplate: data.whatsappTemplate || "Olá {client}, sua {bike} está agendada para manutenção em {date}. Nos vemos lá!",
           oilTypes: data.oilTypes || ['10W30', '10W40', '20W50', 'Motul 3000', 'Motul 5000', 'Yamalube'],
+          serviceTypes: Array.isArray(data.serviceTypes) ? data.serviceTypes : [],
           warrantyCategories: data.warrantyCategories || ['Motor', 'Câmbio', 'Elétrica', 'Suspensão', 'Freios', 'Pintura', 'Geral'],
           businessName: data.businessName || '',
           businessPhone: data.businessPhone || '',
+          businessEmail: data.businessEmail || '',
           businessInstagram: data.businessInstagram || '',
           businessAddress: data.businessAddress || '',
           isProfileComplete: data.isProfileComplete || false
@@ -673,9 +686,11 @@ export default function App() {
           userId: user.uid,
           whatsappTemplate: "Olá {client}, sua {bike} está agendada para manutenção em {date}. Nos vemos lá!",
           oilTypes: ['10W30', '10W40', '20W50', 'Motul 3000', 'Motul 5000', 'Yamalube'],
+          serviceTypes: [],
           warrantyCategories: ['Motor', 'Câmbio', 'Elétrica', 'Suspensão', 'Freios', 'Pintura', 'Geral'],
           businessName: '',
           businessPhone: '',
+          businessEmail: '',
           businessInstagram: '',
           businessAddress: '',
           isProfileComplete: !isNewUser // true for returning users, false for new users
@@ -691,9 +706,11 @@ export default function App() {
         userId: user.uid,
         whatsappTemplate: "Olá {client}, sua {bike} está agendada para manutenção em {date}. Nos vemos lá!",
         oilTypes: ['10W30', '10W40', '20W50', 'Motul 3000', 'Motul 5000', 'Yamalube'],
+        serviceTypes: [],
         warrantyCategories: ['Motor', 'Câmbio', 'Elétrica', 'Suspensão', 'Freios', 'Pintura', 'Geral'],
         businessName: '',
         businessPhone: '',
+        businessEmail: '',
         businessInstagram: '',
         businessAddress: '',
         isProfileComplete: false
@@ -845,40 +862,63 @@ export default function App() {
     }
   };
 
+  const enrichClientForEdit = useCallback((client: Client): Client => {
+    const clientMaintenance = maintenances
+      .filter(m => m.clientId === client.id)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+    const finalServiceValue =
+      clientMaintenance?.serviceValue ||
+      client.lastServiceValue ||
+      client.serviceValue ||
+      client.oilPrice ||
+      0;
+    const valorPago = clientMaintenance?.valorPago ?? client.valorPago ?? 0;
+    return {
+      ...client,
+      serviceValue: finalServiceValue,
+      valorPago,
+      statusPagamento: clientMaintenance?.statusPagamento || client.statusPagamento || 'Pago',
+      saldoDevedor: clientMaintenance?.saldoDevedor ?? Math.max(0, finalServiceValue - valorPago),
+      lastMaintenanceDate: clientMaintenance?.date || client.lastMaintenanceDate || format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
+      lastServiceType: clientMaintenance?.serviceType || client.lastServiceType,
+      lastServiceNotes: clientMaintenance?.notes || client.lastServiceNotes || '',
+      oilType: clientMaintenance?.oilType || client.oilType || '10W30',
+    };
+  }, [maintenances]);
+
   // 📝 Load client data and last maintenance CORRECTLY to avoid zero values
   const handleSelectClientSuggestion = (client: Client) => {
     setClientNameInput(client?.name || '');
     setClientSuggestions([]);
-    
-    // 🔍 CRITICO: Find the last maintenance for this client to populate form correctly
-    const clientMaintenance = maintenances
-      .filter(m => m.clientId === client?.id)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
-    
-    // ℹ️ Merge client data with last maintenance data to avoid zero values
-    // 💡 Try multiple fallbacks to ensure serviceValue is never 0
-    const finalServiceValue = 
-      clientMaintenance?.serviceValue || 
-      client?.lastServiceValue || 
-      client?.serviceValue ||
-      client?.oilPrice || 
-      0;
-    
-    setEditingClient({
-      ...client,
-      // 💡 Keep original values from last maintenance (don't use new date)
-      serviceValue: finalServiceValue,
-      valorPago: clientMaintenance?.valorPago || client?.valorPago || 0,
-      statusPagamento: clientMaintenance?.statusPagamento || client?.statusPagamento || 'Pago',
-      saldoDevedor: clientMaintenance?.saldoDevedor || client?.saldoDevedor || 0,
-      // Use date from last maintenance if exists, don't reset to today
-      lastMaintenanceDate: clientMaintenance?.date || client?.lastMaintenanceDate || format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
-    });
+    setEditingClient(enrichClientForEdit(client));
   };
 
-  const handleSaveClient = async (clientData: Partial<Client> & { serviceType?: string, serviceValue?: number, statusPagamento?: string, valorPago?: number, notes?: string }) => {
+  const handleAddCustomServiceType = async () => {
+    const name = window.prompt('Nome da nova categoria de serviço:')?.trim();
+    if (!name || !user) return;
+    try {
+      const settingsDoc = doc(db, 'users', user.uid, 'settings', 'config');
+      await updateDoc(settingsDoc, { serviceTypes: arrayUnion(name) });
+      setNewClientServiceType(name);
+      sonnerToast.success('Categoria adicionada.');
+    } catch (err) {
+      console.error(err);
+      sonnerToast.error('Não foi possível salvar a categoria.');
+    }
+  };
+
+  const handleSaveClient = async (clientData: Partial<Client> & {
+    serviceType?: string;
+    serviceValue?: number;
+    statusPagamento?: string;
+    valorPago?: number;
+    notes?: string;
+    _scheduleProfile?: boolean;
+  }) => {
     if (!user) return;
     setIsSaving(true);
+
+    const scheduleProfile = Boolean(clientData._scheduleProfile);
 
     // Check for potential duplicates (normalized name comparison)
     if (!editingClient && clientData.name) {
@@ -889,38 +929,93 @@ export default function App() {
       }
     }
 
-    const lastDate = clientData.lastMaintenanceDate || format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'");
-    const recurrence = clientData.recurrenceDays || 29;
+    const lastDate = scheduleProfile && editingClient?.lastMaintenanceDate
+      ? editingClient.lastMaintenanceDate
+      : (clientData.lastMaintenanceDate || format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'"));
+    const recurrence = scheduleProfile && editingClient
+      ? (editingClient.recurrenceDays ?? 29)
+      : (clientData.recurrenceDays || 29);
     const nextDate = format(addDays(parseISO(lastDate), recurrence), "yyyy-MM-dd'T'HH:mm:ss'Z'");
     
-    // Calcular saldo devedor
-    const serviceValue = clientData.serviceValue || clientData.oilPrice || 0;
-    const valorPago = clientData.valorPago || 0;
+    let serviceValue = clientData.serviceValue || clientData.oilPrice || 0;
+    let statusPg = (clientData.statusPagamento || 'Pago') as 'Pago' | 'Pendente' | 'Parcial';
+    let valorPago = Number(clientData.valorPago);
+    if (Number.isNaN(valorPago)) valorPago = 0;
+
+    if (scheduleProfile && editingClient) {
+      serviceValue = editingClient.lastServiceValue ?? editingClient.serviceValue ?? editingClient.oilPrice ?? 0;
+      statusPg = (editingClient.statusPagamento || 'Pago') as 'Pago' | 'Pendente' | 'Parcial';
+      valorPago = Number(editingClient.valorPago);
+      if (Number.isNaN(valorPago)) valorPago = 0;
+    } else if (scheduleProfile && !editingClient) {
+      serviceValue = 0;
+      statusPg = 'Pago';
+      valorPago = 0;
+    }
+
+    if (statusPg === 'Pago' && valorPago === 0 && serviceValue > 0) {
+      valorPago = serviceValue;
+    }
     const saldoDevedor = Math.max(0, serviceValue - valorPago);
     
-    const finalClientData = {
+    const plateRaw = (clientData.vehiclePlate ?? editingClient?.vehiclePlate ?? '').trim();
+    const kmFromPayload = clientData.mileageKm !== undefined && clientData.mileageKm !== null
+      ? Number(clientData.mileageKm)
+      : NaN;
+    const mileageKm = Number.isFinite(kmFromPayload) ? kmFromPayload : editingClient?.mileageKm;
+
+    const finalClientData: any = {
       name: clientData.name,
       bikeModel: clientData.bikeModel,
       contact: clientData.contact,
-      oilType: clientData.oilType || '',
-      oilPrice: clientData.oilPrice || 0,
+      email: (clientData.email ?? editingClient?.email ?? '').trim(),
+      vehiclePlate: plateRaw ? plateRaw.toUpperCase() : '',
+      oilType: scheduleProfile && editingClient
+        ? (editingClient.oilType || '')
+        : scheduleProfile && !editingClient
+          ? '10W30'
+          : (clientData.oilType || ''),
+      oilPrice: scheduleProfile && editingClient
+        ? (editingClient.oilPrice ?? 0)
+        : scheduleProfile && !editingClient
+          ? 0
+          : (clientData.oilPrice || 0),
       userId: user.uid,
       lastMaintenanceDate: lastDate,
       nextMaintenanceDate: nextDate,
       recurrenceDays: recurrence,
-      isRecurringRevenue: clientData.isRecurringRevenue || false,
+      isRecurringRevenue: scheduleProfile && editingClient
+        ? (editingClient.isRecurringRevenue ?? true)
+        : scheduleProfile && !editingClient
+          ? true
+          : (clientData.isRecurringRevenue || false),
       status: getStatus(nextDate),
       notificacao_enviada: clientData.notificacao_enviada || false,
       notificacaoStatus: clientData.notificacaoStatus || 'pendente',
-      lastServiceType: clientData.serviceType || 'Troca de Óleo',
+      lastServiceType: scheduleProfile && editingClient
+        ? (editingClient.lastServiceType || 'Troca de Óleo')
+        : scheduleProfile && !editingClient
+          ? 'Troca de Óleo'
+          : (clientData.serviceType || 'Troca de Óleo'),
       lastServiceValue: serviceValue,
-      lastServiceNotes: clientData.notes || "Serviço registrado via formulário.",
+      lastServiceNotes: clientData.notes !== undefined && clientData.notes !== null
+        ? clientData.notes
+        : (scheduleProfile && editingClient ? (editingClient.lastServiceNotes || '') : "Serviço registrado via formulário."),
       lastAlertDate: clientData.lastAlertDate || '',
-      statusPagamento: clientData.statusPagamento || 'Pago',
+      statusPagamento: scheduleProfile && editingClient
+        ? (editingClient.statusPagamento || 'Pago')
+        : scheduleProfile && !editingClient
+          ? 'Pago'
+          : (clientData.statusPagamento || 'Pago'),
       valorPago: valorPago,
       saldoDevedor: saldoDevedor,
       createdAt: clientData.createdAt || format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
     };
+
+    // Only add mileageKm if it's a valid number
+    if (Number.isFinite(mileageKm)) {
+      finalClientData.mileageKm = mileageKm;
+    }
 
     try {
       let clientId = editingClient?.id;
@@ -958,13 +1053,18 @@ export default function App() {
         
         if (clientMaintenances.length > 0) {
           const latestMaintenance = clientMaintenances[0];
-          // Only update payment-related fields, don't change serviceValue to avoid duplicating amounts
           await updateDoc(
             doc(db, 'users', user.uid, 'maintenances', latestMaintenance.id),
             {
               statusPagamento: clientData.statusPagamento || latestMaintenance.statusPagamento || 'Pago',
-              valorPago: valorPago !== undefined ? valorPago : (latestMaintenance.valorPago || 0),
-              saldoDevedor: saldoDevedor
+              valorPago,
+              saldoDevedor,
+              serviceValue,
+              serviceType: clientData.serviceType || latestMaintenance.serviceType,
+              notes: clientData.notes !== undefined && clientData.notes !== null
+                ? clientData.notes
+                : latestMaintenance.notes,
+              oilType: clientData.oilType || latestMaintenance.oilType,
             }
           );
         }
@@ -1323,11 +1423,6 @@ export default function App() {
 
   // --- Views ---
 
-  const filteredClients = clients.filter(c => 
-    c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    c.bikeModel.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   const dashboardStats = useMemo(() => {
     const today = new Date();
     const currentMonth = today.getMonth();
@@ -1358,39 +1453,52 @@ export default function App() {
   }, [warranties]);
 
   // 💰 Cash Flow Stats: Recebido vs A Receber (per month + overall)
+  // Regra: Total Recebido (mês) = somente manutenções com status Pago no mês (valor do serviço).
+  // A Receber = somente saldo pendente de serviços com status Pendente (sem misturar Pago/Parcial).
   const cashFlowStats = useMemo(() => {
     const today = new Date();
     const currentMonth = today.getMonth();
     const currentYear = today.getFullYear();
     
-    let totalRecebidoMes = 0;      // Valor pago este mês
-    let aReceber = 0;               // Saldo devedor aberto (geral)
-    let faturamentoBrutoMes = 0;   // Valor total de serviços this month
+    let totalRecebidoMes = 0;
+    let aReceber = 0;
+    let parcialAReceber = 0;
+    let faturamentoBrutoMes = 0;
     
     maintenances.forEach(m => {
-      // Check if maintenance is in current month
       const mDate = parseISO(m.date);
       const isCurrentMonth = mDate.getMonth() === currentMonth && mDate.getFullYear() === currentYear;
-      
-      // Calculate A Receber (all open balances)
-      aReceber += m.saldoDevedor || 0;
-      
-      // Month totals
+      const status = m.statusPagamento;
+
+      if (status === 'Pendente') {
+        aReceber += m.saldoDevedor || 0;
+      }
+
+      if (status === 'Parcial') {
+        parcialAReceber += m.saldoDevedor || 0;
+      }
+
       if (isCurrentMonth) {
-        totalRecebidoMes += m.valorPago || 0;
-        faturamentoBrutoMes += m.serviceValue || 0;
+        const svc = Number(m.serviceValue) || 0;
+        faturamentoBrutoMes += svc;
+        if (status === 'Pago') {
+          totalRecebidoMes += svc;
+        } else if (status === 'Parcial') {
+          totalRecebidoMes += Number(m.valorPago) || 0;
+        }
       }
     });
     
     return { 
-      totalRecebidoMes, 
-      aReceber, 
-      faturamentoBrutoMes,
-      // Useful derived values
+      totalRecebidoMes: Math.round(totalRecebidoMes * 100) / 100, 
+      aReceber: Math.round(aReceber * 100) / 100, 
+      parcialAReceber: Math.round(parcialAReceber * 100) / 100,
+      faturamentoBrutoMes: Math.round(faturamentoBrutoMes * 100) / 100,
       aReceberMes: maintenances
         .filter(m => {
           const mDate = parseISO(m.date);
-          return mDate.getMonth() === currentMonth && mDate.getFullYear() === currentYear;
+          const inMonth = mDate.getMonth() === currentMonth && mDate.getFullYear() === currentYear;
+          return inMonth && m.statusPagamento === 'Pendente';
         })
         .reduce((sum, m) => sum + (m.saldoDevedor || 0), 0)
     };
@@ -1402,20 +1510,41 @@ export default function App() {
   const warningClients = useMemo(() => clients.filter(c => c.status === 'WARNING'), [clients]);
   const pendingAlerts = useMemo(() => AlertService.getDailyPendingAlerts(clients), [clients]);
 
-  // Top Serviços ranking - MUST be at top level, not inside JSX
+  // Top Serviços ranking — apenas serviços com status Pago (valor faturado = serviceValue)
   const topServicesData = useMemo(() => {
     const servicesByRevenue = maintenances.reduce((acc: Record<string, number>, m) => {
-      acc[m.serviceType] = (acc[m.serviceType] || 0) + (m.valorPago || 0);
+      if (m.statusPagamento !== 'Pago') return acc;
+      acc[m.serviceType] = (acc[m.serviceType] || 0) + (Number(m.serviceValue) || 0);
       return acc;
     }, {});
     return Object.entries(servicesByRevenue)
-      .sort(([,a], [,b]) => b - a)
+      .sort(([, a], [, b]) => b - a)
       .slice(0, 5)
       .map(([service, revenue], index) => ({
         service,
         revenue,
         position: index + 1
       }));
+  }, [maintenances]);
+
+  const getTopServiceSubRows = useCallback((serviceType: string) => {
+    const paid = maintenances.filter(m => m.serviceType === serviceType && m.statusPagamento === 'Pago');
+    const isOil = serviceType.trim().toLowerCase() === 'troca de óleo';
+    if (isOil) {
+      const map = new Map<string, { count: number; revenue: number }>();
+      paid.forEach(m => {
+        const label = m.oilType && m.oilType !== 'N/A' ? m.oilType : 'Não informado';
+        const prev = map.get(label) || { count: 0, revenue: 0 };
+        prev.count += 1;
+        prev.revenue += Number(m.serviceValue) || 0;
+        map.set(label, prev);
+      });
+      return Array.from(map.entries())
+        .map(([label, v]) => ({ label, ...v }))
+        .sort((a, b) => b.revenue - a.revenue);
+    }
+    const revenue = paid.reduce((s, m) => s + (Number(m.serviceValue) || 0), 0);
+    return paid.length ? [{ label: 'Todos os registros deste tipo', count: paid.length, revenue }] : [];
   }, [maintenances]);
 
   // 💰 FINANCIAL STATISTICS (for Dashboard) - Lógica Corrigida
@@ -1475,6 +1604,41 @@ export default function App() {
     });
     return map;
   }, [maintenances]);
+
+  const clientsSortedByBalance = useMemo(() => {
+    return [...clients].sort((a, b) => {
+      const da = clientBalanceMap.get(a.id) || 0;
+      const db = clientBalanceMap.get(b.id) || 0;
+      if (db !== da) return db - da;
+      return (a.name || '').localeCompare(b.name || '', 'pt-BR');
+    });
+  }, [clients, clientBalanceMap]);
+
+  const filteredClients = useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return clientsSortedByBalance;
+    return clientsSortedByBalance.filter(c =>
+      c.name.toLowerCase().includes(q) ||
+      c.bikeModel.toLowerCase().includes(q)
+    );
+  }, [clientsSortedByBalance, searchQuery]);
+
+  const historyServiceTypeOptions = useMemo(() => {
+    const fromRecords = [...new Set(maintenances.map(m => m.serviceType).filter(Boolean))] as string[];
+    const extra = settings?.serviceTypes || [];
+    const fromEditing = editingClient?.lastServiceType ? [editingClient.lastServiceType] : [];
+    return [...new Set([...DEFAULT_SERVICE_TYPES, ...extra, ...fromRecords, ...fromEditing])].sort((a, b) =>
+      a.localeCompare(b, 'pt-BR')
+    );
+  }, [maintenances, settings?.serviceTypes, editingClient?.lastServiceType]);
+
+  const scheduleClientHistoryRows = useMemo(() => {
+    if (!editingClient) return [];
+    return maintenances
+      .filter(m => m.clientId === editingClient.id)
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 12);
+  }, [editingClient?.id, maintenances]);
 
   // Group maintenances by client for history accordion view
   const groupedHistory = useMemo(() => {
@@ -1560,9 +1724,9 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-background-dark text-slate-100 pb-24 font-display">
+      <div className="app-shell min-h-screen bg-background-dark text-slate-100 pb-24 font-display">
         {/* Header */}
-        <header className="sticky top-0 z-50 bg-background-dark/80 backdrop-blur-md border-b border-primary/10 px-4 py-3 flex items-center justify-between">
+        <header className="app-header sticky top-0 z-50 bg-background-dark/80 backdrop-blur-md border-b border-primary/10 px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="bg-primary/20 p-1.5 rounded-lg">
               <Bike className="text-primary w-5 h-5" />
@@ -1589,19 +1753,26 @@ export default function App() {
           {view === 'dashboard' && (
             <div className="space-y-8">
               {/* 💰 Fluxo de Caixa: Recebido vs A Receber */}
-              <div className="grid grid-cols-2 md:grid-cols-2 gap-3">
-                <div className="bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/20 flex flex-col justify-between">
-                  <p className="text-[9px] font-bold text-emerald-500 uppercase tracking-widest mb-3">💰 Total Recebido</p>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/20 flex flex-col justify-between min-w-0">
+                  <p className="text-[8px] font-bold text-emerald-500 uppercase tracking-widest mb-2">💰 Total Recebido</p>
                   <div>
-                    <p className="text-2xl font-bold text-emerald-400">R$ {cashFlowStats.totalRecebidoMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                    <p className="text-[10px] text-emerald-600/70 mt-1">Este mês</p>
+                    <p className="text-xl font-bold text-emerald-400 leading-tight">R$ {cashFlowStats.totalRecebidoMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    <p className="text-[10px] text-emerald-600/70 mt-1">Este mês · Pago + Parcial</p>
                   </div>
                 </div>
-                <div className="bg-amber-500/10 p-4 rounded-2xl border border-amber-500/20 flex flex-col justify-between">
-                  <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest mb-3">⏳ A Receber</p>
+                <div className="bg-orange-500/10 p-3 rounded-2xl border border-orange-500/20 flex flex-col justify-between min-w-0">
+                  <p className="text-[8px] font-bold text-orange-500 uppercase tracking-widest mb-2">⚖️ Parciais a Receber</p>
                   <div>
-                    <p className="text-2xl font-bold text-amber-400">R$ {cashFlowStats.aReceber.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-                    <p className="text-[10px] text-amber-600/70 mt-1">Pendências abertas</p>
+                    <p className="text-xl font-bold text-orange-400 leading-tight">R$ {cashFlowStats.parcialAReceber.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    <p className="text-[10px] text-orange-600/70 mt-1">Saldo de serviços com pagamento parcial</p>
+                  </div>
+                </div>
+                <div className="bg-amber-500/10 p-3 rounded-2xl border border-amber-500/20 flex flex-col justify-between min-w-0">
+                  <p className="text-[8px] font-bold text-amber-500 uppercase tracking-widest mb-2">⏳ A Receber</p>
+                  <div>
+                    <p className="text-xl font-bold text-amber-400 leading-tight">R$ {cashFlowStats.aReceber.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    <p className="text-[10px] text-amber-600/70 mt-1">Saldo em aberto · só Pendente</p>
                   </div>
                 </div>
               </div>
@@ -1720,22 +1891,53 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Top Serviços */}
+              {/* Top Serviços + subcategorias (óleo) */}
               <div className="bg-slate-800/40 p-3.5 rounded-xl border border-slate-700/50">
                 <div className="flex justify-between items-center mb-3">
-                  <h3 className="font-bold text-sm">🏆 Top Serviços (Receita Total)</h3>
-                  <p className="text-[9px] text-slate-500 uppercase font-bold tracking-widest">Ranking</p>
+                  <h3 className="font-bold text-sm">🏆 Top Serviços (pagos)</h3>
+                  <p className="text-[9px] text-slate-500 uppercase font-bold tracking-widest">Toque para detalhar</p>
                 </div>
                 <div className="space-y-2">
-                  {topServicesData.map(({ service, revenue, position }) => (
-                    <div key={service} className="flex items-center justify-between p-2 bg-slate-900/30 rounded-lg border border-slate-700/30">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">#{position}</span>
-                        <span className="text-sm font-semibold text-white">{service}</span>
+                  {topServicesData.length === 0 ? (
+                    <p className="text-center text-[11px] text-slate-500 py-4">Nenhum serviço com status Pago para exibir no ranking.</p>
+                  ) : (
+                  topServicesData.map(({ service, revenue, position }) => {
+                    const expanded = expandedTopService === service;
+                    const subRows = getTopServiceSubRows(service);
+                    return (
+                      <div key={service} className="rounded-lg border border-slate-700/30 bg-slate-900/30 overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setExpandedTopService(expanded ? null : service)}
+                          className="w-full flex items-center justify-between p-2 text-left hover:bg-slate-800/40 transition-colors gap-2"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <ChevronDown className={cn('w-4 h-4 shrink-0 text-slate-500 transition-transform', expanded && 'rotate-180')} />
+                            <span className="text-xs font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded shrink-0">#{position}</span>
+                            <span className="text-sm font-semibold text-white truncate">{service}</span>
+                          </div>
+                          <span className="text-sm font-bold text-primary shrink-0">R$ {revenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                        </button>
+                        {expanded && subRows.length > 0 && (
+                          <div className="border-t border-slate-700/30 px-2 pb-2 pt-1 space-y-1.5">
+                            <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest px-1">
+                              {service.trim().toLowerCase() === 'troca de óleo' ? 'Óleos / produtos' : 'Resumo'}
+                            </p>
+                            {subRows.map(row => (
+                              <div key={row.label} className="flex items-center justify-between gap-2 rounded-md bg-slate-950/40 px-2 py-1.5 text-[11px]">
+                                <span className="text-slate-300 truncate pr-2">{row.label}</span>
+                                <div className="flex items-center gap-3 shrink-0 text-slate-400">
+                                  <span>{row.count}×</span>
+                                  <span className="font-bold text-primary tabular-nums">R$ {row.revenue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <span className="text-sm font-bold text-primary">R$ {revenue.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                  ))}
+                    );
+                  })
+                  )}
                 </div>
               </div>
 
@@ -1912,7 +2114,7 @@ export default function App() {
                             <span className="text-[10px] font-bold uppercase hidden sm:inline">Avisar</span>
                           </button>
                           <button 
-                            onClick={() => { setEditingClient(client); setView('new-client'); }}
+                            onClick={() => { setEditingClient(enrichClientForEdit(client)); setView('new-client'); }}
                             className="p-2 rounded-lg bg-slate-700/50 text-slate-300 hover:bg-slate-700 transition-colors"
                           >
                             <ChevronRight className="w-5 h-5" />
@@ -2004,8 +2206,8 @@ export default function App() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {(clients || []).map(client => (
-                    <div key={client.id} className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 space-y-3 hover:border-primary/50 transition-all cursor-pointer group" onClick={() => { setEditingClient(client); setView('clients-schedule-add'); }}>
+                  {(clientsSortedByBalance || []).map(client => (
+                    <div key={client.id} className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 space-y-3 hover:border-primary/50 transition-all cursor-pointer group" onClick={() => { setEditingClient(enrichClientForEdit(client)); setView('clients-schedule-add'); }}>
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
                           <h3 className="font-bold text-sm group-hover:text-primary transition-colors">{client?.name}</h3>
@@ -2034,7 +2236,7 @@ export default function App() {
                         <button 
                           onClick={(e) => { 
                             e.stopPropagation();
-                            setEditingClient(client); 
+                            setEditingClient(enrichClientForEdit(client)); 
                             setView('clients-schedule-add'); 
                           }}
                           className="flex-1 px-2 py-1.5 rounded-lg bg-slate-700/50 text-slate-300 hover:bg-primary/20 hover:text-primary transition-colors text-[9px] font-bold"
@@ -2073,29 +2275,36 @@ export default function App() {
                 <button onClick={() => setView('clients-schedule')} className="p-1.5 rounded-full hover:bg-slate-800 transition-colors">
                   <ArrowLeft className="w-5 h-5" />
                 </button>
-                <h2 className="text-xl font-bold">{editingClient ? 'Editar Cliente' : 'Adicionar Cliente'}</h2>
+                <div>
+                  <h2 className="text-xl font-bold">{editingClient ? 'Ficha do cliente' : 'Novo cliente'}</h2>
+                  <p className="text-[10px] text-slate-500 mt-0.5">Dados de relacionamento. Serviços e pagamentos ficam em &quot;Novo registro&quot;.</p>
+                </div>
               </div>
 
               <form 
+                key={editingClient?.id || 'schedule-new'}
                 onSubmit={(e) => {
                   e.preventDefault();
                   const formData = new FormData(e.currentTarget);
+                  const kmRaw = (formData.get('mileageKm') as string)?.replace(/\D/g, '');
+                  const mileageKmParsed = kmRaw ? parseInt(kmRaw, 10) : NaN;
                   handleSaveClient({
                     name: formData.get('name') as string,
                     bikeModel: formData.get('bikeModel') as string,
                     contact: formData.get('contact') as string,
-                    oilType: formData.get('oilType') as string,
-                    oilPrice: parseFloat(formData.get('oilPrice') as string) || 0,
-                    recurrenceDays: parseInt(formData.get('recurrenceDays') as string) || 29,
-                    notes: formData.get('notes') as string
+                    email: (formData.get('email') as string) || '',
+                    vehiclePlate: (formData.get('vehiclePlate') as string) || '',
+                    mileageKm: Number.isFinite(mileageKmParsed) ? mileageKmParsed : undefined,
+                    notes: formData.get('notes') as string,
+                    _scheduleProfile: true,
                   });
                   setView('clients-schedule');
                 }}
                 className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50 space-y-4"
               >
-                <div className="space-y-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome do Cliente</label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome completo</label>
                     <input 
                       name="name" 
                       defaultValue={editingClient?.name || ''} 
@@ -2106,7 +2315,29 @@ export default function App() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Modelo da Moto</label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">WhatsApp</label>
+                    <input 
+                      name="contact" 
+                      defaultValue={editingClient?.contact || ''} 
+                      required 
+                      placeholder="(69) 99999-9999" 
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" 
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">E-mail</label>
+                    <input 
+                      name="email" 
+                      type="email"
+                      defaultValue={editingClient?.email || ''} 
+                      placeholder="cliente@email.com" 
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" 
+                    />
+                  </div>
+
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Veículo (modelo)</label>
                     <input 
                       name="bikeModel" 
                       defaultValue={editingClient?.bikeModel || ''} 
@@ -2117,62 +2348,67 @@ export default function App() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">WhatsApp</label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Placa</label>
                     <input 
-                      name="contact" 
-                      defaultValue={editingClient?.contact || ''} 
-                      required 
-                      placeholder="Ex: (69) 99999-9999" 
-                      className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" 
+                      name="vehiclePlate" 
+                      defaultValue={editingClient?.vehiclePlate || ''} 
+                      placeholder="ABC1D23" 
+                      maxLength={8}
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none uppercase" 
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Tipo de Óleo</label>
-                    <select name="oilType" defaultValue={editingClient?.oilType || '10W30'} className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none">
-                      {(settings?.oilTypes || []).map(type => (
-                        <option key={type} value={type}>{type}</option>
-                      ))}
-                      {!settings?.oilTypes || settings.oilTypes.length === 0 && (
-                        <option value="10W30">10W30</option>
-                      )}
-                    </select>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Preço Padrão (R$)</label>
+                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Quilometragem</label>
                     <input 
-                      name="oilPrice" 
-                      type="number" 
-                      step="0.01" 
-                      defaultValue={editingClient?.oilPrice || 0} 
+                      name="mileageKm" 
+                      type="number"
+                      min={0}
+                      defaultValue={editingClient?.mileageKm !== undefined ? String(editingClient.mileageKm) : ''} 
+                      placeholder="Ex: 12500" 
                       className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" 
                     />
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Recorrência (Dias)</label>
-                    <input 
-                      name="recurrenceDays" 
-                      type="number" 
-                      defaultValue={editingClient?.recurrenceDays || 29} 
-                      required 
-                      className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" 
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
+                  <div className="space-y-1.5 sm:col-span-2">
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Observações</label>
                     <textarea 
                       name="notes" 
                       defaultValue={editingClient?.lastServiceNotes || ''} 
-                      placeholder="Informações adicionais..." 
-                      className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none h-16" 
+                      placeholder="Preferências, restrições, histórico relevante..." 
+                      className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none min-h-[88px]" 
                     />
                   </div>
                 </div>
 
-                <div className="flex gap-3 pt-2">
+                {editingClient && scheduleClientHistoryRows.length > 0 && (
+                  <div className="rounded-xl border border-slate-700/50 bg-slate-900/30 p-3 space-y-2">
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Últimos serviços registrados</p>
+                    <ul className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {scheduleClientHistoryRows.map(m => (
+                        <li key={m.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 text-[11px] border-b border-slate-800/80 pb-2 last:border-0 last:pb-0">
+                          <div>
+                            <span className="font-semibold text-slate-200">{m.serviceType}</span>
+                            <span className="text-slate-500 ml-2">{safeFormat(m.date, 'dd/MM/yyyy')}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-x-3 text-slate-400">
+                            <span>R$ {(Number(m.serviceValue) || 0).toFixed(2)}</span>
+                            <span className="text-slate-500">{m.statusPagamento || '—'}</span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2">
+                  <button 
+                    type="button" 
+                    onClick={() => setView('clients-schedule')} 
+                    className="w-full sm:w-auto px-6 bg-slate-700/50 py-3 rounded-xl font-bold hover:bg-slate-700 transition-all text-sm"
+                  >
+                    Cancelar
+                  </button>
                   <button 
                     type="submit" 
                     disabled={isSaving}
@@ -2184,15 +2420,8 @@ export default function App() {
                         Salvando...
                       </>
                     ) : (
-                      editingClient ? 'Salvar Alterações' : 'Adicionar Cliente'
+                      editingClient ? 'Salvar ficha' : 'Cadastrar cliente'
                     )}
-                  </button>
-                  <button 
-                    type="button" 
-                    onClick={() => setView('clients-schedule')} 
-                    className="px-6 bg-slate-700/50 py-3 rounded-xl font-bold hover:bg-slate-700 transition-all text-sm"
-                  >
-                    Cancelar
                   </button>
                 </div>
               </form>
@@ -2257,11 +2486,9 @@ export default function App() {
                       className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-1.5 text-[10px] focus:ring-1 focus:ring-primary outline-none"
                     >
                       <option value="all">Todos</option>
-                      <option value="Troca de Óleo">Troca de Óleo</option>
-                      <option value="Revisão">Revisão</option>
-                      <option value="Pneus">Pneus</option>
-                      <option value="Freios">Freios</option>
-                      <option value="Outros">Outros</option>
+                      {historyServiceTypeOptions.map((opt) => (
+                        <option key={opt} value={opt}>{opt}</option>
+                      ))}
                     </select>
                   </div>
                   <div className="space-y-1">
@@ -2782,7 +3009,42 @@ export default function App() {
 
           {view === 'settings' && (
             <div className="space-y-4 max-w-2xl mx-auto">
-              <h2 className="text-xl font-bold">Configurações</h2>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <h2 className="text-xl font-bold">Configurações</h2>
+                <div className="flex flex-col gap-2 sm:items-end">
+                  {user?.email && (
+                    <div className="flex max-w-full items-center gap-2 rounded-xl border border-slate-700/60 bg-slate-900/40 px-3 py-2 text-xs">
+                      <Mail className="h-4 w-4 shrink-0 text-primary" />
+                      <span className="text-slate-500">Conta Google:</span>
+                      <span className="truncate font-medium text-slate-200">{user.email}</span>
+                    </div>
+                  )}
+                  <div className="inline-flex rounded-xl border border-slate-700 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setColorMode('dark')}
+                      className={cn(
+                        'flex items-center gap-1.5 px-3 py-2 text-xs font-bold transition-colors',
+                        colorMode === 'dark' ? 'bg-primary text-white' : 'bg-slate-900/50 text-slate-400 hover:text-slate-200'
+                      )}
+                    >
+                      <Moon className="h-3.5 w-3.5" />
+                      Escuro
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setColorMode('light')}
+                      className={cn(
+                        'flex items-center gap-1.5 px-3 py-2 text-xs font-bold transition-colors',
+                        colorMode === 'light' ? 'bg-primary text-white' : 'bg-slate-900/50 text-slate-400 hover:text-slate-200'
+                      )}
+                    >
+                      <Sun className="h-3.5 w-3.5" />
+                      Claro
+                    </button>
+                  </div>
+                </div>
+              </div>
               
               {/* Subscription Status (for non-admins) */}
               {userProfile?.role !== 'admin' && userProfile?.subscriptionExpiresAt && (
@@ -2921,14 +3183,14 @@ export default function App() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {(settings?.oilTypes || []).map((type, index) => (
-                    <div key={index} className="bg-slate-900 px-3 py-1 rounded-lg border border-slate-700 flex items-center gap-2 group">
+                    <div key={index} className="bg-slate-700/70 text-slate-100 px-3 py-1 rounded-lg border border-slate-600 flex items-center gap-2 group">
                       <span className="text-sm">{type}</span>
                       <button 
                         onClick={() => {
                           const newTypes = (settings?.oilTypes || []).filter((_, i) => i !== index);
                           setSettings({ ...settings, oilTypes: newTypes });
                         }}
-                        className="text-slate-500 hover:text-red-500 transition-colors"
+                        className="text-slate-300 hover:text-red-400 transition-colors"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -2974,14 +3236,14 @@ export default function App() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {(settings?.warrantyCategories || []).map((cat, index) => (
-                    <div key={index} className="bg-slate-900 px-3 py-1 rounded-lg border border-slate-700 flex items-center gap-2 group">
+                    <div key={index} className="bg-slate-700/70 text-slate-100 px-3 py-1 rounded-lg border border-slate-600 flex items-center gap-2 group">
                       <span className="text-sm">{cat}</span>
                       <button 
                         onClick={() => {
                           const newCats = (settings?.warrantyCategories || []).filter((_, i) => i !== index);
                           setSettings({ ...settings, warrantyCategories: newCats });
                         }}
-                        className="text-slate-500 hover:text-red-500 transition-colors"
+                        className="text-slate-300 hover:text-red-400 transition-colors"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -3019,11 +3281,62 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700">
-                <h3 className="font-bold mb-4">Sobre o App</h3>
-                <p className="text-sm text-slate-400">MotoFix Recorrentes v2.0</p>
-                <p className="text-sm text-slate-400">Desenvolvido para gerenciamento de troca de óleo e garantias de serviço.</p>
-                <p className="text-xs text-slate-500 mt-4">Todos os direitos reservados.</p>
+              <div className="rounded-2xl border border-slate-700/80 bg-gradient-to-br from-slate-800/80 to-slate-900/60 p-6 space-y-5">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Institucional</p>
+                    <h3 className="text-lg font-bold text-white">Sobre o MotoFix</h3>
+                  </div>
+                  <span className="w-fit rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] font-bold text-slate-300">
+                    Versão {APP_VERSION}
+                  </span>
+                </div>
+                <p className="text-sm leading-relaxed text-slate-300">
+                  O MotoFix é uma plataforma de gestão para oficinas e centros automotivos que unifica clientes, serviços recorrentes,
+                  alertas, histórico financeiro e garantias em um fluxo simples — pensado para equipes que atendem no balcão e no telefone.
+                </p>
+                <ul className="grid gap-2 text-sm text-slate-400 sm:grid-cols-2">
+                  <li className="flex gap-2 rounded-lg bg-slate-900/40 px-3 py-2 border border-slate-700/40">
+                    <span className="text-primary font-bold">•</span>
+                    Indicadores alinhados ao status real de pagamento.
+                  </li>
+                  <li className="flex gap-2 rounded-lg bg-slate-900/40 px-3 py-2 border border-slate-700/40">
+                    <span className="text-primary font-bold">•</span>
+                    Agenda com ficha de cliente separada do cadastro de serviço.
+                  </li>
+                  <li className="flex gap-2 rounded-lg bg-slate-900/40 px-3 py-2 border border-slate-700/40">
+                    <span className="text-primary font-bold">•</span>
+                    Ranking de serviços com detalhe por óleo quando aplicável.
+                  </li>
+                  <li className="flex gap-2 rounded-lg bg-slate-900/40 px-3 py-2 border border-slate-700/40">
+                    <span className="text-primary font-bold">•</span>
+                    Modo claro e escuro para melhor leitura em qualquer ambiente.
+                  </li>
+                </ul>
+                <div className="flex flex-col gap-3 border-t border-slate-700/50 pt-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-col gap-1.5 sm:gap-2">
+                    <span className="font-semibold text-slate-400">Suporte</span>
+                    <div className="flex flex-col gap-1 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-1">
+                      <a
+                        href="https://wa.me/556999944024"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-primary hover:underline font-medium"
+                      >
+                        <MessageCircle className="h-3.5 w-3.5 shrink-0" />
+                        WhatsApp: +55 69 99994-4024
+                      </a>
+                      <a
+                        href="mailto:boxmotorsoficial@gmail.com"
+                        className="inline-flex items-center gap-1.5 text-primary hover:underline font-medium break-all"
+                      >
+                        <Mail className="h-3.5 w-3.5 shrink-0" />
+                        boxmotorsoficial@gmail.com
+                      </a>
+                    </div>
+                  </div>
+                  <span className="text-slate-600 shrink-0">© {new Date().getFullYear()} MotoFix</span>
+                </div>
               </div>
             </div>
           )}
@@ -3038,16 +3351,21 @@ export default function App() {
               </div>
 
               <form 
+                key={editingClient?.id || 'new-service'}
                 onSubmit={(e) => {
                   e.preventDefault();
                   const formData = new FormData(e.currentTarget);
+                  const isOil = newClientServiceType.trim().toLowerCase() === 'troca de óleo';
+                  const oilTypeVal = isOil
+                    ? ((formData.get('oilType') as string) || editingClient?.oilType || settings?.oilTypes?.[0] || '10W30')
+                    : 'N/A';
                   handleSaveClient({
                     name: formData.get('name') as string,
                     bikeModel: formData.get('bikeModel') as string,
                     contact: formData.get('contact') as string,
-                    oilType: formData.get('oilType') as string,
+                    oilType: oilTypeVal,
                     oilPrice: parseFloat(formData.get('oilPrice') as string) || 0,
-                    serviceType: formData.get('serviceType') as string,
+                    serviceType: newClientServiceType,
                     serviceValue: parseFloat(formData.get('serviceValue') as string) || 0,
                     statusPagamento: (formData.get('statusPagamento') as 'Pago' | 'Pendente' | 'Parcial') || 'Pago',
                     valorPago: parseFloat(formData.get('valorPago') as string) || 0,
@@ -3115,19 +3433,47 @@ export default function App() {
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Modelo da Moto</label>
                     <input name="bikeModel" defaultValue={editingClient?.bikeModel} required placeholder="Ex: Honda CG 160" className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
                   </div>
-                  <div className="space-y-1.5">
+                  <div className="space-y-1.5 md:col-span-2">
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Tipo de Serviço</label>
-                    <select name="serviceType" defaultValue={editingClient?.lastServiceType || 'Troca de Óleo'} className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none">
-                      <option value="Troca de Óleo">Troca de Óleo</option>
-                      <option value="Revisão">Revisão</option>
-                      <option value="Pneus">Pneus</option>
-                      <option value="Freios">Freios</option>
-                      <option value="Outros">Outros</option>
-                    </select>
+                    <div className="flex gap-2 items-stretch">
+                      <select
+                        value={newClientServiceType}
+                        onChange={(e) => setNewClientServiceType(e.target.value)}
+                        className="flex-1 min-w-0 bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
+                      >
+                        {historyServiceTypeOptions.map((opt) => (
+                          <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => void handleAddCustomServiceType()}
+                        title="Adicionar categoria"
+                        className="shrink-0 px-3 rounded-xl bg-slate-700/80 hover:bg-slate-600 text-white font-bold text-lg leading-none border border-slate-600"
+                      >
+                        +
+                      </button>
+                    </div>
+                    <p className="text-[8px] text-slate-600 px-1">Em Histórico, use o filtro &quot;Serviço&quot; para listar por categoria.</p>
                   </div>
+                  {newClientServiceType.trim().toLowerCase() === 'troca de óleo' && (
+                    <div className="space-y-1.5 md:col-span-2">
+                      <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Marca / tipo de óleo</label>
+                      <select
+                        name="oilType"
+                        required
+                        defaultValue={editingClient?.oilType || settings?.oilTypes?.[0] || '10W30'}
+                        className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
+                      >
+                        {(settings?.oilTypes || []).map((type) => (
+                          <option key={type} value={type}>{type}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Valor do Serviço (R$)</label>
-                    <input name="serviceValue" type="number" step="0.01" defaultValue={editingClient?.serviceValue || 0} required className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
+                    <input name="serviceValue" type="number" step="0.01" defaultValue={editingClient?.serviceValue ?? editingClient?.lastServiceValue ?? 0} required className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Status do Pagamento</label>
@@ -3143,11 +3489,9 @@ export default function App() {
                       name="valorPago" 
                       type="number" 
                       step="0.01" 
-                      value={valorPagoInput === '' ? '' : valorPagoInput}
-                      onChange={(e) => setValorPagoInput(e.target.value)}
+                      defaultValue={editingClient?.valorPago ?? ''}
                       className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none" 
                     />
-                    <p className="text-[8px] text-slate-600 px-1">Deixe vazio para limpar</p>
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Data do Serviço</label>
@@ -3171,7 +3515,7 @@ export default function App() {
 
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Observações</label>
-                  <textarea name="notes" placeholder="Detalhes adicionais do serviço..." className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none h-20" />
+                  <textarea name="notes" defaultValue={editingClient?.lastServiceNotes || ''} placeholder="Detalhes adicionais do serviço..." className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none h-20" />
                 </div>
 
                 <div className="flex gap-3 pt-2">
@@ -3310,7 +3654,7 @@ export default function App() {
         </main>
 
         {/* Bottom Nav */}
-        <nav className="fixed bottom-0 left-0 right-0 bg-background-dark/95 backdrop-blur-xl border-t border-slate-800/50 px-6 py-2 z-50">
+        <nav className="app-bottom-nav fixed bottom-0 left-0 right-0 bg-background-dark/95 backdrop-blur-xl border-t border-slate-800/50 px-6 py-2 z-50">
           <div className="max-w-md mx-auto flex justify-between items-center">
             <button 
               onClick={() => setView('dashboard')}
@@ -3327,17 +3671,31 @@ export default function App() {
               <span className="text-[9px] font-bold uppercase tracking-tighter">Serviços</span>
             </button>
             {userProfile?.role === 'admin' ? (
-              <button 
-                onClick={() => setView('admin')}
-                className={cn("flex flex-col items-center gap-0.5 transition-all", view === 'admin' ? 'text-primary scale-110' : 'text-slate-500')}
-              >
-                <Shield className="w-5 h-5" />
-                <span className="text-[9px] font-bold uppercase tracking-tighter">Admin</span>
-              </button>
+              <div className="flex flex-col items-center gap-0.5 min-w-[3.5rem]">
+                <div className="flex gap-0.5 items-center">
+                  <button 
+                    type="button"
+                    onClick={() => setView('warranties')}
+                    className={cn('p-1.5 rounded-lg transition-all', view === 'warranties' ? 'text-primary scale-110 bg-primary/10' : 'text-slate-500 hover:text-slate-300')}
+                    title="Garantias"
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setView('admin')}
+                    className={cn('p-1.5 rounded-lg transition-all', view === 'admin' ? 'text-primary scale-110 bg-primary/10' : 'text-slate-500 hover:text-slate-300')}
+                    title="Admin"
+                  >
+                    <Shield className="w-4 h-4" />
+                  </button>
+                </div>
+                <span className="text-[8px] font-bold uppercase tracking-tighter text-slate-500 leading-none text-center">Gestão</span>
+              </div>
             ) : (
               <button 
                 onClick={() => setView('warranties')}
-                className={cn("flex flex-col items-center gap-0.5 transition-all", view === 'warranties' ? 'text-primary scale-110' : 'text-slate-500')}
+                className={cn('flex flex-col items-center gap-0.5 transition-all', view === 'warranties' ? 'text-primary scale-110' : 'text-slate-500')}
               >
                 <ShieldCheck className="w-5 h-5" />
                 <span className="text-[9px] font-bold uppercase tracking-tighter">Garantias</span>

@@ -7,6 +7,12 @@ export interface Client {
   oilType: string;
   oilPrice: number;
   contact: string; // Telefone do cliente
+  /** E-mail do cliente (cadastro / relacionamento) */
+  email?: string;
+  /** Placa do veículo */
+  vehiclePlate?: string;
+  /** Quilometragem atual informada pelo cliente */
+  mileageKm?: number;
   lastMaintenanceDate: string;
   nextMaintenanceDate: string;
   recurrenceDays: number;
@@ -74,6 +80,10 @@ export interface Settings {
   userId: string;
   whatsappTemplate: string;
   oilTypes: string[];
+  /** Tipos extras de serviço (além dos padrões do app); usados no cadastro e filtros. */
+  serviceTypes?: string[];
+  /** E-mail institucional da oficina (ex.: contato@moto.com) */
+  businessEmail?: string;
   warrantyCategories: string[];
   businessName?: string;
   businessPhone?: string;

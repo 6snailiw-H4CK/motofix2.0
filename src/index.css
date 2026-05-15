@@ -12,6 +12,113 @@
     @apply bg-background-dark text-slate-100 antialiased;
   }
 
+  html.light {
+    --color-background-dark: #f8fafc;
+  }
+
+  html.light body {
+    @apply bg-slate-100 text-slate-900;
+  }
+
+  html.light .app-shell,
+  html.light .bg-background-dark,
+  html.light .bg-background-dark\/80,
+  html.light .bg-background-dark\/95 {
+    background-color: #f1f5f9 !important;
+    color: #0f172a;
+  }
+
+  html.light .app-header {
+    background-color: rgba(255, 255, 255, 0.92);
+    border-bottom-color: rgba(251, 146, 60, 0.22);
+  }
+
+  html.light .app-bottom-nav {
+    background-color: rgba(241, 245, 249, 0.97);
+    border-top-color: #e2e8f0;
+  }
+
+  html.light .bg-slate-800\/40,
+  html.light .bg-slate-800\/30,
+  html.light .bg-slate-800\/50,
+  html.light .bg-slate-900\/50,
+  html.light .bg-slate-900\/70,
+  html.light .bg-slate-900\/40,
+  html.light .bg-slate-900\/30,
+  html.light .bg-slate-900\/20,
+  html.light .bg-slate-950\/40,
+  html.light .bg-slate-700\/50,
+  html.light .bg-slate-700\/60,
+  html.light .bg-slate-700\/40,
+  html.light .bg-slate-700\/30,
+  html.light .bg-white\/5 {
+    background-color: rgba(248, 250, 252, 0.95) !important;
+  }
+
+  html.light .border-slate-700\/50,
+  html.light .border-slate-700\/40,
+  html.light .border-slate-700\/30,
+  html.light .border-slate-800\/50,
+  html.light .border-slate-700,
+  html.light .border-slate-800,
+  html.light .border-slate-900,
+  html.light .border-slate-950 {
+    border-color: #e2e8f0 !important;
+  }
+
+  html.light .text-slate-100,
+  html.light .bg-slate-900\/50 .text-white,
+  html.light .bg-slate-900\/30 .text-white,
+  html.light .bg-slate-950\/40 .text-white,
+  html.light .bg-slate-800\/50 .text-white,
+  html.light .bg-slate-800\/40 .text-white,
+  html.light .bg-slate-700\/50 .text-white,
+  html.light .bg-slate-700\/60 .text-white,
+  html.light .bg-slate-700\/40 .text-white,
+  html.light .bg-slate-700\/30 .text-white,
+  html.light .bg-white\/5 .text-white {
+    color: #0f172a !important;
+  }
+
+  html.light .text-slate-200,
+  html.light .text-slate-300,
+  html.light .text-slate-500 {
+    color: #475569 !important;
+  }
+
+  html.light .text-slate-400,
+  html.light .text-slate-600 {
+    color: #64748b !important;
+  }
+
+  html.light .text-emerald-400 {
+    color: #059669 !important;
+  }
+
+  html.light .text-amber-400 {
+    color: #d97706 !important;
+  }
+
+  html.light .text-blue-500 {
+    color: #2563eb !important;
+  }
+
+  html.light .text-purple-500 {
+    color: #7c3aed !important;
+  }
+
+  html.light ::-webkit-scrollbar-thumb {
+    @apply bg-slate-300;
+  }
+
+  html.light ::-webkit-scrollbar-thumb {
+    @apply bg-slate-300;
+  }
+
+  html.light ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-400;
+  }
+
   /* Custom Scrollbar */
   ::-webkit-scrollbar {
     width: 4px;
