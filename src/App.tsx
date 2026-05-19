@@ -28,7 +28,7 @@ import {
 import { 
   collection, addDoc, query, where, onSnapshot, 
   updateDoc, doc, deleteDoc, getDocs, getDoc,
-  getDocFromServer, serverTimestamp, setDoc, arrayUnion
+  getDocFromServer, serverTimestamp, setDoc, arrayUnion, orderBy, limit
 } from 'firebase/firestore';
 import { 
   signInWithPopup, GoogleAuthProvider, onAuthStateChanged, 
@@ -190,6 +190,7 @@ const AuthScreen = () => {
     'https://wa.me/556999944024?text=Ol%C3%A1%2C+gostaria+de+receber+uma+proposta+do+MotoFix+para+minha+oficina.'
   );
   const [authView, setAuthView] = useState<'landing' | 'login' | 'sales'>('landing');
+  const [isSimplified, setIsSimplified] = useState<boolean>(true);
 
   const navigateToSection = (sectionId: string) => {
     setAuthView('landing');
@@ -223,6 +224,27 @@ const AuthScreen = () => {
     return () => observer.disconnect();
   }, [authView]);
 
+  if (isSimplified) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-slate-100 px-6">
+        <div className="max-w-xl w-full text-center space-y-6">
+          <div className="mx-auto h-20 w-20 overflow-hidden rounded-3xl bg-slate-900 shadow-xl shadow-black/20">
+            <img src="/motofix-logo.svg" alt="MotoFix" className="h-full w-full object-contain bg-slate-950" />
+          </div>
+          <h1 className="text-3xl sm:text-4xl font-extrabold">MotoFix — Gestão para oficinas</h1>
+          <p className="text-slate-400">Uma plataforma para organizar agenda, clientes e finanças. Rápido de começar.</p>
+
+          <div className="space-y-3">
+            <button onClick={() => signInWithPopup(auth, googleProvider)} className="w-full rounded-full bg-white px-6 py-3 text-sm font-semibold text-slate-950">Entrar com Google</button>
+            <button onClick={() => { setIsSimplified(false); setAuthView('sales'); }} className="w-full rounded-full bg-gradient-to-r from-red-500 to-orange-500 px-6 py-3 text-sm font-semibold text-white">Conheça o MotoFix</button>
+          </div>
+
+          <p className="text-xs text-slate-500">Se já for usuário, use o botão "Entrar". Caso contrário, clique em "Conheça o MotoFix" para ver os benefícios.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-slate-950 text-slate-100">
       <div className="parallax-layer pointer-events-none absolute left-1/2 top-0 h-[36rem] w-[36rem] -translate-x-1/2 -translate-y-1/3 rounded-full bg-[#f97316]/20 blur-3xl" style={{ '--parallax-speed': '0.14' } as React.CSSProperties} />
@@ -232,7 +254,9 @@ const AuthScreen = () => {
       <header className="fixed top-0 left-0 right-0 z-50 border-b border-white/10 bg-slate-950/95 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5 lg:px-8">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setAuthView('landing')}>
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-red-600 text-base font-bold text-white shadow-lg shadow-red-600/20">MF</div>
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-900 shadow-lg shadow-black/20 overflow-hidden">
+              <img src="/motofix-logo.svg" alt="MotoFix" className="h-full w-full object-contain" />
+            </div>
             <div>
               <p className="text-sm font-semibold tracking-wide text-white">MotoFix</p>
               <p className="text-[11px] uppercase tracking-[0.3em] text-slate-400">Gestão automotiva</p>
@@ -1711,8 +1735,23 @@ export default function App() {
     const duration = warrantyData.durationMonths || 3;
     const expiryDate = format(addDays(parseISO(serviceDate), duration * 30), "yyyy-MM-dd'T'HH:mm:ss'Z'");
     
-    // Get next warranty number
+    // Get next warranty number using the latest document from Firestore
     const nextNumber = warranties.length > 0 ? Math.max(...warranties.map(w => w.warrantyNumber)) + 1 : 1;
+    let finalWarrantyNumber = editingWarranty?.warrantyNumber ?? nextNumber;
+
+    if (!editingWarranty) {
+      try {
+        const warrantyCollection = collection(db, 'users', user.uid, 'warranties');
+        const latestWarrantySnapshot = await getDocs(query(warrantyCollection, orderBy('warrantyNumber', 'desc'), limit(1)));
+        if (!latestWarrantySnapshot.empty) {
+          const latestWarranty = latestWarrantySnapshot.docs[0].data() as Warranty;
+          finalWarrantyNumber = (typeof latestWarranty.warrantyNumber === 'number' ? latestWarranty.warrantyNumber : nextNumber) + 1;
+        }
+      } catch (error) {
+        console.error('Erro ao obter último número de garantia:', error);
+        finalWarrantyNumber = nextNumber;
+      }
+    }
 
     const finalData = {
       ...warrantyData,
@@ -1721,8 +1760,8 @@ export default function App() {
       serviceDate,
       durationMonths: duration,
       expiryDate,
-      warrantyNumber: warrantyData.warrantyNumber || nextNumber,
-      createdAt: warrantyData.createdAt || format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
+      warrantyNumber: finalWarrantyNumber,
+      createdAt: editingWarranty?.createdAt || format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
     };
 
     try {
