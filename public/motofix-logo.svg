@@ -1,39 +1,31 @@
 ﻿<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <radialGradient id="bgGlow" cx="50%" cy="50%" r="60%">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.08" />
-      <stop offset="100%" stop-color="#000000" stop-opacity="0.7" />
+    <linearGradient id="orangeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fb923c" />
+      <stop offset="100%" stop-color="#f97316" />
+    </linearGradient>
+    <linearGradient id="whiteGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f8fafc" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.20" />
+    </linearGradient>
+    <radialGradient id="bgGlow" cx="50%" cy="50%" r="55%">
+      <stop offset="0%" stop-color="#f97316" stop-opacity="0.20" />
+      <stop offset="100%" stop-color="#0f172a" stop-opacity="0" />
     </radialGradient>
-    <linearGradient id="metalGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#f8fafc" />
-      <stop offset="25%" stop-color="#d1d5db" />
-      <stop offset="50%" stop-color="#94a3b8" />
-      <stop offset="75%" stop-color="#d1d5db" />
-      <stop offset="100%" stop-color="#f8fafc" />
-    </linearGradient>
-    <linearGradient id="redGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#ef4444" />
-      <stop offset="100%" stop-color="#dc2626" />
-    </linearGradient>
   </defs>
-  <rect width="256" height="256" rx="50" fill="#0f172a" />
-  <path d="M41 128h22" stroke="#cbd5e1" stroke-width="12" stroke-linecap="round" />
-  <path d="M193 128h22" stroke="#cbd5e1" stroke-width="12" stroke-linecap="round" />
-  <path d="M128 41v22" stroke="#cbd5e1" stroke-width="12" stroke-linecap="round" />
-  <path d="M128 193v22" stroke="#cbd5e1" stroke-width="12" stroke-linecap="round" />
-  <path d="M75 75l16 16" stroke="#cbd5e1" stroke-width="12" stroke-linecap="round" />
-  <path d="M165 165l16 16" stroke="#cbd5e1" stroke-width="12" stroke-linecap="round" />
-  <path d="M75 181l16-16" stroke="#cbd5e1" stroke-width="12" stroke-linecap="round" />
-  <path d="M165 91l16-16" stroke="#cbd5e1" stroke-width="12" stroke-linecap="round" />
-  <circle cx="128" cy="128" r="70" fill="rgba(248, 113, 28, 0.14)" />
-  <circle cx="128" cy="128" r="58" fill="none" stroke="url(#redGradient)" stroke-width="14" />
-  <path d="M68 190l36-82 59 16 30 44 34-82" fill="none" stroke="url(#redGradient)" stroke-width="16" stroke-linecap="round" />
-  <path d="M170 58l56 36c2 1.3 2.5 4 1.2 6l-24 38c-1.3 2-4 2.5-6 1.2l-50-32c-2-1.3-2.5-4-1.2-6l24-38c1.3-2 4-2.5 6-1.2z" fill="#111827" stroke="#cbd5e1" stroke-width="8" />
-  <path d="M168 61l45 29" stroke="#f97316" stroke-width="6" stroke-linecap="round" />
-  <path d="M181 68l8 18" stroke="#f97316" stroke-width="6" stroke-linecap="round" />
-  <path d="M88 108c8-24 42-32 42-32s47-8 68 24c0 0 16 30-10 54s-82 18-98-16c0 0-8-23-2-30z" fill="url(#metalGradient)" />
-  <path d="M90 114c6-18 28-24 28-24s31-5 44 18c0 0 10 18-6 32s-48 15-56-12c0 0-5-17-2-14z" fill="#111827" opacity="0.35" />
-  <text x="128" y="146" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="46" font-weight="800" fill="#e2e8f0" letter-spacing="-2">Moto</text>
-  <text x="169" y="158" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="48" font-weight="900" fill="url(#redGradient)">Fix</text>
-  <circle cx="128" cy="128" r="96" fill="url(#bgGlow)" />
+
+  <rect width="256" height="256" rx="48" fill="#0f172a" />
+  <circle cx="128" cy="128" r="92" fill="#111827" />
+  <circle cx="128" cy="128" r="92" fill="url(#bgGlow)" />
+  <circle cx="128" cy="128" r="78" fill="#0f172a" stroke="url(#orangeGradient)" stroke-width="10" />
+
+  <path d="M84 164 L106 104 L126 162 L146 104 L168 164" fill="none" stroke="url(#orangeGradient)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" />
+  <path d="M88 146 L88 118 L116 118" stroke="url(#whiteGlow)" stroke-width="8" stroke-linecap="round" />
+  <path d="M168 146 L168 118 L140 118" stroke="url(#whiteGlow)" stroke-width="8" stroke-linecap="round" />
+
+  <circle cx="128" cy="128" r="16" fill="url(#orangeGradient)" />
+  <path d="M128 112 L128 152" stroke="#ffffff" stroke-width="8" stroke-linecap="round" opacity="0.35" />
+  <path d="M112 128 L144 128" stroke="#ffffff" stroke-width="8" stroke-linecap="round" opacity="0.35" />
+
+  <text x="128" y="196" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="700" fill="#f8fafc">MotoFix</text>
 </svg>

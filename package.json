@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx server.ts",
     "start": "node dist/server.js",
-    "build": "vite build && npm run build:server",
+    "build": "node scripts/build.mjs",
+    "build:client": "vite build",
     "build:server": "esbuild server.ts --bundle --platform=node --format=esm --outfile=dist/server.js --packages=external",
     "preview": "vite preview",
     "clean": "rm -rf dist",
@@ -23,7 +24,7 @@
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
-    "firebase": "^12.11.0",
+    "firebase": "^12.13.0",
     "firebase-admin": "^10.3.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",

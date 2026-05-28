@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { browserLocalPersistence, getAuth, GoogleAuthProvider, setPersistence, signInWithPopup, signOut } from 'firebase/auth';
 import { getFirestore, collection, doc, setDoc, getDoc, getDocs, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 
 // Pega as configurações do arquivo .env
@@ -18,6 +18,10 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+
+setPersistence(auth, browserLocalPersistence).catch((error) => {
+  console.warn('Falha ao configurar persistencia local do Firebase Auth:', error);
+});
 
 // Configura o Google Provider para sempre pedir a conta (ajuda no teste)
 googleProvider.setCustomParameters({ prompt: 'select_account' });

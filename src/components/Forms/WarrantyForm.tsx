@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, RefreshCw, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Warranty, Settings } from '../../types';
 import { toast as sonnerToast } from 'sonner';
@@ -9,6 +9,7 @@ interface WarrantyFormProps {
   settings: Settings | null;
   isSaving: boolean;
   onBack: () => void;
+  onManageCategories?: () => void;
   onSubmit: (warrantyData: Partial<Warranty>) => Promise<void>;
 }
 
@@ -17,6 +18,7 @@ export const WarrantyForm: React.FC<WarrantyFormProps> = ({
   settings,
   isSaving,
   onBack,
+  onManageCategories,
   onSubmit
 }) => {
   // 📝 Form field states
@@ -106,6 +108,15 @@ export const WarrantyForm: React.FC<WarrantyFormProps> = ({
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
                 Tipo de Serviço
               </label>
+              {onManageCategories ? (
+                <button
+                  type="button"
+                  onClick={onManageCategories}
+                  className="text-[9px] text-primary hover:underline font-bold uppercase tracking-tighter"
+                >
+                  Gerenciar Lista
+                </button>
+              ) : null}
             </div>
             <select
               value={formServiceType}

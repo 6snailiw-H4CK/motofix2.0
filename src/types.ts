@@ -1,5 +1,29 @@
 export type MaintenanceStatus = 'OK' | 'WARNING' | 'OVERDUE';
 
+export type ColorMode = 'dark' | 'light';
+
+export type AppView =
+  | 'dashboard'
+  | 'dashboard-recurring'
+  | 'dashboard-revenue'
+  | 'dashboard-services'
+  | 'clients'
+  | 'appointments'
+  | 'clients-schedule'
+  | 'clients-schedule-add'
+  | 'history'
+  | 'settings'
+  | 'new-client'
+  | 'new-service'
+  | 'warranties'
+  | 'new-warranty'
+  | 'admin'
+  | 'report'
+  | 'general-report'
+  | 'checkout'
+  | 'subscription-expired'
+  | 'expenses';
+
 export interface Client {
   id: string;
   name: string;
@@ -74,6 +98,28 @@ export interface MaintenanceRecord {
   statusPagamento?: 'Pago' | 'Pendente' | 'Parcial'; // Status do pagamento
   valorPago?: number; // Valor já pago (para pagamentos parciais)
   saldoDevedor?: number; // Saldo devedor (calculado automaticamente)
+}
+
+export interface ExpenseRecord {
+  id: string;
+  description: string;
+  amount: number;
+  paymentMethod: string;
+  date: string;
+  note?: string;
+  userId: string;
+  createdAt: string;
+}
+
+export interface Appointment {
+  id: string;
+  clientName: string;
+  bikeModel: string;
+  scheduledDate: string;
+  address?: string;
+  serviceRequested: string;
+  value?: number;
+  completed?: boolean;
 }
 
 export interface Settings {

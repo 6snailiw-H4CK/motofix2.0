@@ -18,5 +18,34 @@ export default defineConfig(({mode}) => {
     server: {
       hmr: false,
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+
+            const normalizedId = id.replace(/\\/g, '/');
+
+            if (
+              normalizedId.includes('/node_modules/react/') ||
+              normalizedId.includes('/node_modules/react-dom/') ||
+              normalizedId.includes('/node_modules/scheduler/')
+            ) {
+              return 'vendor-react';
+            }
+            if (normalizedId.includes('/node_modules/firebase/') || normalizedId.includes('/node_modules/@firebase/')) return 'vendor-firebase';
+            if (normalizedId.includes('/node_modules/recharts/') || normalizedId.includes('/node_modules/d3-')) return 'vendor-charts';
+            if (normalizedId.includes('/node_modules/jspdf/')) return 'vendor-jspdf';
+            if (normalizedId.includes('/node_modules/html2canvas/')) return 'vendor-html2canvas';
+            if (normalizedId.includes('/node_modules/dompurify/')) return 'vendor-dompurify';
+            if (normalizedId.includes('/node_modules/@stripe/') || normalizedId.includes('/node_modules/stripe/')) return 'vendor-stripe';
+            if (normalizedId.includes('/node_modules/date-fns/')) return 'vendor-date';
+            if (normalizedId.includes('/node_modules/lucide-react/')) return 'vendor-icons';
+
+            return undefined;
+          },
+        },
+      },
+    },
   };
 });

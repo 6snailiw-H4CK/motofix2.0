@@ -1,4 +1,4 @@
-self.addEventListener('install', (event) => {
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
@@ -24,9 +24,9 @@ self.addEventListener('push', (event) => {
   const data = event.data?.json() || {};
   const title = data.title || 'MotoFix';
   const options = {
-    body: data.body || 'Você tem um lembrete de manutenção.',
-    icon: '/favicon.ico',
-    badge: '/favicon.ico',
+    body: data.body || 'Voce tem um lembrete de manutencao.',
+    icon: '/motofix-logo.svg',
+    badge: '/motofix-logo.svg',
     data: { url: data.url || '/' },
     renotify: true,
   };

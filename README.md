@@ -1,83 +1,135 @@
-# MotoFix - Sistema de Gerenciamento de Manutenção de Motos
+# MotoFix 2.0
 
-MotoFix é uma aplicação full-stack moderna desenvolvida para oficinas mecânicas e centros automotivos especializados em motocicletas. O sistema foca na gestão de serviços recorrentes (como troca de óleo), controle de garantias e fidelização de clientes através de lembretes via WhatsApp.
+Sistema web para gestao de oficinas de motocicletas. O app centraliza clientes, servicos, recorrencias de manutencao, agenda, garantias, gastos, lembretes por WhatsApp, dashboard financeiro e administracao de usuarios.
 
-## 🚀 Funcionalidades Principais
+## Documentacao
 
-### 1. Dashboard Inteligente
-- **Visão Geral:** Acompanhamento em tempo real de faturamento mensal e total.
-- **Status de Manutenção:** Indicadores visuais para serviços em dia (OK), próximos ao vencimento (Atenção) e atrasados (Atrasado).
-- **Gráficos de Desempenho:** Visualização mensal de serviços realizados e faturamento através de gráficos interativos (Recharts).
+- `DOCUMENTACAO.md`: memoria tecnica viva, plano de refatoracao e pendencias atuais.
+- `ANALISE_TECNICA_COMPLETA_APP.md`: analise tecnica ampla usada como referencia historica.
+- `README.md`: guia rapido para rodar e entender o projeto.
 
-### 2. Gestão de Clientes e Serviços
-- **Registro de Serviços:** Cadastro detalhado incluindo modelo da moto, tipo de óleo, valor do serviço e data da manutenção.
-- **Recorrência Automática:** Cálculo automático da próxima manutenção com base nos dias de recorrência definidos (padrão 29 dias).
-- **Histórico Completo:** Registro de todas as manutenções realizadas por cliente.
+## Stack
 
-### 3. Sistema de Garantias
-- **Emissão de Certificados:** Geração de certificados de garantia para serviços realizados.
-- **Exportação para PDF:** Download de certificados em formato PDF prontos para impressão ou envio digital (jsPDF + html2canvas).
-- **Categorias Personalizáveis:** Configuração de diferentes tipos de garantia nas configurações do sistema.
+- Frontend: React 19, TypeScript, Vite e Tailwind CSS 4.
+- Backend: Node.js com Express.
+- Auth e banco: Firebase Authentication e Firestore.
+- Pagamentos: Stripe no backend.
+- Graficos: Recharts.
+- PDF: jsPDF e html2canvas.
+- UI: Lucide React e Sonner.
 
-### 4. Lembretes via WhatsApp
-- **Integração Direta:** Botão para abrir conversa no WhatsApp com mensagem pré-configurada.
-- **Templates Dinâmicos:** Personalização da mensagem de lembrete usando tags como `{client}`, `{bike}` e `{date}`.
-- **Logs de Mensagens:** Registro de quando o link do WhatsApp foi aberto para controle interno.
+## Funcionalidades
 
-### 5. Painel Administrativo (RBAC)
-- **Controle de Acesso:** Diferenciação entre usuários comuns e administradores.
-- **Gestão de Usuários:** Ativação/Bloqueio de contas e gerenciamento de períodos de assinatura/expiração.
+- Login com Google via Firebase Auth.
+- Cadastro e acompanhamento de clientes.
+- Registro de servicos e historico de manutencoes.
+- Calculo automatico de proxima manutencao por recorrencia.
+- Status de manutencao: `OK`, `WARNING` e `OVERDUE`.
+- Agenda de atendimentos.
+- Controle de garantias com geracao de PDF.
+- Controle de gastos em `users/{uid}/expenses`.
+- Dashboard financeiro com receita, contas a receber, despesas e lucro liquido.
+- Lembretes via link do WhatsApp com log em `message_logs`.
+- Painel admin para ativar/bloquear usuarios e ajustar vencimento de assinatura.
 
-## 🛠️ Tecnologias Utilizadas
+## Configuracao local
 
-- **Frontend:** React 19, TypeScript, Tailwind CSS 4.
-- **Backend:** Node.js com Express (Full-stack via Vite middleware).
-- **Banco de Dados & Auth:** Firebase (Firestore e Firebase Authentication).
-- **Animações:** Motion (framer-motion).
-- **Gráficos:** Recharts.
-- **Relatórios:** jsPDF e html2canvas.
-- **Ícones:** Lucide React.
+Crie um arquivo `.env` baseado em `.env.example`.
 
-## 📋 Pré-requisitos e Configuração
+Variaveis principais:
 
-### Variáveis de Ambiente
-O projeto utiliza o Firebase como backend. As configurações devem estar no arquivo `firebase-applet-config.json` na raiz do projeto:
+```env
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
 
-```json
-{
-  "apiKey": "SUA_API_KEY",
-  "authDomain": "SEU_AUTH_DOMAIN",
-  "projectId": "SEU_PROJECT_ID",
-  "appId": "SEU_APP_ID",
-  "firestoreDatabaseId": "SEU_DATABASE_ID"
-}
+STRIPE_PUBLISHABLE_KEY=
+STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=
+STRIPE_PRICE_ID=
+
+FIREBASE_SERVICE_ACCOUNT_PATH=./firebase-service-account.json
+NODE_ENV=development
+PORT=3001
+VITE_STRIPE_API_URL=http://localhost:3001
 ```
 
-### Instalação
+## Comandos
 
-1. Instale as dependências:
-   ```bash
-   npm install
-   ```
+```bash
+npm install
+npm run dev
+npm run lint
+npm run build
+npm run start
+```
 
-2. Inicie o servidor de desenvolvimento:
-   ```bash
-   npm run dev
-   ```
+## Estrutura de dados
 
-3. Para build de produção:
-   ```bash
-   npm run build
-   ```
+Os dados operacionais ficam em subcolecoes por usuario:
 
-## 🔐 Segurança (Firestore Rules)
+```text
+users/{uid}
+users/{uid}/clients
+users/{uid}/maintenances
+users/{uid}/warranties
+users/{uid}/appointments
+users/{uid}/expenses
+users/{uid}/message_logs
+users/{uid}/settings/config
+```
 
-O sistema implementa regras de segurança rigorosas no Firestore:
-- **Isolamento de Dados:** Usuários só podem ler e escrever seus próprios dados (`userId`).
-- **Proteção de Admin:** Apenas administradores autenticados e validados por e-mail podem gerenciar a coleção de usuários globais.
-- **Validação de Schema:** Todas as entradas são validadas por tipo e tamanho para evitar corrupção de dados.
+Admins podem listar e gerenciar usuarios quando autenticados por custom claim `admin` ou pelos e-mails admin configurados nas regras atuais.
 
-## 📄 Licença
+## Firestore Rules
 
-Este projeto é de uso exclusivo para fins de gerenciamento interno da MotoFix.
-SPDX-License-Identifier: Apache-2.0
+As regras atuais foram endurecidas para:
+
+- negar qualquer acesso anonimo;
+- permitir que usuarios ativos acessem apenas as proprias subcolecoes;
+- permitir que usuarios leiam o proprio perfil;
+- permitir auto-bloqueio do proprio usuario quando a assinatura expira;
+- permitir acesso admin via custom claim `admin` ou e-mail admin verificado;
+- negar qualquer outro documento fora de `users/{uid}`.
+
+Antes de producao, prefira migrar definitivamente para custom claims e remover validacao de admin por e-mail.
+
+## Stripe
+
+O backend possui endpoints para criar/verificar pagamentos e receber webhooks:
+
+```text
+GET  /api/health
+GET  /api/payments/publishable-key
+POST /api/payments/create-checkout
+GET  /api/payments/session/:sessionId
+POST /api/payments/webhook
+```
+
+A tela de checkout do frontend ainda precisa ser integrada ao Stripe Elements para pagamento completo dentro da UI. Enquanto isso, o fluxo real de ativacao deve ser administrado pelo painel admin ou pelo webhook quando acionado por um pagamento valido.
+
+## Segredos
+
+Nunca versione arquivos sensiveis:
+
+- `.env`
+- `.env.*`
+- `firebase-service-account.json`
+- qualquer arquivo `*.credentials.json`
+
+O arquivo `firebase-service-account.json` deve ficar fora do Git e, em producao, idealmente deve ser substituido por secrets do ambiente de deploy.
+
+## Build e deploy
+
+O build gera frontend e servidor em `dist`:
+
+```bash
+npm run build
+```
+
+No Windows, esse comando aplica uma configuracao de memoria para reduzir falhas ocasionais do esbuild durante o build.
+
+O Firebase Hosting esta configurado para servir `dist` com rewrite para `index.html`.

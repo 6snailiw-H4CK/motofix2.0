@@ -38,6 +38,18 @@
     border-top-color: #e2e8f0;
   }
 
+  html.light .app-sidebar,
+  html.light .app-topbar {
+    background-color: rgba(255, 255, 255, 0.96) !important;
+    border-color: #e2e8f0 !important;
+    color: #0f172a !important;
+  }
+
+  html.light .app-sidebar .text-white,
+  html.light .app-topbar .text-white {
+    color: #0f172a !important;
+  }
+
   html.light .bg-slate-800\/40,
   html.light .bg-slate-800\/30,
   html.light .bg-slate-800\/50,
