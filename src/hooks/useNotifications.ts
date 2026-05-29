@@ -32,6 +32,23 @@ const playNotificationSound = () => {
   }
 };
 
+const showTestNotification = async (registration: ServiceWorkerRegistration | null) => {
+  const notificationOptions: NotificationOptions = {
+    body: 'As notificacoes do MotoFix estao funcionando neste navegador.',
+    icon: '/motofix-logo.svg',
+    tag: 'motofix-test-notification',
+    data: { url: '/' },
+  };
+
+  if (registration?.showNotification) {
+    await registration.showNotification('MotoFix', notificationOptions);
+    return;
+  }
+
+  const notification = new Notification('MotoFix', notificationOptions);
+  notification.onclick = () => window.focus();
+};
+
 export const useNotifications = ({ clients }: UseNotificationsParams) => {
   const [notificationsSupported, setNotificationsSupported] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>('default');
@@ -65,18 +82,45 @@ export const useNotifications = ({ clients }: UseNotificationsParams) => {
       return;
     }
 
+    const currentPermission = window.Notification.permission;
+    setNotificationPermission(currentPermission);
+
+    if (currentPermission === 'granted') {
+      playNotificationSound();
+      try {
+        await showTestNotification(swRegistration);
+        sonnerToast.success('Notificacoes ja estao ativas. Enviamos um teste.');
+      } catch {
+        sonnerToast.success('Notificacoes ja estao ativas.');
+      }
+      return;
+    }
+
+    if (currentPermission === 'denied') {
+      sonnerToast.error('Permissao negada. Ative notificacoes nas configuracoes do navegador.');
+      return;
+    }
+
     try {
       const permission = await Notification.requestPermission();
       setNotificationPermission(permission);
       if (permission === 'granted') {
-        sonnerToast.success('Notifica\u00e7\u00f5es ativadas.');
+        playNotificationSound();
+        try {
+          await showTestNotification(swRegistration);
+          sonnerToast.success('Notificacoes ativadas. Enviamos um teste.');
+        } catch {
+          sonnerToast.success('Notificacoes ativadas.');
+        }
       } else if (permission === 'denied') {
-        sonnerToast.error('Permiss\u00e3o negada. Ative notifica\u00e7\u00f5es nas configura\u00e7\u00f5es do navegador.');
+        sonnerToast.error('Permissao negada. Ative notificacoes nas configuracoes do navegador.');
+      } else {
+        sonnerToast('Permissao de notificacoes ainda pendente. Autorize no navegador para receber avisos.');
       }
     } catch {
-      sonnerToast.error('N\u00e3o foi poss\u00edvel solicitar permiss\u00e3o de notifica\u00e7\u00f5es.');
+      sonnerToast.error('Nao foi possivel solicitar permissao de notificacoes.');
     }
-  }, [notificationsSupported]);
+  }, [notificationsSupported, swRegistration]);
 
   const sendClientReminderNotification = useCallback(async (client: Client) => {
     if (!notificationsSupported || notificationPermission !== 'granted') return;

@@ -4,12 +4,142 @@
 @theme {
   --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
   --color-primary: #ef4444;
-  --color-background-dark: #000000;
+  --color-background-dark: #08111f;
 }
 
 @layer base {
   body {
     @apply bg-background-dark text-slate-100 antialiased;
+    background:
+      radial-gradient(circle at top left, rgba(239, 68, 68, 0.16), transparent 30rem),
+      radial-gradient(circle at 85% 12%, rgba(56, 189, 248, 0.10), transparent 26rem),
+      linear-gradient(135deg, #08111f 0%, #0b1424 45%, #111827 100%);
+    min-height: 100vh;
+  }
+
+  html:not(.light) .app-shell {
+    background:
+      radial-gradient(circle at 8% 4%, rgba(239, 68, 68, 0.18), transparent 22rem),
+      radial-gradient(circle at 92% 0%, rgba(14, 165, 233, 0.12), transparent 24rem),
+      linear-gradient(135deg, #08111f 0%, #0b1424 48%, #111827 100%);
+    color: #e5edf8;
+    position: relative;
+    isolation: isolate;
+  }
+
+  html:not(.light) .app-shell::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.55), transparent 78%);
+  }
+
+  html:not(.light) .app-header,
+  html:not(.light) .app-topbar,
+  html:not(.light) .app-sidebar,
+  html:not(.light) .app-bottom-nav {
+    background-color: rgba(8, 17, 31, 0.82) !important;
+    border-color: rgba(148, 163, 184, 0.14) !important;
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.20);
+    backdrop-filter: blur(18px);
+  }
+
+  html:not(.light) .app-topbar,
+  html:not(.light) .app-header {
+    background-image: linear-gradient(90deg, rgba(15, 23, 42, 0.86), rgba(15, 23, 42, 0.70)) !important;
+  }
+
+  html:not(.light) .app-sidebar {
+    background-image: linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(8, 17, 31, 0.88)) !important;
+  }
+
+  html:not(.light) .bg-background-dark,
+  html:not(.light) .bg-background-dark\/80,
+  html:not(.light) .bg-background-dark\/95 {
+    background-color: rgba(8, 17, 31, 0.86) !important;
+  }
+
+  html:not(.light) .bg-slate-800\/20,
+  html:not(.light) .bg-slate-800\/30,
+  html:not(.light) .bg-slate-800\/40,
+  html:not(.light) .bg-slate-800\/50,
+  html:not(.light) .bg-slate-800\/70,
+  html:not(.light) .bg-slate-900\/20,
+  html:not(.light) .bg-slate-900\/30,
+  html:not(.light) .bg-slate-900\/40,
+  html:not(.light) .bg-slate-900\/50,
+  html:not(.light) .bg-slate-900\/60,
+  html:not(.light) .bg-slate-900\/70,
+  html:not(.light) .bg-slate-950\/30,
+  html:not(.light) .bg-slate-950\/40,
+  html:not(.light) .bg-slate-950\/50,
+  html:not(.light) .bg-slate-950\/60,
+  html:not(.light) .bg-white\/5 {
+    background-color: rgba(15, 23, 42, 0.66) !important;
+    backdrop-filter: blur(16px);
+  }
+
+  html:not(.light) .bg-slate-700\/30,
+  html:not(.light) .bg-slate-700\/40,
+  html:not(.light) .bg-slate-700\/50,
+  html:not(.light) .bg-slate-700\/60 {
+    background-color: rgba(51, 65, 85, 0.42) !important;
+  }
+
+  html:not(.light) [class~="bg-[#0b0f18]"],
+  html:not(.light) [class~="bg-[#0d1626]"],
+  html:not(.light) [class~="bg-[#0b0d12]"],
+  html:not(.light) [class~="bg-[#08090d]"],
+  html:not(.light) [class~="bg-[#0b0c10]/92"] {
+    background-color: rgba(15, 23, 42, 0.74) !important;
+    backdrop-filter: blur(18px);
+  }
+
+  html:not(.light) .border-slate-700,
+  html:not(.light) .border-slate-800,
+  html:not(.light) .border-slate-900,
+  html:not(.light) .border-slate-950,
+  html:not(.light) .border-slate-700\/20,
+  html:not(.light) .border-slate-700\/30,
+  html:not(.light) .border-slate-700\/40,
+  html:not(.light) .border-slate-700\/50,
+  html:not(.light) .border-slate-800\/50,
+  html:not(.light) .border-slate-800\/70,
+  html:not(.light) .border-slate-800\/80 {
+    border-color: rgba(148, 163, 184, 0.16) !important;
+  }
+
+  html:not(.light) .text-slate-500 {
+    color: #8aa0ba !important;
+  }
+
+  html:not(.light) .text-slate-600 {
+    color: #6f839d !important;
+  }
+
+  html:not(.light) input,
+  html:not(.light) select,
+  html:not(.light) textarea {
+    background-color: rgba(15, 23, 42, 0.72) !important;
+    border-color: rgba(148, 163, 184, 0.18) !important;
+    color: #e2e8f0 !important;
+  }
+
+  html:not(.light) input[type="date"] {
+    color-scheme: dark;
+  }
+
+  html:not(.light) input:focus,
+  html:not(.light) select:focus,
+  html:not(.light) textarea:focus {
+    border-color: rgba(239, 68, 68, 0.55) !important;
+    box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.25);
   }
 
   html.light {
@@ -18,24 +148,39 @@
 
   html.light body {
     @apply bg-slate-100 text-slate-900;
+    background:
+      radial-gradient(circle at top left, rgba(239, 68, 68, 0.10), transparent 28rem),
+      radial-gradient(circle at 88% 8%, rgba(14, 165, 233, 0.12), transparent 24rem),
+      linear-gradient(135deg, #f8fafc 0%, #eef4fb 52%, #f1f5f9 100%);
   }
 
   html.light .app-shell,
   html.light .bg-background-dark,
   html.light .bg-background-dark\/80,
   html.light .bg-background-dark\/95 {
-    background-color: #f1f5f9 !important;
+    background-color: transparent !important;
     color: #0f172a;
   }
 
+  html.light .app-shell {
+    background:
+      radial-gradient(circle at 8% 4%, rgba(239, 68, 68, 0.10), transparent 22rem),
+      radial-gradient(circle at 92% 0%, rgba(14, 165, 233, 0.12), transparent 24rem),
+      linear-gradient(135deg, #f8fafc 0%, #eef4fb 52%, #f1f5f9 100%) !important;
+  }
+
   html.light .app-header {
-    background-color: rgba(255, 255, 255, 0.92);
-    border-bottom-color: rgba(251, 146, 60, 0.22);
+    background-color: rgba(255, 255, 255, 0.86) !important;
+    border-bottom-color: rgba(226, 232, 240, 0.88) !important;
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+    backdrop-filter: blur(18px);
   }
 
   html.light .app-bottom-nav {
-    background-color: rgba(241, 245, 249, 0.97);
-    border-top-color: #e2e8f0;
+    background-color: rgba(255, 255, 255, 0.88) !important;
+    border-top-color: rgba(226, 232, 240, 0.9) !important;
+    box-shadow: 0 -18px 40px rgba(15, 23, 42, 0.10);
+    backdrop-filter: blur(18px);
   }
 
   html.light .app-sidebar,
@@ -51,20 +196,69 @@
   }
 
   html.light .bg-slate-800\/40,
+  html.light .bg-slate-800\/20,
   html.light .bg-slate-800\/30,
   html.light .bg-slate-800\/50,
-  html.light .bg-slate-900\/50,
-  html.light .bg-slate-900\/70,
-  html.light .bg-slate-900\/40,
-  html.light .bg-slate-900\/30,
+  html.light .bg-slate-800\/60,
+  html.light .bg-slate-800\/70,
+  html.light .bg-slate-800,
+  html.light .bg-slate-900,
   html.light .bg-slate-900\/20,
+  html.light .bg-slate-900\/30,
+  html.light .bg-slate-900\/35,
+  html.light .bg-slate-900\/40,
+  html.light .bg-slate-900\/50,
+  html.light .bg-slate-900\/60,
+  html.light .bg-slate-900\/70,
+  html.light .bg-slate-900\/80,
+  html.light .bg-slate-950,
+  html.light .bg-slate-950\/20,
+  html.light .bg-slate-950\/30,
   html.light .bg-slate-950\/40,
+  html.light .bg-slate-950\/50,
+  html.light .bg-slate-950\/60,
+  html.light .bg-slate-950\/70,
+  html.light .bg-slate-950\/80,
+  html.light .bg-slate-950\/90,
+  html.light .bg-slate-950\/95,
   html.light .bg-slate-700\/50,
   html.light .bg-slate-700\/60,
   html.light .bg-slate-700\/40,
   html.light .bg-slate-700\/30,
   html.light .bg-white\/5 {
     background-color: rgba(248, 250, 252, 0.95) !important;
+  }
+
+  html.light [class~="bg-[#0b0f18]"],
+  html.light [class~="bg-[#0d1626]"],
+  html.light [class~="bg-[#0b0d12]"],
+  html.light [class~="bg-[#08090d]"],
+  html.light [class~="bg-[#0b0c10]/92"] {
+    background-color: rgba(255, 255, 255, 0.94) !important;
+    border-color: rgba(203, 213, 225, 0.9) !important;
+    color: #0f172a !important;
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.10) !important;
+  }
+
+  html.light [class~="bg-[#0b0f18]"] .text-white,
+  html.light [class~="bg-[#0d1626]"] .text-white,
+  html.light [class~="bg-[#0b0d12]"] .text-white,
+  html.light [class~="bg-[#08090d]"] .text-white,
+  html.light [class~="bg-[#0b0c10]/92"] .text-white {
+    color: #0f172a !important;
+  }
+
+  html.light [class~="bg-[#0b0f18]"] .text-slate-300,
+  html.light [class~="bg-[#0d1626]"] .text-slate-300,
+  html.light [class~="bg-[#0b0d12]"] .text-slate-300,
+  html.light [class~="bg-[#08090d]"] .text-slate-300,
+  html.light [class~="bg-[#0b0c10]/92"] .text-slate-300,
+  html.light [class~="bg-[#0b0f18]"] .text-slate-400,
+  html.light [class~="bg-[#0d1626]"] .text-slate-400,
+  html.light [class~="bg-[#0b0d12]"] .text-slate-400,
+  html.light [class~="bg-[#08090d]"] .text-slate-400,
+  html.light [class~="bg-[#0b0c10]/92"] .text-slate-400 {
+    color: #475569 !important;
   }
 
   html.light .border-slate-700\/50,
@@ -162,16 +356,50 @@
     color: #059669 !important;
   }
 
+  html.light .text-emerald-300 {
+    color: #047857 !important;
+  }
+
   html.light .text-amber-400 {
     color: #d97706 !important;
+  }
+
+  html.light .text-amber-300,
+  html.light .text-orange-300 {
+    color: #c2410c !important;
+  }
+
+  html.light .text-red-400,
+  html.light .text-primary {
+    color: #dc2626 !important;
   }
 
   html.light .text-blue-500 {
     color: #2563eb !important;
   }
 
+  html.light .text-blue-300,
+  html.light .text-blue-400 {
+    color: #1d4ed8 !important;
+  }
+
   html.light .text-purple-500 {
     color: #7c3aed !important;
+  }
+
+  html.light .text-purple-300,
+  html.light .text-purple-400 {
+    color: #6d28d9 !important;
+  }
+
+  html.light input,
+  html.light select,
+  html.light textarea {
+    color: #0f172a !important;
+  }
+
+  html.light input[type="date"] {
+    color-scheme: light;
   }
 
   html.light ::-webkit-scrollbar-thumb {

@@ -1,9 +1,11 @@
-import { type Dispatch, type KeyboardEvent, type SetStateAction, useState } from 'react';
+import { type Dispatch, type KeyboardEvent, type SetStateAction, useRef, useState } from 'react';
 import { format, isBefore, parseISO } from 'date-fns';
 import {
   Bike,
+  Download,
   Droplets,
-  FileText,
+  FileSpreadsheet,
+  Upload,
   Mail,
   MessageCircle,
   MessageSquare,
@@ -18,6 +20,7 @@ import { cn } from '../../lib/utils';
 import type { ColorMode, Settings, UserProfile } from '../../types';
 
 type SettingsViewProps = {
+  clientsCount: number;
   userEmail?: string | null;
   userProfile: UserProfile | null;
   settings: Settings;
@@ -27,10 +30,13 @@ type SettingsViewProps = {
   onSaveProfile: () => Promise<void> | void;
   onSaveSettings: () => Promise<void> | void;
   onSaveSettingsPatch: (patch: Partial<Settings>) => Promise<void> | void;
-  onOpenGeneralReport: () => void;
+  onExportClientsBackup: () => void;
+  onImportClientsBackup: (file: File) => Promise<void> | void;
+  isImportingClients: boolean;
 };
 
 export const SettingsView = ({
+  clientsCount,
   userEmail,
   userProfile,
   settings,
@@ -40,11 +46,14 @@ export const SettingsView = ({
   onSaveProfile,
   onSaveSettings,
   onSaveSettingsPatch,
-  onOpenGeneralReport,
+  onExportClientsBackup,
+  onImportClientsBackup,
+  isImportingClients,
 }: SettingsViewProps) => {
   const [newServiceType, setNewServiceType] = useState('');
   const [newOilType, setNewOilType] = useState('');
   const [newWarrantyCategory, setNewWarrantyCategory] = useState('');
+  const clientImportInputRef = useRef<HTMLInputElement | null>(null);
 
   const updateSettings = (patch: Partial<Settings>) => {
     setSettings((current) => ({ ...current, ...patch }));
@@ -52,6 +61,9 @@ export const SettingsView = ({
 
   const oilTypes = settings.oilTypes || [];
   const serviceTypes = normalizeServiceTypeOptions(settings.serviceTypes || []);
+  const disabledDefaultServiceTypes = settings.disabledDefaultServiceTypes || [];
+  const disabledDefaultKeys = new Set(disabledDefaultServiceTypes.map(getServiceTypeKey));
+  const activeDefaultServiceTypes = DEFAULT_SERVICE_TYPES.filter(type => !disabledDefaultKeys.has(getServiceTypeKey(type)));
   const warrantyCategories = settings.warrantyCategories || [];
   const subscriptionExpiresAt = userProfile?.subscriptionExpiresAt;
   const subscriptionExpired = subscriptionExpiresAt ? isBefore(parseISO(subscriptionExpiresAt), new Date()) : false;
@@ -72,9 +84,19 @@ export const SettingsView = ({
     const value = canonicalServiceType(newServiceType);
     if (!value) return;
 
-    const existingOptions = normalizeServiceTypeOptions([...DEFAULT_SERVICE_TYPES, ...serviceTypes]);
+    const defaultMatch = DEFAULT_SERVICE_TYPES.find(type => getServiceTypeKey(type) === getServiceTypeKey(value));
+    const existingOptions = normalizeServiceTypeOptions([...activeDefaultServiceTypes, ...serviceTypes]);
     const exists = existingOptions.some(type => getServiceTypeKey(type) === getServiceTypeKey(value));
+
     if (exists) {
+      setNewServiceType('');
+      return;
+    }
+
+    if (defaultMatch && disabledDefaultKeys.has(getServiceTypeKey(defaultMatch))) {
+      saveSettingsPatch({
+        disabledDefaultServiceTypes: disabledDefaultServiceTypes.filter(type => getServiceTypeKey(type) !== getServiceTypeKey(defaultMatch)),
+      });
       setNewServiceType('');
       return;
     }
@@ -85,9 +107,17 @@ export const SettingsView = ({
 
   const removeServiceType = (typeToRemove: string) => {
     const keyToRemove = getServiceTypeKey(typeToRemove);
-    saveSettingsPatch({
-      serviceTypes: serviceTypes.filter(type => getServiceTypeKey(type) !== keyToRemove),
-    });
+    const defaultMatch = DEFAULT_SERVICE_TYPES.find(type => getServiceTypeKey(type) === keyToRemove);
+
+    if (defaultMatch) {
+      saveSettingsPatch({
+        disabledDefaultServiceTypes: normalizeServiceTypeOptions([...disabledDefaultServiceTypes, defaultMatch]),
+        serviceTypes: serviceTypes.filter(type => getServiceTypeKey(type) !== keyToRemove),
+      });
+      return;
+    }
+
+    saveSettingsPatch({ serviceTypes: serviceTypes.filter(type => getServiceTypeKey(type) !== keyToRemove) });
   };
 
   const addWarrantyCategory = () => {
@@ -101,6 +131,14 @@ export const SettingsView = ({
     if (event.key === 'Enter') {
       event.preventDefault();
       action();
+    }
+  };
+
+  const handleClientImportFile = (file?: File) => {
+    if (!file) return;
+    void onImportClientsBackup(file);
+    if (clientImportInputRef.current) {
+      clientImportInputRef.current.value = '';
     }
   };
 
@@ -151,25 +189,52 @@ export const SettingsView = ({
         </div>
       )}
 
-      <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50">
-        <button
-          type="button"
-          onClick={onOpenGeneralReport}
-          className="flex w-full items-center justify-between gap-4 rounded-xl border border-primary/20 bg-primary/10 px-4 py-3 text-left transition-all hover:bg-primary/15"
-        >
-          <span className="flex min-w-0 items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
-              <FileText className="h-5 w-5" />
+      <div className="hidden rounded-2xl border border-slate-700/50 bg-slate-800/40 p-4 lg:block">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400">
+              <FileSpreadsheet className="h-5 w-5" />
             </span>
-            <span className="min-w-0">
-              <span className="block text-sm font-bold text-white">Relatorio geral detalhado</span>
-              <span className="block text-xs text-slate-400">Financeiro, recebiveis, servicos, gastos, garantias e agenda.</span>
-            </span>
-          </span>
-          <span className="shrink-0 rounded-lg bg-slate-900/70 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-primary">
-            Abrir
-          </span>
-        </button>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Backup de clientes</p>
+              <h3 className="text-sm font-bold text-white">Importar e exportar em XLSX</h3>
+              <p className="mt-1 max-w-xl text-xs text-slate-400">
+                Use no desktop para salvar uma copia dos clientes ou restaurar uma planilha exportada pelo MotoFix.
+              </p>
+              <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                Clientes no app: {clientsCount}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2 xl:w-[24rem]">
+            <button
+              type="button"
+              onClick={onExportClientsBackup}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-xs font-bold text-emerald-400 transition-all hover:bg-emerald-500/15"
+            >
+              <Download className="h-4 w-4" />
+              Exportar clientes
+            </button>
+            <button
+              type="button"
+              disabled={isImportingClients}
+              onClick={() => clientImportInputRef.current?.click()}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-4 py-3 text-xs font-bold text-primary transition-all hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Upload className="h-4 w-4" />
+              {isImportingClients ? 'Importando...' : 'Importar planilha'}
+            </button>
+          </div>
+        </div>
+
+        <input
+          ref={clientImportInputRef}
+          type="file"
+          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          className="hidden"
+          onChange={(event) => handleClientImportFile(event.target.files?.[0])}
+        />
       </div>
 
       <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 space-y-4">
@@ -256,9 +321,17 @@ export const SettingsView = ({
         </div>
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
-            {DEFAULT_SERVICE_TYPES.map((type) => (
-              <div key={type} className="bg-slate-900/70 text-slate-300 px-3 py-1 rounded-lg border border-slate-700 flex items-center gap-2">
+            {activeDefaultServiceTypes.map((type) => (
+              <div key={type} className="bg-slate-900/70 text-slate-300 px-3 py-1 rounded-lg border border-slate-700 flex items-center gap-2 group">
                 <span className="text-sm">{type}</span>
+                <button
+                  type="button"
+                  onClick={() => removeServiceType(type)}
+                  aria-label={`Remover categoria ${type}`}
+                  className="text-slate-400 transition-colors hover:text-red-400"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
             ))}
             {serviceTypes.map((type) => (

@@ -67,7 +67,7 @@ export const ClientForm = ({
   const defaultOilType = editingClient?.oilType || oilTypes[0] || '10W30';
 
   return (
-    <div className="max-w-xl mx-auto space-y-4">
+    <div className="mx-auto max-w-xl space-y-4 lg:max-w-4xl xl:max-w-5xl">
       <div className="flex items-center gap-3">
         <button type="button" onClick={onBack} className="p-1.5 rounded-full hover:bg-slate-800 transition-colors">
           <ArrowLeft className="w-5 h-5" />
@@ -103,10 +103,10 @@ export const ClientForm = ({
             notes: formData.get('notes') as string,
           });
         }}
-        className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50 space-y-5"
+        className="space-y-5 rounded-2xl border border-slate-700/50 bg-slate-800/40 p-5 lg:p-6"
       >
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-1.5 relative">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="relative space-y-1.5 xl:col-span-2">
             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome do Cliente</label>
             <input
               name="name"
@@ -135,7 +135,7 @@ export const ClientForm = ({
             )}
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 xl:col-span-2">
             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">WhatsApp</label>
             <input
               name="contact"
@@ -149,7 +149,7 @@ export const ClientForm = ({
             />
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 xl:col-span-2">
             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Modelo da Moto</label>
             <input
               name="bikeModel"
@@ -160,7 +160,7 @@ export const ClientForm = ({
             />
           </div>
 
-          <div className="space-y-1.5 md:col-span-2">
+          <div className="space-y-1.5 md:col-span-2 xl:col-span-2">
             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Tipo de Servico</label>
             <div className="flex gap-2 items-stretch">
               <select
@@ -189,7 +189,7 @@ export const ClientForm = ({
           </div>
 
           {isOilChange && (
-            <div className="space-y-1.5 md:col-span-2">
+            <div className="space-y-1.5 md:col-span-2 xl:col-span-2">
               <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Marca / tipo de oleo</label>
               <select
                 name="oilType"

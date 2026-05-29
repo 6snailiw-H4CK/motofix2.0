@@ -1,0 +1,81 @@
+import { format } from 'date-fns';
+import type { User } from 'firebase/auth';
+import { useCallback, useState } from 'react';
+import { toast as sonnerToast } from 'sonner';
+import { cashRegisterRepository } from '../services/cashRegisterRepository';
+import { parseProductsWorkbook } from '../services/productSpreadsheet';
+import { productRepository } from '../services/productRepository';
+import type { CashRegisterLaunch } from '../types';
+import { handleFirestoreError, OperationType } from '../services/firestoreError';
+
+type UseCashRegisterActionsParams = {
+  user: User | null;
+};
+
+export type CashRegisterDraft = Omit<CashRegisterLaunch, 'id' | 'orderNumber' | 'userId' | 'createdAt' | 'updatedAt'>;
+
+export const useCashRegisterActions = ({ user }: UseCashRegisterActionsParams) => {
+  const [isImportingProducts, setIsImportingProducts] = useState(false);
+  const [isSavingLaunch, setIsSavingLaunch] = useState(false);
+
+  const importProductsWorkbook = useCallback(async (file: File) => {
+    if (!user) return 0;
+
+    setIsImportingProducts(true);
+    try {
+      const products = await parseProductsWorkbook(file);
+      if (products.length === 0) {
+        sonnerToast.error('Nenhuma mercadoria encontrada. Confira se a planilha tem Descricao, NCM e Venda R$.');
+        return 0;
+      }
+
+      const imported = await productRepository.upsertMany(user.uid, products);
+      sonnerToast.success(`${imported} mercadoria(s) importada(s) para o catalogo.`);
+      return imported;
+    } catch (error) {
+      console.error('Erro ao importar mercadorias:', error);
+      sonnerToast.error('Nao foi possivel importar a planilha de mercadorias.');
+      return 0;
+    } finally {
+      setIsImportingProducts(false);
+    }
+  }, [user]);
+
+  const saveLaunch = useCallback(async (draft: CashRegisterDraft) => {
+    if (!user) return false;
+    if (draft.items.length === 0) {
+      sonnerToast.error('Inclua ao menos uma mercadoria antes de salvar.');
+      return false;
+    }
+
+    setIsSavingLaunch(true);
+    try {
+      const now = new Date().toISOString();
+      const orderNumber = `LC-${format(new Date(), 'yyyyMMdd-HHmmss')}`;
+
+      await cashRegisterRepository.create(user.uid, {
+        ...draft,
+        orderNumber,
+        userId: user.uid,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      sonnerToast.success('Lancamento Caixa salvo com sucesso.');
+      return true;
+    } catch (error) {
+      sonnerToast.error('Nao foi possivel salvar o Lancamento Caixa.');
+      handleFirestoreError(error, OperationType.CREATE, 'cash_launches');
+      return false;
+    } finally {
+      setIsSavingLaunch(false);
+    }
+  }, [user]);
+
+  return {
+    importProductsWorkbook,
+    isImportingProducts,
+    isSavingLaunch,
+    saveLaunch,
+  };
+};

@@ -5,6 +5,8 @@ import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
+  const lowMemoryBuild = process.env.MOTOFIX_LOW_MEMORY_BUILD === '1';
+
   return {
     plugins: [react(), tailwindcss()],
     define: {
@@ -19,6 +21,9 @@ export default defineConfig(({mode}) => {
       hmr: false,
     },
     build: {
+      minify: lowMemoryBuild ? false : 'esbuild',
+      cssMinify: lowMemoryBuild ? false : undefined,
+      reportCompressedSize: !lowMemoryBuild,
       rollupOptions: {
         output: {
           manualChunks(id) {

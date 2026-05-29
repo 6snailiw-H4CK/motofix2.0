@@ -79,6 +79,14 @@ export const useClientFormState = ({
     setServiceTypeState(defaultServiceType);
   }, [defaultServiceType]);
 
+  const startScheduleClient = useCallback(() => {
+    setEditingClient(null);
+    setClientNameInput('');
+    setClientSuggestions([]);
+    setIsCreatingService(false);
+    setServiceTypeState(defaultServiceType);
+  }, [defaultServiceType]);
+
   const startEditClient = useCallback((client: Client) => {
     setClientNameInput('');
     setClientSuggestions([]);
@@ -125,5 +133,6 @@ export const useClientFormState = ({
     setServiceType,
     startEditClient,
     startNewClient,
+    startScheduleClient,
   };
 };

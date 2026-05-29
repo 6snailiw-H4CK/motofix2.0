@@ -7,6 +7,7 @@ import {
   Edit2,
   MessageCircle,
   Plus,
+  ReceiptText,
   RefreshCw,
   Search,
   Trash2,
@@ -24,12 +25,10 @@ type ClientsViewProps = {
   clientBalanceMap: Map<string, number>;
   searchQuery: string;
   serviceListFilter: ServiceListFilter;
-  isNewService: boolean;
   processingId: string | null;
   deleteConfirmId?: string | null;
-  onQuickModeClick: () => void;
-  onScheduleClick: () => void;
   onNewRecord: () => void;
+  onOpenCashRegister: () => void;
   onSearchChange: (value: string) => void;
   onServiceListFilterChange: (filter: ServiceListFilter) => void;
   onAddMaintenance: (client: Client) => Promise<void> | void;
@@ -72,12 +71,10 @@ export const ClientsView = ({
   clientBalanceMap,
   searchQuery,
   serviceListFilter,
-  isNewService,
   processingId,
   deleteConfirmId,
-  onQuickModeClick,
-  onScheduleClick,
   onNewRecord,
+  onOpenCashRegister,
   onSearchChange,
   onServiceListFilterChange,
   onAddMaintenance,
@@ -107,37 +104,25 @@ export const ClientsView = ({
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-2 bg-slate-800/40 p-1 rounded-xl border border-slate-700/50">
+      <div className="grid gap-2 lg:grid-cols-[1fr_auto]">
         <button
           type="button"
-          onClick={onQuickModeClick}
-          className={cn(
-            'flex-1 px-4 py-2 rounded-lg font-bold text-sm transition-all',
-            !isNewService ? 'bg-primary text-white shadow-lg' : 'text-slate-400 hover:text-slate-300'
-          )}
+          onClick={onNewRecord}
+          className="w-full bg-primary p-3 rounded-xl flex items-center justify-center gap-2 text-white hover:bg-primary/90 transition-all shadow-lg shadow-primary/10"
         >
-          Servicos Rapidos
+          <Plus className="w-3.5 h-3.5" />
+          <span className="font-bold text-xs">Novo Registro</span>
         </button>
+
         <button
           type="button"
-          onClick={onScheduleClick}
-          className={cn(
-            'flex-1 px-4 py-2 rounded-lg font-bold text-sm transition-all',
-            isNewService ? 'bg-primary text-white shadow-lg' : 'text-slate-400 hover:text-slate-300'
-          )}
+          onClick={onOpenCashRegister}
+          className="hidden min-w-56 items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-xs font-bold text-primary transition-all hover:border-primary/60 hover:bg-primary/15 lg:inline-flex"
         >
-          Agenda de Clientes
+          <ReceiptText className="h-4 w-4" />
+          Lancamentos Caixa
         </button>
       </div>
-
-      <button
-        type="button"
-        onClick={onNewRecord}
-        className="w-full bg-primary p-3 rounded-xl flex items-center justify-center gap-2 text-white hover:bg-primary/90 transition-all shadow-lg shadow-primary/10"
-      >
-        <Plus className="w-3.5 h-3.5" />
-        <span className="font-bold text-xs">Novo Registro</span>
-      </button>
 
       <div className="flex flex-col md:flex-row gap-2 items-center justify-between">
         <h2 className="text-lg font-bold">Servicos</h2>

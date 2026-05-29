@@ -9,6 +9,7 @@ export const DEFAULT_SETTINGS: Settings = {
   whatsappTemplate: 'Ol\u00e1 {client}, sua {bike} est\u00e1 agendada para manuten\u00e7\u00e3o em {date}. Nos vemos l\u00e1!',
   oilTypes: ['10W30', '10W40', '20W50', 'Motul 3000', 'Motul 5000', 'Yamalube'],
   serviceTypes: [],
+  disabledDefaultServiceTypes: [],
   warrantyCategories: ['Motor', 'C\u00e2mbio', 'El\u00e9trica', 'Suspens\u00e3o', 'Freios', 'Pintura', 'Geral'],
   businessName: 'Minha Oficina',
   businessPhone: '',

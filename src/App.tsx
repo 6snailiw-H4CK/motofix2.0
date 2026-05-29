@@ -25,6 +25,7 @@ import { useAuthProfile } from './hooks/useAuthProfile';
 import { useClientActions } from './hooks/useClientActions';
 import { useClientFormState } from './hooks/useClientFormState';
 import { useClientStatusSync } from './hooks/useClientStatusSync';
+import { useCashRegisterActions } from './hooks/useCashRegisterActions';
 import { useDeleteConfirmation } from './hooks/useDeleteConfirmation';
 import { useExpenseActions } from './hooks/useExpenseActions';
 import { useMaintenanceActions } from './hooks/useMaintenanceActions';
@@ -38,7 +39,7 @@ import { useUserCollections } from './hooks/useUserCollections';
 import { useWarrantyActions } from './hooks/useWarrantyActions';
 import { useWhatsAppReminderActions } from './hooks/useWhatsAppReminderActions';
 import { getMaintenanceStatus } from './lib/maintenanceStatus';
-import { canonicalServiceType } from './lib/serviceTypes';
+import { canonicalServiceType, getServiceTypeKey } from './lib/serviceTypes';
 
 // --- Main App ---
 
@@ -54,7 +55,9 @@ export default function App() {
     settingsLoaded,
     appointments,
     expenseEntries,
-    messageLogs
+    messageLogs,
+    productCatalog,
+    cashLaunches
   } = useUserCollections({ user, userProfile, isNewUser });
   const {
     colorMode,
@@ -77,7 +80,9 @@ export default function App() {
     confirmOrRequestDelete,
     getDeleteConfirmId,
   } = useDeleteConfirmation();
-  const defaultServiceType = canonicalServiceType(DEFAULT_SERVICE_TYPES[0]);
+  const disabledDefaultServiceKeys = new Set((settings.disabledDefaultServiceTypes || []).map(getServiceTypeKey));
+  const activeDefaultServiceTypes = DEFAULT_SERVICE_TYPES.filter(type => !disabledDefaultServiceKeys.has(getServiceTypeKey(type)));
+  const defaultServiceType = canonicalServiceType(activeDefaultServiceTypes[0] || settings.serviceTypes?.[0] || DEFAULT_SERVICE_TYPES[0]);
   const getStatus = getMaintenanceStatus;
 
   const handleExpenseSaved = useCallback(() => setView('expenses'), [setView]);
@@ -100,8 +105,8 @@ export default function App() {
   const handleClientSaved = useCallback(() => {
     clientForm.resetAfterSave();
     setIsNewService(false);
-    setView('clients');
-  }, [clientForm.resetAfterSave, setIsNewService, setView]);
+    setView(view === 'clients-schedule-add' ? 'clients-schedule' : 'clients');
+  }, [clientForm.resetAfterSave, setIsNewService, setView, view]);
   const clientActions = useClientActions({
     user,
     clients,
@@ -123,6 +128,9 @@ export default function App() {
   const expenseActions = useExpenseActions({
     user,
     onAfterSave: handleExpenseSaved,
+  });
+  const cashRegisterActions = useCashRegisterActions({
+    user,
   });
   const maintenanceActions = useMaintenanceActions({
     user,
@@ -216,6 +224,7 @@ export default function App() {
           actions={{
             admin: adminActions,
             appointment: appointmentActions,
+            cashRegister: cashRegisterActions,
             client: clientActions,
             clientForm,
             expense: expenseActions,
@@ -229,6 +238,7 @@ export default function App() {
           data={{
             allUsers,
             appointments,
+            cashLaunches,
             chartData,
             clients,
             dailyPendingAlerts,
@@ -238,6 +248,7 @@ export default function App() {
             maintenances,
             messageLogs,
             nextAppointment,
+            productCatalog,
             scheduleClientHistoryRows,
             serviceTypeOptions,
             settings,

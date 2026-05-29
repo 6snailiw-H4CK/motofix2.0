@@ -18,16 +18,16 @@ export const AdminView = ({
   onUpdateSubscription,
   onSetSubscriptionDate,
 }: AdminViewProps) => (
-  <div className="space-y-6">
-    <div className="flex items-center justify-between">
-      <h2 className="text-2xl font-bold">Painel Administrativo</h2>
-      <div className="bg-primary/10 px-3 py-1 rounded-full flex items-center gap-2">
+  <div className="space-y-4 overflow-hidden">
+    <div className="flex min-w-0 items-center justify-between gap-3">
+      <h2 className="min-w-0 text-xl font-bold sm:text-2xl">Painel Administrativo</h2>
+      <div className="flex shrink-0 items-center gap-2 rounded-full bg-primary/10 px-3 py-1">
         <Shield className="w-4 h-4 text-primary" />
         <span className="text-xs font-bold text-primary">ADMIN</span>
       </div>
     </div>
 
-    <div className="grid grid-cols-1 gap-4">
+    <div className="grid grid-cols-1 gap-3">
       {users.map((appUser) => {
         const isCurrentUser = appUser.uid === currentUserId;
         const isExpired = appUser.subscriptionExpiresAt
@@ -37,12 +37,12 @@ export const AdminView = ({
         return (
           <div
             key={appUser.uid}
-            className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700 flex items-center justify-between"
+            className="flex min-w-0 flex-col gap-4 rounded-2xl border border-slate-700 bg-slate-800/50 p-4 sm:flex-row sm:items-center sm:justify-between"
           >
-            <div className="flex items-center gap-4">
+            <div className="flex min-w-0 items-center gap-3">
               <div
                 className={cn(
-                  'w-12 h-12 rounded-xl flex items-center justify-center',
+                  'flex h-11 w-11 shrink-0 items-center justify-center rounded-xl',
                   appUser.isActive ? 'bg-emerald-500/10' : 'bg-red-500/10'
                 )}
               >
@@ -52,10 +52,10 @@ export const AdminView = ({
                   <UserX className="w-6 h-6 text-red-500" />
                 )}
               </div>
-              <div>
-                <p className="font-bold">{appUser.displayName}</p>
-                <p className="text-xs text-slate-500">{appUser.email}</p>
-                <div className="flex flex-col gap-1 mt-1">
+              <div className="min-w-0">
+                <p className="truncate font-bold">{appUser.displayName}</p>
+                <p className="truncate text-xs text-slate-500">{appUser.email}</p>
+                <div className="mt-1 flex flex-col gap-1">
                   <p className="text-[10px] text-slate-600">
                     Desde: {format(parseISO(appUser.createdAt), 'dd/MM/yyyy')}
                   </p>
@@ -68,11 +68,11 @@ export const AdminView = ({
               </div>
             </div>
 
-            <div className="flex flex-col items-end gap-2">
-              <div className="flex items-center gap-3">
+            <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:items-end">
+              <div className="flex w-full items-center justify-between gap-2 sm:w-auto sm:justify-end">
                 <div
                   className={cn(
-                    'px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-widest',
+                    'rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-widest',
                     appUser.isActive ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500'
                   )}
                 >
@@ -95,8 +95,8 @@ export const AdminView = ({
               </div>
 
               {!isCurrentUser && (
-                <div className="flex flex-col items-end gap-2">
-                  <div className="flex flex-wrap justify-end gap-1 max-w-[150px]">
+                <div className="flex w-full min-w-0 flex-col gap-2 sm:items-end">
+                  <div className="grid w-full grid-cols-4 gap-1 sm:max-w-[180px]">
                     <button
                       type="button"
                       onClick={() => void onUpdateSubscription(appUser.uid, -30)}
@@ -130,11 +130,11 @@ export const AdminView = ({
                       +90d
                     </button>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-bold text-slate-950 uppercase">Vencimento:</span>
+                  <div className="grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 sm:w-auto">
+                    <span className="text-[10px] font-bold uppercase text-slate-500">Vencimento:</span>
                     <input
                       type="date"
-                      className="bg-white border border-slate-300 rounded px-2 py-1 text-[10px] font-bold text-slate-950 focus:ring-1 focus:ring-primary outline-none"
+                      className="min-w-0 rounded border border-slate-700 bg-slate-900/70 px-2 py-1 text-[10px] font-bold text-slate-100 outline-none focus:ring-1 focus:ring-primary"
                       defaultValue={
                         appUser.subscriptionExpiresAt ? format(parseISO(appUser.subscriptionExpiresAt), 'yyyy-MM-dd') : ''
                       }

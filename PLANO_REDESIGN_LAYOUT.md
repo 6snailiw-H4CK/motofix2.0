@@ -95,7 +95,8 @@ Status em 2026-05-28:
 
 - Iniciado.
 - `AppShell`, `SidebarNav` e `TopBar` criados.
-- `BottomNav` mantido apenas para mobile.
+- Desktop usa sidebar/topbar do novo layout.
+- Mobile preserva o `AppHeader` antigo e `BottomNav`.
 - Views atuais continuam dentro de `AppViewRenderer`.
 - Proximo passo visual: lapidar dashboard e densidade dos paineis internos.
 
@@ -135,6 +136,13 @@ Validacao:
 Objetivo:
 
 Transformar a tela inicial em painel operacional parecido com o print, usando dados reais.
+
+Status atual:
+
+- Iniciado em 2026-05-28 com polimento visual incremental do `DashboardView`.
+- Desktop ganhou paineis mais densos, radius menor, cards com mais peso visual e graficos com mais altura.
+- Mobile foi preservado com a navegacao inferior antiga e a mesma ordem principal de conteudo.
+- Ainda falta reorganizar a composicao do dashboard para ficar mais proxima do print completo, com grafico principal e painel lateral operacional.
 
 Blocos sugeridos:
 
@@ -387,3 +395,4 @@ Antes de iniciar o redesign:
 - Categorias criadas no cadastro rapido de servico ja aparecem em Ajustes.
 - O menu inferior esta ativo e deve continuar existindo no mobile.
 - A proxima etapa visual deve comecar pelo shell, nao pelo dashboard inteiro.
+- O shell ja foi iniciado; a proxima etapa visual pode continuar no dashboard, mas em blocos pequenos para nao quebrar mobile.

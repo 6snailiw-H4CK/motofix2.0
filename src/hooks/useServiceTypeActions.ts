@@ -25,10 +25,24 @@ export const useServiceTypeActions = ({
     if (!name || !user) return;
 
     const currentServiceTypes = settings.serviceTypes || [];
-    const availableServiceTypes = normalizeServiceTypeOptions([...DEFAULT_SERVICE_TYPES, ...currentServiceTypes]);
+    const disabledDefaultKeys = new Set((settings.disabledDefaultServiceTypes || []).map(getServiceTypeKey));
+    const activeDefaults = DEFAULT_SERVICE_TYPES.filter(type => !disabledDefaultKeys.has(getServiceTypeKey(type)));
+    const availableServiceTypes = normalizeServiceTypeOptions([...activeDefaults, ...currentServiceTypes]);
     const alreadyExists = availableServiceTypes.some((type) => getServiceTypeKey(type) === getServiceTypeKey(name));
+    const defaultMatch = DEFAULT_SERVICE_TYPES.find((type) => getServiceTypeKey(type) === getServiceTypeKey(name));
 
     try {
+      if (defaultMatch && disabledDefaultKeys.has(getServiceTypeKey(defaultMatch))) {
+        const nextDisabledDefaults = (settings.disabledDefaultServiceTypes || []).filter(
+          type => getServiceTypeKey(type) !== getServiceTypeKey(defaultMatch)
+        );
+        await settingsRepository.saveConfig(user.uid, { disabledDefaultServiceTypes: nextDisabledDefaults });
+        setSettings((current) => ({ ...current, disabledDefaultServiceTypes: nextDisabledDefaults }));
+        onSelectServiceType(defaultMatch);
+        sonnerToast.success('Categoria padrao reativada.');
+        return;
+      }
+
       if (!alreadyExists) {
         const nextServiceTypes = normalizeServiceTypeOptions([...currentServiceTypes, name]);
         await settingsRepository.saveConfig(user.uid, { serviceTypes: nextServiceTypes });
@@ -41,7 +55,7 @@ export const useServiceTypeActions = ({
       console.error(error);
       sonnerToast.error('Nao foi possivel salvar a categoria.');
     }
-  }, [onSelectServiceType, setSettings, settings.serviceTypes, user]);
+  }, [onSelectServiceType, setSettings, settings.disabledDefaultServiceTypes, settings.serviceTypes, user]);
 
   return {
     addCustomServiceType,

@@ -12,6 +12,7 @@ type UseExpenseActionsParams = {
 
 export const useExpenseActions = ({ user, onAfterSave }: UseExpenseActionsParams) => {
   const [description, setDescription] = useState('');
+  const [supplier, setSupplier] = useState('');
   const [amount, setAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('Cartao de Credito');
   const [date, setDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
@@ -20,6 +21,7 @@ export const useExpenseActions = ({ user, onAfterSave }: UseExpenseActionsParams
 
   const resetForm = useCallback(() => {
     setDescription('');
+    setSupplier('');
     setAmount('');
     setPaymentMethod('Cartao de Credito');
     setDate(format(new Date(), 'yyyy-MM-dd'));
@@ -39,6 +41,7 @@ export const useExpenseActions = ({ user, onAfterSave }: UseExpenseActionsParams
     try {
       await expenseRepository.create(user.uid, {
         description: description.trim(),
+        supplier: supplier.trim() || '',
         amount: parsedAmount,
         paymentMethod,
         date: date || format(new Date(), 'yyyy-MM-dd'),
@@ -56,7 +59,7 @@ export const useExpenseActions = ({ user, onAfterSave }: UseExpenseActionsParams
     } finally {
       setIsSaving(false);
     }
-  }, [amount, date, description, note, onAfterSave, paymentMethod, resetForm, user]);
+  }, [amount, date, description, note, onAfterSave, paymentMethod, resetForm, supplier, user]);
 
   const deleteExpense = useCallback(async (expenseId: string) => {
     if (!user) return;
@@ -85,5 +88,7 @@ export const useExpenseActions = ({ user, onAfterSave }: UseExpenseActionsParams
     setDescription,
     setNote,
     setPaymentMethod,
+    setSupplier,
+    supplier,
   };
 };

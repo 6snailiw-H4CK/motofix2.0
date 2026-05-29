@@ -30,7 +30,7 @@ export const ClientScheduleForm = ({
   onSave,
   onAfterSubmit,
 }: ClientScheduleFormProps) => (
-  <div className="max-w-xl mx-auto space-y-4">
+  <div className="mx-auto max-w-xl space-y-4 lg:max-w-4xl xl:max-w-5xl">
     <div className="flex items-center gap-3">
       <button type="button" onClick={onBack} className="p-1.5 rounded-full hover:bg-slate-800 transition-colors">
         <ArrowLeft className="w-5 h-5" />
@@ -63,10 +63,10 @@ export const ClientScheduleForm = ({
         });
         onAfterSubmit();
       }}
-      className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50 space-y-4"
+      className="space-y-4 rounded-2xl border border-slate-700/50 bg-slate-800/40 p-5 lg:p-6"
     >
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="space-y-1.5 sm:col-span-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="space-y-1.5 sm:col-span-2 lg:col-span-4">
           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome completo</label>
           <input
             name="name"
@@ -99,7 +99,7 @@ export const ClientScheduleForm = ({
           />
         </div>
 
-        <div className="space-y-1.5 sm:col-span-2">
+        <div className="space-y-1.5 sm:col-span-2 lg:col-span-2">
           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Veiculo (modelo)</label>
           <input
             name="bikeModel"
@@ -133,7 +133,7 @@ export const ClientScheduleForm = ({
           />
         </div>
 
-        <div className="space-y-1.5 sm:col-span-2">
+        <div className="space-y-1.5 sm:col-span-2 lg:col-span-4">
           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Observacoes</label>
           <textarea
             name="notes"

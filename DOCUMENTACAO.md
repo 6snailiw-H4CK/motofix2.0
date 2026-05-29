@@ -290,7 +290,16 @@ Importante:
 - `useAppDerivedData` ja foi criado para tirar do `App.tsx` os dados derivados de tela: proximo agendamento, grafico mensal, opcoes de tipos de servico, filtros do historico e linhas recentes do cliente em edicao.
 - `getMaintenanceStatus` foi extraido para `src/lib/maintenanceStatus.ts`, centralizando a regra `OK`/`WARNING`/`OVERDUE` usada por cliente, manutencao e sincronizacao automatica.
 - `AppViewRenderer` agora recebe props agrupadas em `actions`, `data`, `session` e `ui`, reduzindo o contrato visual entre o `App.tsx` e o renderizador de telas.
-- Inicio do redesign visual: criado `AppShell` com sidebar desktop, topbar operacional e `BottomNav` restrita ao mobile. As views atuais continuam sendo renderizadas pelo `AppViewRenderer`, preservando a logica de negocio.
+- Inicio do redesign visual: criado `AppShell` com sidebar/topbar apenas no desktop e layout mobile preservando o `AppHeader` antigo com `BottomNav`. As views atuais continuam sendo renderizadas pelo `AppViewRenderer`, preservando a logica de negocio.
+- Redesign visual incremental do `DashboardView`: no desktop, cards e paineis ganharam acabamento mais proximo de SaaS operacional, com radius menor, paineis mais densos e graficos mais altos; no mobile, a estrutura e a navegacao inferior permanecem preservadas.
+- Navegacao mobile atual: a barra inferior mostra apenas `Inicio`, `Servicos`, `Agenda` e `Mais`. O menu `Mais` abre uma lista com `Garantias`, `Gastos`, `Clientes`, `Historico`, `Ajustes` e `Admin` quando aplicavel.
+- A tela `Servicos` nao mostra mais o botao `Agenda de Clientes` no topo; o acesso a clientes/fichas foi movido para `Mais > Clientes`. O topo da tela fica focado no botao `Novo Registro` e na lista de servicos.
+- `Agenda de Clientes` agora possui botao `Cadastrar cliente`, abrindo a ficha de cliente sem criar lancamento financeiro/servico. Cadastros feitos por esse caminho voltam para a propria agenda apos salvar.
+- Atalho rapido no dashboard: a tela inicial ganhou um botao flutuante circular no estilo iOS, posicionado acima da barra inferior no mobile, que abre diretamente o formulario `Registrar Servico` usando o mesmo fluxo de `Novo Registro`.
+- Refresh visual global: o fundo preto puro foi substituido por uma base azul-grafite com gradientes suaves, superficies translúcidas, bordas menos agressivas e campos/paineis com contraste mais uniforme. A mudanca foi feita em camada global para manter coerencia entre dashboard, servicos, agenda, garantias, gastos, historico e ajustes.
+- Correcao do modo claro: cards com fundo fixo escuro (`#0b0f18`, `#0b0d12`) e superficies `slate-950/slate-900`, incluindo menu `Mais` e barra inferior, agora recebem fundo claro, texto escuro e bordas suaves no tema claro.
+- Padrao de backup atualizado: proximos backups devem ter manifesto com a solicitacao original do usuario, facilitando voltar a um ponto especifico pelo pedido e nao apenas pelo timestamp.
+- Primeira passada do dashboard mobile no estilo da referencia: os cards financeiros principais ganharam visual escuro com icones, mini grafico decorativo e o card de proximo agendamento foi remodelado, preservando a logica atual e o botao flutuante de cadastro rapido.
 - Code splitting inicial implementado em `src/App.tsx` com `React.lazy`/`Suspense` para views grandes e `manualChunks` em `vite.config.ts` para separar vendors pesados.
 - `AppViewRenderer` foi criado em `src/components/layout/AppViewRenderer.tsx` para concentrar a renderizacao das views e tirar do `App.tsx` o bloco grande de condicionais por tela.
 - Logs de mensagem/aviso estao conectados ao `HistoryView` pelo card `Avisos enviados`, com listagem e exclusao para limpeza durante desenvolvimento.
@@ -313,7 +322,7 @@ Importante:
 - Correcao de UX/persistencia: categorias de itens/servicos e garantias em Configuracoes agora sao salvas imediatamente ao adicionar/remover.
 - Correcao de consistencia: excluir pela aba Servicos agora remove tambem as manutencoes/historicos vinculados ao cliente.
 - Correcao de categorias: categorias criadas pelo cadastro rapido de `Tipo de Servico` agora sao gravadas em `settings.serviceTypes`, aparecem em Configuracoes na secao `Categorias de Servicos` e podem ser removidas de la.
-- Relatorio geral: Ajustes agora possui o botao `Relatorio geral detalhado`, que abre a view `general-report` com faturamento bruto, recebido, contas a receber, gastos, resultado liquido, servicos, ticket medio, resumo por servico, clientes, garantias e agenda filtraveis.
+- Relatorio geral: Historico agora possui o card `Relatorio detalhado`, ao lado de `Historico filtrado` e `Avisos enviados`, abrindo a view `general-report` com faturamento bruto, recebido, contas a receber, gastos, resultado liquido, servicos, ticket medio, resumo por servico, clientes, garantias e agenda filtraveis.
 - Os cards principais do relatorio geral sao clicaveis e rolam para a secao detalhada correspondente.
 - Planejamento visual: `PLANO_REDESIGN_LAYOUT.md` documenta como migrar o app para um layout SaaS com sidebar, topbar e dashboard mais parecido com o print enviado, preservando a logica atual.
 - Backup local completo criado em `backups/motofix-full-sensitive-backup-20260527-192850.zip`, incluindo `.env` e `firebase-service-account.json` para recuperacao local. A pasta `backups/` foi adicionada ao `.gitignore` e nao deve ser versionada nem distribuida.
@@ -343,6 +352,16 @@ Importante:
 - Backup antes de extrair o helper de status de manutencao criado em `backups/motofix-pre-maintenance-status-helper-20260528-124238.zip`.
 - Backup antes de agrupar props do `AppViewRenderer` criado em `backups/motofix-pre-view-renderer-prop-groups-20260528-124731.zip`.
 - Backup antes de criar o esqueleto SaaS com sidebar/topbar criado em `backups/motofix-pre-saas-shell-layout-20260528-125611.zip`.
+- Backup antes de separar shell desktop/mobile criado em `backups/motofix-pre-responsive-shell-split-20260528-134200.zip`.
+- Backup antes do polimento desktop do dashboard criado em `backups/DashboardView-pre-desktop-saas-polish-20260528-165814.tsx.bak`.
+- Backup antes do teste de navegacao mobile por Lancamentos criado em `backups/BottomNav-pre-mobile-launches-nav-20260528-174203.tsx.bak` e `backups/ClientsView-pre-mobile-launches-nav-20260528-174203.tsx.bak`.
+- Backup antes do botao flutuante de registro rapido no dashboard criado em `backups/DashboardView-pre-floating-quick-service-20260528-183919.tsx.bak` e `backups/AppViewRenderer-pre-floating-quick-service-20260528-183919.tsx.bak`.
+- Backup antes da navegacao inferior `Mais` e do primeiro visual mobile inspirado na referencia criado em `backups/20260528-195319-bottom-nav-mais-dashboard-mobile-reference-*.bak`, com manifesto em `backups/20260528-195319-bottom-nav-mais-dashboard-mobile-reference-manifest.txt` contendo a solicitacao do usuario.
+- Backup do estado antes de reverter os botoes criado em `backups/20260528-200711-rollback-buttons-before-launches-nav-current-state-*.bak`, com manifesto em `backups/20260528-200711-rollback-buttons-before-launches-nav-current-state-manifest.txt` contendo a solicitacao do usuario.
+- Backup antes da navegacao mobile `Inicio/Servicos/Agenda/Mais` com `Clientes` dentro de `Mais` criado em `backups/20260528-201911-bottom-nav-mais-clientes-remove-service-agenda-button-*.bak`, com manifesto em `backups/20260528-201911-bottom-nav-mais-clientes-remove-service-agenda-button-manifest.txt` contendo a solicitacao do usuario.
+- Backup antes do botao `Cadastrar cliente` dentro de `Agenda de Clientes` criado em `backups/20260528-203454-clients-schedule-add-client-button-*.bak`, com manifesto em `backups/20260528-203454-clients-schedule-add-client-button-manifest.txt` contendo a solicitacao do usuario.
+- Backup antes do refresh visual global criado em `backups/20260528-210438-global-modern-visual-refresh-*.bak`, com manifesto em `backups/20260528-210438-global-modern-visual-refresh-manifest.txt` contendo a solicitacao do usuario.
+- Backup antes da correcao das superficies escuras no modo claro criado em `backups/20260528-211701-light-mode-fixed-dark-surfaces-*.bak`, com manifesto em `backups/20260528-211701-light-mode-fixed-dark-surfaces-manifest.txt` contendo a solicitacao do usuario.
 - Correcao de dashboard: calculos financeiros e ranking usam apenas manutencoes de clientes ainda existentes, ignorando historicos orfaos de clientes apagados.
 - O ranking `Top Servicos` agora ignora manutencoes orfas de clientes apagados.
 - O build agora usa `scripts/build.mjs` para aplicar `GOMAXPROCS=1` automaticamente e evitar falhas de memoria do esbuild no Windows.
@@ -418,7 +437,7 @@ Os demais arquivos Markdown antigos eram snapshots, guias duplicados ou diagnost
 
 - Dados financeiros e rankings devem vir de `users/{uid}/maintenances`.
 - Logs de WhatsApp devem ficar apenas em `users/{uid}/message_logs` e nao devem alimentar receita.
-- A tela `Historico` agora exibe `Avisos enviados` no canto superior direito, ao lado de `Historico filtrado`, lendo `message_logs` e filtrando por periodo/cliente para registrar quando o botao `Avisar` abriu o WhatsApp.
+- A tela `Historico` agora exibe `Historico filtrado`, `Avisos enviados` e `Relatorio detalhado` lado a lado no topo; os avisos leem `message_logs` e filtram por periodo/cliente para registrar quando o botao `Avisar` abriu o WhatsApp.
 - O card `Historico filtrado` virou painel clicavel; ao abrir, mostra os filtros de periodo, cliente, servico e recorrencia.
 - O card `Avisos enviados` virou painel clicavel; ao abrir, lista destinatario, moto, telefone, mensagem, data/hora, status e botao para excluir logs em ambiente de desenvolvimento.
 - Gastos/despesas devem vir de `users/{uid}/expenses`.
@@ -460,6 +479,47 @@ Os demais arquivos Markdown antigos eram snapshots, guias duplicados ou diagnost
 
 ### Ajustes de dashboard e loading
 
+- Backup antes do ajuste de notificacoes e compactacao do dashboard criado em `backups/20260528-213544-notification-feedback-dashboard-compact-layout-manifest.txt`.
+- O botao de notificacoes passou a dar retorno em todos os estados principais: navegador sem suporte, permissao negada, permissao pendente e permissao concedida.
+- Quando as notificacoes estao ativas, o clique no sino toca um som curto, mostra toast e tenta enviar uma notificacao de teste `MotoFix`, permitindo validar rapidamente se o navegador esta recebendo alertas.
+- Os cards financeiros principais da tela inicial foram compactados para ocupar menos altura, mantendo cliques, valores e micrografico visual.
+- `Historico Mensal` e `Top Servicos (pagos)` passaram a ficar lado a lado em desktop, cada um em seu proprio quadro; no mobile continuam empilhados.
+- Backup antes do ajuste mobile dos cards destacados e graficos lado a lado criado em `backups/20260528-214541-mobile-dashboard-compact-cards-side-by-side-charts-manifest.txt`.
+- No mobile, os cards `Receita (Mes)`, `Recorrente`, `Servicos` e `Garantias` foram reduzidos para ocupar cerca de 30% menos altura.
+- Backup antes de restaurar `Historico Mensal` e `Top Servicos (pagos)` ao layout anterior criado em `backups/20260528-215537-restore-mobile-history-top-services-previous-layout-manifest.txt`.
+- `Historico Mensal` e `Top Servicos (pagos)` voltaram ao estado anterior no mobile: empilhados, com textos auxiliares e detalhes visiveis; no desktop seguem lado a lado.
+- Backup antes do redesign premium do dashboard inspirado na referencia mobile criado em `backups/20260529-063117-dashboard-redesign-reference-premium-mobile-manifest.txt`.
+- O dashboard inicial ganhou cards com fundo azul-grafite, icones circulares, linhas sparkline por card, painel de proximo agendamento com botao rapido no mobile, `Historico mensal` com barras e labels e `Top Servicos (pagos)` em lista ranqueada.
+- O novo fundo `bg-[#0d1626]` foi incluido nas regras de tema claro para evitar que os cards fiquem escuros quando o usuario alternar para modo claro.
+- Backup antes de compactar novamente os cards do dashboard e remover o botao rapido embutido no agendamento criado em `backups/20260529-064918-compact-dashboard-cards-remove-inline-quick-button-manifest.txt`.
+- Os cards principais do dashboard foram reduzidos no mobile com menos altura, padding, icones e sparklines mais baixos; o botao de cadastro rapido dentro do card `Proximo agendamento` foi removido, mantendo apenas o botao flutuante global.
+- Backup antes do botao flutuante condicional de agendamento e grafico mensal minimalista criado em `backups/20260529-071132-floating-appointment-button-compact-monthly-chart-manifest.txt`.
+- Quando existe `nextAppointment`, o dashboard mostra um segundo botao flutuante com icone de calendario que abre a Agenda; sem agendamento futuro, esse botao nao aparece.
+- O grafico `Historico mensal` ficou mais compacto e minimalista, com menor altura, barras mais finas, grid menos intenso e cards de resumo reduzidos.
+- Backup antes de remover o card fixo de agendamento e mover o relatorio detalhado para o Historico criado em `backups/20260529-072347-remove-dashboard-appointment-card-move-report-to-history/manifest.txt`.
+- O card fixo `Proximo agendamento` saiu do dashboard; agora o aviso de agenda futura fica apenas no botao flutuante condicional com icone de calendario, reduzindo a area ocupada no inicio.
+- O botao `Relatorio geral detalhado` saiu de Ajustes e foi movido para o topo do Historico como terceiro card ao lado de `Historico filtrado` e `Avisos enviados`; ao voltar do relatorio, o app retorna para `Historico`.
+- Backup antes de compactar `Gastos`, `Agenda de Clientes` e `Top Servicos` criado em `backups/20260529-081356-compact-expenses-clients-agenda-top-services/manifest.txt`.
+- A tela `Gastos` agora tem registro rapido no topo, com botao `Registrar` junto ao formulario compacto; cards de resumo, pizza por metodo, grafico mensal e lista de gastos foram reduzidos para uso mais rapido.
+- A `Agenda de Clientes` ficou mais compacta, com cards menores, grid mais denso e acoes reduzidas sem remover edicao/exclusao.
+- O card `Top Servicos (pagos)` da tela inicial foi reduzido para um ranking mais minimalista, mostrando ate 3 linhas principais e detalhes menores ao expandir.
+- Backup antes de corrigir formulario de gastos, overflow mobile do Admin/Relatorio, categorias padrao removiveis e contraste do modo claro criado em `backups/20260529-092054-expense-form-mobile-overflow-removable-default-services-light-contrast/manifest.txt`.
+- Em `Gastos`, o botao `Registrar gasto` agora abre os campos de descricao, valor, pagamento, data e observacao; o salvamento fica no botao `Salvar gasto` dentro do formulario aberto.
+- A tela `Admin` foi ajustada para mobile com cards empilhados, textos truncados, controles de assinatura dentro da largura e campo `Vencimento` com contraste correto.
+- O `Relatorio detalhado` ganhou protecoes contra overflow no mobile em filtros, paineis e tabelas; campos de data agora respeitam o contraste do tema.
+- Categorias padrao de servico agora podem ser removidas em `Ajustes`; o app salva essas remocoes em `settings.disabledDefaultServiceTypes` e usa apenas categorias padrao ativas nos cadastros e filtros.
+- O modo claro recebeu ajustes de contraste para textos coloridos dos cards e campos de formulario, evitando letras claras demais sobre superficies claras.
+- Marco de venda salvo antes de iniciar ajustes especificos para desktop em `backups/20260529-105740-versao-venda-local/manifest.txt` e `backups/20260529-105740-versao-venda-local.zip`; inclui build atual, codigo, configs e arquivos sensiveis locais para recuperacao, nao devendo ser distribuido.
+- Backup antes do recurso desktop de backup/importacao/exportacao de clientes em XLSX criado em `backups/20260529-110233-desktop-client-xlsx-backup-import-export/manifest.txt`.
+- `Ajustes` agora exibe no desktop uma area `Backup de clientes` para exportar clientes em `.xlsx` e importar planilhas `.xlsx`; a area fica oculta no mobile para preservar a experiencia atual.
+- A exportacao gera uma planilha `motofix-clientes-AAAA-MM-DD.xlsx` com ID, nome, WhatsApp, moto, email, placa, km, oleo, recorrencia, datas, status, receita recorrente, ultimo servico, valor e observacoes.
+- A importacao faz upsert de clientes: atualiza quando encontra o mesmo ID/contato/identidade e cria quando nao encontra correspondente; os dados sao gravados em `users/{uid}/clients`.
+- Backup antes dos ajustes desktop de formulario, agenda e fornecedor em gastos criado em `backups/20260529-111907-desktop-forms-agenda-supplier-report/manifest.txt` e `backups/20260529-111907-desktop-forms-agenda-supplier-report.zip`; o manifesto registra a solicitacao completa para facilitar rollback.
+- No desktop, os formularios `Novo cliente` e `Registrar Servico` ganharam largura maior (`lg/xl`) sem alterar a base mobile.
+- Na Agenda, os controles de mes passam a virar botoes circulares com setas no desktop, mantendo texto no mobile.
+- Em `Gastos`, o cadastro ganhou campo `Fornecedor`; o valor e salvo junto ao gasto e aparece na lista de gastos recentes.
+- O `Relatorio geral detalhado` agora inclui `Fornecedores mais comprados`, agrupando gastos por fornecedor e mostrando valor total/quantidade no periodo filtrado.
+- A tabela `Gastos no periodo` do relatorio tambem exibe a coluna `Fornecedor` e a busca considera descricao, fornecedor, observacao e forma de pagamento.
 - A tela de carregamento removeu qualquer icone/texto antes do Instagram; o link aparece somente como `@motofix_recorrentes` para evitar caracteres quebrados no boot.
 - O favicon e o apple-touch-icon agora usam `/motofix-logo.svg`, removendo a data URL com emoji que podia aparecer quebrada antes do app iniciar.
 - O service worker usa texto ASCII e `/motofix-logo.svg` nas notificacoes, evitando mojibake fora do bundle principal.
@@ -482,3 +542,13 @@ Os demais arquivos Markdown antigos eram snapshots, guias duplicados ou diagnost
 - Os cards da tela `Servicos` agora exibem etiquetas visuais como `Vencido`, `Proximo` e `Saldo devedor`.
 - A tela `Servicos` passou a listar somente clientes com manutencoes/lancamentos reais vinculados. Se todos os lancamentos de um cliente forem apagados, ele deixa de aparecer em `Servicos` e permanece apenas em `Agenda de Clientes`.
 - Validado em 2026-05-28 com `npm run lint` e `npm run build`.
+
+### Lancamentos Caixa e catalogo de mercadorias
+
+- Backup antes do modulo teste `Lancamentos Caixa` criado em `backups/20260529-123711-cash-register-product-xlsx-modal/manifest.txt` e `backups/20260529-123711-cash-register-product-xlsx-modal.zip`; o manifesto registra a solicitacao completa para facilitar rollback.
+- O app ganhou a view `cash-register`, acessivel no desktop pela lateral e pelo botao `Lancamentos Caixa` dentro de `Servicos`.
+- A importacao de mercadorias aceita `.xlsx` e le somente as colunas selecionadas na planilha de referencia: `Descricao`, `NCM` e `Venda R$`.
+- As mercadorias importadas sao gravadas em `users/{uid}/products` e ficam disponiveis para pesquisa por codigo, descricao ou NCM.
+- `Lancamentos Caixa` tem abas `Controle`, `Historico` e `Monitoramento`; em `Controle`, a subaba `Mercadorias / Servicos` permite clicar em `Incluir`, pesquisar mercadoria e adiciona-la ao lancamento.
+- Os lancamentos salvos ficam em `users/{uid}/cash_launches`, com cliente, status, datas, itens, descontos, totais e flag de faturamento.
+- Este modulo ainda e experimental e separado dos lancamentos tradicionais de manutencao; ele nao altera os totais do dashboard ate definirmos a regra de integracao com receitas/OS oficiais.

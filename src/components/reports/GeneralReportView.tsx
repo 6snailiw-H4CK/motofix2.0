@@ -3,7 +3,7 @@ import { endOfDay, format, isAfter, isBefore, parseISO, startOfDay, startOfMonth
 import type { ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import { DEFAULT_SERVICE_TYPES } from '../../constants/appDefaults';
-import { getServiceTypeLabel, normalizeServiceTypeOptions } from '../../lib/serviceTypes';
+import { getServiceTypeKey, getServiceTypeLabel, normalizeServiceTypeOptions } from '../../lib/serviceTypes';
 import type { Appointment, Client, ExpenseRecord, MaintenanceRecord, Settings, Warranty } from '../../types';
 
 type PaymentStatusFilter = 'all' | 'Pago' | 'Pendente' | 'Parcial';
@@ -77,6 +77,9 @@ const getReceivableAmount = (maintenance: MaintenanceRecord) => {
 
 const getClientSearchText = (client?: Client) => `${client?.name || ''} ${client?.bikeModel || ''} ${client?.contact || ''}`.toLowerCase();
 
+const reportControlClass =
+  'w-full min-w-0 rounded-xl border-slate-700 bg-slate-900/70 p-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-1 focus:ring-primary';
+
 export const GeneralReportView = ({
   clients,
   maintenances,
@@ -96,12 +99,14 @@ export const GeneralReportView = ({
   const normalizedClientQuery = clientQuery.trim().toLowerCase();
 
   const serviceTypeOptions = useMemo(() => {
+    const disabledDefaultKeys = new Set((settings.disabledDefaultServiceTypes || []).map(getServiceTypeKey));
+    const activeDefaults = DEFAULT_SERVICE_TYPES.filter(type => !disabledDefaultKeys.has(getServiceTypeKey(type)));
     return normalizeServiceTypeOptions([
-      ...DEFAULT_SERVICE_TYPES,
+      ...activeDefaults,
       ...(settings.serviceTypes || []),
       ...maintenances.map(maintenance => maintenance.serviceType),
     ]);
-  }, [maintenances, settings.serviceTypes]);
+  }, [maintenances, settings.disabledDefaultServiceTypes, settings.serviceTypes]);
 
   const filteredMaintenances = useMemo(() => {
     return maintenances.filter((maintenance) => {
@@ -125,7 +130,7 @@ export const GeneralReportView = ({
     return expenses.filter((expense) => {
       if (!isDateInRange(expense.date, startDate, endDate)) return false;
       if (!normalizedClientQuery) return true;
-      return `${expense.description} ${expense.note || ''} ${expense.paymentMethod}`.toLowerCase().includes(normalizedClientQuery);
+      return `${expense.description} ${expense.supplier || ''} ${expense.note || ''} ${expense.paymentMethod}`.toLowerCase().includes(normalizedClientQuery);
     });
   }, [endDate, expenses, normalizedClientQuery, startDate]);
 
@@ -231,6 +236,23 @@ export const GeneralReportView = ({
       .slice(0, 12);
   }, [clientsById, filteredMaintenances]);
 
+  const supplierBreakdown = useMemo(() => {
+    const map = new Map<string, { count: number; total: number }>();
+
+    filteredExpenses.forEach((expense) => {
+      const supplier = (expense.supplier || '').trim() || 'Sem fornecedor';
+      const current = map.get(supplier) || { count: 0, total: 0 };
+      current.count += 1;
+      current.total += toNumber(expense.amount);
+      map.set(supplier, current);
+    });
+
+    return Array.from(map.entries())
+      .map(([supplier, values]) => ({ supplier, ...values }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10);
+  }, [filteredExpenses]);
+
   const setCurrentMonth = () => {
     setStartDate(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
     setEndDate(format(new Date(), 'yyyy-MM-dd'));
@@ -253,7 +275,7 @@ export const GeneralReportView = ({
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="mx-auto w-full max-w-6xl space-y-5 overflow-hidden">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <button type="button" onClick={onBack} className="p-1.5 rounded-full hover:bg-slate-800 transition-colors">
@@ -274,19 +296,19 @@ export const GeneralReportView = ({
         </button>
       </div>
 
-      <section className="rounded-2xl border border-slate-700/70 bg-slate-800/40 p-4">
+      <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-700/70 bg-slate-800/40 p-4">
         <div className="mb-3 flex items-center gap-2">
           <Filter className="h-4 w-4 text-primary" />
           <h3 className="text-sm font-bold">Filtros</h3>
         </div>
-        <div className="grid gap-3 md:grid-cols-5">
+        <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <label className="space-y-1">
             <span className="px-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">Inicio</span>
             <input
               type="date"
               value={startDate}
               onChange={(event) => setStartDate(event.target.value)}
-              className="w-full rounded-xl border-slate-700 bg-slate-900/70 p-2 text-sm outline-none focus:ring-1 focus:ring-primary"
+              className={reportControlClass}
             />
           </label>
           <label className="space-y-1">
@@ -295,7 +317,7 @@ export const GeneralReportView = ({
               type="date"
               value={endDate}
               onChange={(event) => setEndDate(event.target.value)}
-              className="w-full rounded-xl border-slate-700 bg-slate-900/70 p-2 text-sm outline-none focus:ring-1 focus:ring-primary"
+              className={reportControlClass}
             />
           </label>
           <label className="space-y-1">
@@ -304,7 +326,7 @@ export const GeneralReportView = ({
               value={clientQuery}
               onChange={(event) => setClientQuery(event.target.value)}
               placeholder="Nome, moto ou telefone"
-              className="w-full rounded-xl border-slate-700 bg-slate-900/70 p-2 text-sm outline-none placeholder:text-slate-600 focus:ring-1 focus:ring-primary"
+              className={reportControlClass}
             />
           </label>
           <label className="space-y-1">
@@ -312,7 +334,7 @@ export const GeneralReportView = ({
             <select
               value={serviceTypeFilter}
               onChange={(event) => setServiceTypeFilter(event.target.value)}
-              className="w-full rounded-xl border-slate-700 bg-slate-900/70 p-2 text-sm outline-none focus:ring-1 focus:ring-primary"
+              className={reportControlClass}
             >
               <option value="all">Todos</option>
               {serviceTypeOptions.map(option => (
@@ -325,7 +347,7 @@ export const GeneralReportView = ({
             <select
               value={paymentStatus}
               onChange={(event) => setPaymentStatus(event.target.value as PaymentStatusFilter)}
-              className="w-full rounded-xl border-slate-700 bg-slate-900/70 p-2 text-sm outline-none focus:ring-1 focus:ring-primary"
+              className={reportControlClass}
             >
               <option value="all">Todos</option>
               <option value="Pago">Pago</option>
@@ -347,7 +369,7 @@ export const GeneralReportView = ({
         </div>
       </section>
 
-      <section className="grid gap-3 md:grid-cols-4">
+      <section className="grid min-w-0 gap-3 md:grid-cols-4">
         <Metric title="Faturamento bruto" value={toCurrency(summary.grossRevenue)} tone="text-white" onClick={() => scrollToSection('report-services-detail')} />
         <Metric title="Recebido" value={toCurrency(summary.received)} tone="text-emerald-400" onClick={() => scrollToSection('report-services-detail')} />
         <Metric title="A receber" value={toCurrency(summary.receivable)} tone="text-amber-400" onClick={() => scrollToSection('report-receivables')} />
@@ -358,10 +380,10 @@ export const GeneralReportView = ({
         <Metric title="Ticket medio" value={toCurrency(summary.averageTicket)} tone="text-white" onClick={() => scrollToSection('report-clients')} />
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+      <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
         <Panel id="report-receivables" title="Contas a receber" icon={WalletCards}>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px] text-left text-xs">
+          <div className="max-w-full overflow-x-auto">
+            <table className="w-full min-w-[620px] text-left text-xs">
               <thead className="text-[10px] uppercase tracking-widest text-slate-500">
                 <tr>
                   <th className="py-2">Cliente</th>
@@ -419,7 +441,7 @@ export const GeneralReportView = ({
         </Panel>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="grid min-w-0 gap-4 xl:grid-cols-3">
         <Panel id="report-clients" title="Clientes com maior movimento" icon={BarChart3}>
           <CompactTable
             headers={['Cliente', 'Moto', 'Servicos', 'Recebido', 'Saldo']}
@@ -433,11 +455,35 @@ export const GeneralReportView = ({
           />
         </Panel>
 
+        <Panel id="report-suppliers" title="Fornecedores mais comprados" icon={WalletCards}>
+          <div className="space-y-3">
+            {supplierBreakdown.map((supplier) => {
+              const percentage = summary.expenseTotal ? (supplier.total / summary.expenseTotal) * 100 : 0;
+              return (
+                <div key={supplier.supplier} className="space-y-1">
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <span className="font-bold text-slate-200">{supplier.supplier}</span>
+                    <span className="text-slate-400">{supplier.count} gasto(s)</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-900">
+                      <div className="h-full rounded-full bg-red-500" style={{ width: `${Math.min(100, percentage)}%` }} />
+                    </div>
+                    <span className="w-24 text-right text-xs font-bold text-red-300">{toCurrency(supplier.total)}</span>
+                  </div>
+                </div>
+              );
+            })}
+            {supplierBreakdown.length === 0 && <p className="py-6 text-center text-sm text-slate-500">Sem fornecedores no filtro atual.</p>}
+          </div>
+        </Panel>
+
         <Panel id="report-expenses" title="Gastos no periodo" icon={WalletCards}>
           <CompactTable
-            headers={['Descricao', 'Data', 'Forma', 'Valor']}
+            headers={['Descricao', 'Fornecedor', 'Data', 'Forma', 'Valor']}
             rows={filteredExpenses.map(expense => [
               expense.description,
+              expense.supplier || '-',
               formatDate(expense.date),
               expense.paymentMethod,
               toCurrency(toNumber(expense.amount)),
@@ -447,7 +493,7 @@ export const GeneralReportView = ({
         </Panel>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="grid min-w-0 gap-4 xl:grid-cols-2">
         <Panel id="report-warranties" title="Garantias no periodo" icon={CalendarDays}>
           <CompactTable
             headers={['Cliente', 'Servico', 'Emissao', 'Vencimento', 'Status']}
@@ -485,8 +531,8 @@ export const GeneralReportView = ({
       </section>
 
       <Panel id="report-services-detail" title="Servicos detalhados" icon={BarChart3}>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left text-xs">
+        <div className="max-w-full overflow-x-auto">
+          <table className="w-full min-w-[700px] text-left text-xs">
             <thead className="text-[10px] uppercase tracking-widest text-slate-500">
               <tr>
                 <th className="py-2">Data</th>
@@ -541,7 +587,7 @@ const Metric = ({ title, value, tone, compact = false, onClick }: MetricProps) =
       {onClick && <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-primary">Ver detalhes</p>}
     </>
   );
-  const className = `rounded-2xl border border-slate-700/60 bg-slate-800/40 ${compact ? 'p-3' : 'p-4'}`;
+  const className = `min-w-0 rounded-2xl border border-slate-700/60 bg-slate-800/40 ${compact ? 'p-3' : 'p-4'}`;
 
   if (onClick) {
     return (
@@ -566,7 +612,7 @@ type PanelProps = {
 };
 
 const Panel = ({ id, title, icon: Icon, children }: PanelProps) => (
-  <section id={id} className="scroll-mt-24 rounded-2xl border border-slate-700/60 bg-slate-800/40 p-4">
+  <section id={id} className="min-w-0 overflow-hidden scroll-mt-24 rounded-2xl border border-slate-700/60 bg-slate-800/40 p-4">
     <div className="mb-4 flex items-center gap-2">
       <Icon className="h-4 w-4 text-primary" />
       <h3 className="text-sm font-bold">{title}</h3>
@@ -582,8 +628,8 @@ type CompactTableProps = {
 };
 
 const CompactTable = ({ headers, rows, emptyMessage = 'Sem dados no filtro atual.' }: CompactTableProps) => (
-  <div className="overflow-x-auto">
-    <table className="w-full min-w-[520px] text-left text-xs">
+  <div className="max-w-full overflow-x-auto">
+    <table className="w-full min-w-[480px] text-left text-xs">
       <thead className="text-[10px] uppercase tracking-widest text-slate-500">
         <tr>
           {headers.map(header => <th key={header} className="py-2">{header}</th>)}

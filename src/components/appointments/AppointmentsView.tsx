@@ -1,6 +1,6 @@
 import { addDays, addMonths, differenceInDays, endOfMonth, format, isSameDay, parseISO, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useMemo } from 'react';
 import { cn } from '../../lib/utils';
 import type { Appointment } from '../../types';
@@ -107,16 +107,22 @@ export const AppointmentsView = ({
               <button
                 type="button"
                 onClick={() => onCalendarMonthChange(subMonths(calendarMonth, 1))}
-                className="rounded-full bg-slate-900/70 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-200 hover:bg-slate-900 transition"
+                aria-label="Mes anterior"
+                title="Mes anterior"
+                className="inline-flex items-center justify-center gap-1 rounded-full bg-slate-900/70 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-200 transition hover:bg-slate-900 lg:h-11 lg:w-11 lg:border lg:border-slate-700 lg:px-0 lg:hover:border-primary/60"
               >
-                Anterior
+                <ChevronLeft className="hidden h-4 w-4 lg:block" />
+                <span className="lg:sr-only">Anterior</span>
               </button>
               <button
                 type="button"
                 onClick={() => onCalendarMonthChange(addMonths(calendarMonth, 1))}
-                className="rounded-full bg-slate-900/70 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-200 hover:bg-slate-900 transition"
+                aria-label="Proximo mes"
+                title="Proximo mes"
+                className="inline-flex items-center justify-center gap-1 rounded-full bg-slate-900/70 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-slate-200 transition hover:bg-slate-900 lg:h-11 lg:w-11 lg:border lg:border-slate-700 lg:px-0 lg:hover:border-primary/60"
               >
-                Proximo
+                <span className="lg:sr-only">Proximo</span>
+                <ChevronRight className="hidden h-4 w-4 lg:block" />
               </button>
             </div>
           </div>

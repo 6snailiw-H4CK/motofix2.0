@@ -20,6 +20,7 @@ export type AppView =
   | 'admin'
   | 'report'
   | 'general-report'
+  | 'cash-register'
   | 'checkout'
   | 'subscription-expired'
   | 'expenses';
@@ -103,12 +104,62 @@ export interface MaintenanceRecord {
 export interface ExpenseRecord {
   id: string;
   description: string;
+  supplier?: string;
   amount: number;
   paymentMethod: string;
   date: string;
   note?: string;
   userId: string;
   createdAt: string;
+}
+
+export interface ProductCatalogItem {
+  id: string;
+  sourceCode: string;
+  description: string;
+  ncm: string;
+  salePrice: number;
+  importedAt: string;
+  userId: string;
+}
+
+export interface CashRegisterItem {
+  id: string;
+  productId?: string;
+  sourceCode: string;
+  description: string;
+  ncm: string;
+  quantity: number;
+  unitPrice: number;
+  discountValue: number;
+  discountPercent: number;
+  netUnitPrice: number;
+  total: number;
+  date: string;
+  note?: string;
+}
+
+export interface CashRegisterLaunch {
+  id: string;
+  orderNumber: string;
+  clientId?: string;
+  clientName: string;
+  bikeModel?: string;
+  status: 'Em Lancamento' | 'Finalizado' | 'Pendente';
+  openingDate: string;
+  expectedDate: string;
+  request?: string;
+  servicesExecuted?: string;
+  observation?: string;
+  items: CashRegisterItem[];
+  merchandiseTotal: number;
+  servicesTotal: number;
+  discountTotal: number;
+  total: number;
+  invoiced?: boolean;
+  userId: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Appointment {
@@ -128,6 +179,8 @@ export interface Settings {
   oilTypes: string[];
   /** Tipos extras de serviço (além dos padrões do app); usados no cadastro e filtros. */
   serviceTypes?: string[];
+  /** Categorias padrao que o usuario decidiu ocultar/remover da configuracao. */
+  disabledDefaultServiceTypes?: string[];
   /** E-mail institucional da oficina (ex.: contato@moto.com) */
   businessEmail?: string;
   warrantyCategories: string[];

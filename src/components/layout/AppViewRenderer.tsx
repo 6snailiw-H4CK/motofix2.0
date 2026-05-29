@@ -2,17 +2,20 @@ import { lazy, Suspense, type Dispatch, type SetStateAction } from 'react';
 import type {
   AppView,
   Appointment,
+  CashRegisterLaunch,
   Client,
   ColorMode,
   ExpenseRecord,
   MaintenanceRecord,
   MessageLog,
+  ProductCatalogItem,
   Settings,
   UserProfile,
   Warranty,
 } from '../../types';
 import type { useAdminActions } from '../../hooks/useAdminActions';
 import type { useAppointmentActions } from '../../hooks/useAppointmentActions';
+import type { useCashRegisterActions } from '../../hooks/useCashRegisterActions';
 import type { useClientActions } from '../../hooks/useClientActions';
 import type { useClientFormState } from '../../hooks/useClientFormState';
 import type { useDeleteConfirmation } from '../../hooks/useDeleteConfirmation';
@@ -27,6 +30,7 @@ import type { useWhatsAppReminderActions } from '../../hooks/useWhatsAppReminder
 
 const AdminView = lazy(() => import('../admin/AdminView').then((module) => ({ default: module.AdminView })));
 const AppointmentsView = lazy(() => import('../appointments/AppointmentsView').then((module) => ({ default: module.AppointmentsView })));
+const CashRegisterView = lazy(() => import('../cash/CashRegisterView').then((module) => ({ default: module.CashRegisterView })));
 const ClientForm = lazy(() => import('../clients/ClientForm').then((module) => ({ default: module.ClientForm })));
 const ClientScheduleForm = lazy(() => import('../clients/ClientScheduleForm').then((module) => ({ default: module.ClientScheduleForm })));
 const ClientsScheduleView = lazy(() => import('../clients/ClientsScheduleView').then((module) => ({ default: module.ClientsScheduleView })));
@@ -58,6 +62,7 @@ type ChartDataPoint = {
 
 type AdminActions = ReturnType<typeof useAdminActions>;
 type AppointmentActions = ReturnType<typeof useAppointmentActions>;
+type CashRegisterActions = ReturnType<typeof useCashRegisterActions>;
 type ClientActions = ReturnType<typeof useClientActions>;
 type ClientFormState = ReturnType<typeof useClientFormState>;
 type DeleteConfirmation = ReturnType<typeof useDeleteConfirmation>;
@@ -73,6 +78,7 @@ type SendWhatsApp = ReturnType<typeof useWhatsAppReminderActions>['sendWhatsApp'
 type AppViewRendererActions = {
   admin: AdminActions;
   appointment: AppointmentActions;
+  cashRegister: CashRegisterActions;
   client: ClientActions;
   clientForm: ClientFormState;
   expense: ExpenseActions;
@@ -87,6 +93,7 @@ type AppViewRendererActions = {
 type AppViewRendererData = {
   allUsers: UserProfile[];
   appointments: Appointment[];
+  cashLaunches: CashRegisterLaunch[];
   chartData: ChartDataPoint[];
   clients: Client[];
   dailyPendingAlerts: Client[];
@@ -96,6 +103,7 @@ type AppViewRendererData = {
   maintenances: MaintenanceRecord[];
   messageLogs: MessageLog[];
   nextAppointment?: Appointment;
+  productCatalog: ProductCatalogItem[];
   serviceTypeOptions: string[];
   scheduleClientHistoryRows: MaintenanceRecord[];
   settings: Settings;
@@ -140,6 +148,7 @@ export const AppViewRenderer = ({
   const {
     admin: adminActions,
     appointment: appointmentActions,
+    cashRegister: cashRegisterActions,
     client: clientActions,
     clientForm,
     expense: expenseActions,
@@ -153,6 +162,7 @@ export const AppViewRenderer = ({
   const {
     allUsers,
     appointments,
+    cashLaunches,
     chartData,
     clients,
     dailyPendingAlerts,
@@ -162,6 +172,7 @@ export const AppViewRenderer = ({
     maintenances,
     messageLogs,
     nextAppointment,
+    productCatalog,
     serviceTypeOptions,
     scheduleClientHistoryRows,
     settings,
@@ -216,6 +227,10 @@ export const AppViewRenderer = ({
           topServicesData={topServicesData}
           expandedTopService={expandedTopService}
           onViewChange={setView}
+          onQuickServiceRegister={() => {
+            clientForm.startNewClient();
+            setView('new-client');
+          }}
           onSendWhatsApp={sendWhatsApp}
           onToggleTopService={(service) => setExpandedTopService(expandedTopService === service ? null : service)}
           getTopServiceSubRows={getTopServiceSubRows}
@@ -253,18 +268,13 @@ export const AppViewRenderer = ({
           clientBalanceMap={clientBalanceMap}
           searchQuery={searchQuery}
           serviceListFilter={serviceListFilter}
-          isNewService={isNewService}
           processingId={maintenanceActions.processingId}
           deleteConfirmId={getDeleteConfirmId('maintenance')}
-          onQuickModeClick={() => setIsNewService(false)}
-          onScheduleClick={() => {
-            setIsNewService(true);
-            setView('clients-schedule');
-          }}
           onNewRecord={() => {
             clientForm.startNewClient();
             setView('new-client');
           }}
+          onOpenCashRegister={() => setView('cash-register')}
           onSearchChange={setSearchQuery}
           onServiceListFilterChange={setServiceListFilter}
           onAddMaintenance={maintenanceActions.addMaintenance}
@@ -277,6 +287,19 @@ export const AppViewRenderer = ({
           onDeleteMaintenanceClick={(record) => {
             confirmOrRequestDelete('maintenance', record.id, () => maintenanceActions.deleteMaintenance(record));
           }}
+        />
+      )}
+
+      {view === 'cash-register' && (
+        <CashRegisterView
+          cashLaunches={cashLaunches}
+          clients={clients}
+          products={productCatalog}
+          isImportingProducts={cashRegisterActions.isImportingProducts}
+          isSavingLaunch={cashRegisterActions.isSavingLaunch}
+          onBack={() => setView('clients')}
+          onImportProducts={cashRegisterActions.importProductsWorkbook}
+          onSaveLaunch={cashRegisterActions.saveLaunch}
         />
       )}
 
@@ -309,6 +332,10 @@ export const AppViewRenderer = ({
           clientBalanceMap={clientBalanceMap}
           deleteConfirmId={getDeleteConfirmId('client')}
           onBack={() => setView('dashboard')}
+          onAddClient={() => {
+            clientForm.startScheduleClient();
+            setView('clients-schedule-add');
+          }}
           onEditClient={(client) => {
             clientForm.startEditClient(client);
             setView('clients-schedule-add');
@@ -346,6 +373,7 @@ export const AppViewRenderer = ({
           onDeleteMessageLogClick={(log) => {
             confirmOrRequestDelete('messageLog', log.id, () => messageLogActions.deleteMessageLog(log.id));
           }}
+          onOpenGeneralReport={() => setView('general-report')}
         />
       )}
 
@@ -353,6 +381,7 @@ export const AppViewRenderer = ({
         <ExpensesView
           expenseEntries={expenseEntries}
           description={expenseActions.description}
+          supplier={expenseActions.supplier}
           amount={expenseActions.amount}
           paymentMethod={expenseActions.paymentMethod}
           date={expenseActions.date}
@@ -360,6 +389,7 @@ export const AppViewRenderer = ({
           isSaving={expenseActions.isSaving}
           onBack={() => setView('dashboard')}
           onDescriptionChange={expenseActions.setDescription}
+          onSupplierChange={expenseActions.setSupplier}
           onAmountChange={expenseActions.setAmount}
           onPaymentMethodChange={expenseActions.setPaymentMethod}
           onDateChange={expenseActions.setDate}
@@ -386,7 +416,7 @@ export const AppViewRenderer = ({
           warranties={warranties}
           appointments={appointments}
           settings={settings}
-          onBack={() => setView('settings')}
+          onBack={() => setView('history')}
         />
       )}
 
@@ -416,6 +446,7 @@ export const AppViewRenderer = ({
 
       {view === 'settings' && (
         <SettingsView
+          clientsCount={clients.length}
           userEmail={userEmail}
           userProfile={userProfile}
           settings={settings}
@@ -425,7 +456,9 @@ export const AppViewRenderer = ({
           onSaveProfile={settingsActions.saveCompanyProfile}
           onSaveSettings={settingsActions.saveSettings}
           onSaveSettingsPatch={settingsActions.saveSettingsPatch}
-          onOpenGeneralReport={() => setView('general-report')}
+          onExportClientsBackup={clientActions.exportClientsBackup}
+          onImportClientsBackup={clientActions.importClientsBackup}
+          isImportingClients={clientActions.isImportingClients}
         />
       )}
 

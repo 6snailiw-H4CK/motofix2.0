@@ -4,10 +4,12 @@ import { collection, doc, onSnapshot, query, setDoc, updateDoc } from 'firebase/
 import { db } from '../firebase';
 import {
   Appointment,
+  CashRegisterLaunch,
   Client,
   ExpenseRecord,
   MaintenanceRecord,
   MessageLog,
+  ProductCatalogItem,
   Settings,
   UserProfile,
   Warranty
@@ -31,6 +33,8 @@ type UseUserCollectionsResult = {
   messageLogs: MessageLog[];
   appointments: Appointment[];
   expenseEntries: ExpenseRecord[];
+  productCatalog: ProductCatalogItem[];
+  cashLaunches: CashRegisterLaunch[];
 };
 
 const buildSettings = (userId: string, data: Record<string, any>): Settings => ({
@@ -38,6 +42,7 @@ const buildSettings = (userId: string, data: Record<string, any>): Settings => (
   whatsappTemplate: data.whatsappTemplate || DEFAULT_SETTINGS.whatsappTemplate,
   oilTypes: data.oilTypes || DEFAULT_SETTINGS.oilTypes,
   serviceTypes: Array.isArray(data.serviceTypes) ? data.serviceTypes : [],
+  disabledDefaultServiceTypes: Array.isArray(data.disabledDefaultServiceTypes) ? data.disabledDefaultServiceTypes : [],
   warrantyCategories: data.warrantyCategories || DEFAULT_SETTINGS.warrantyCategories,
   businessName: data.businessName || '',
   businessPhone: data.businessPhone || '',
@@ -68,6 +73,8 @@ export function useUserCollections({
   const [messageLogs, setMessageLogs] = useState<MessageLog[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [expenseEntries, setExpenseEntries] = useState<ExpenseRecord[]>([]);
+  const [productCatalog, setProductCatalog] = useState<ProductCatalogItem[]>([]);
+  const [cashLaunches, setCashLaunches] = useState<CashRegisterLaunch[]>([]);
 
   useEffect(() => {
     if (!user || !userProfile?.isActive) return;
@@ -115,6 +122,24 @@ export function useUserCollections({
     }, (error) => {
       console.error('Expenses listener error:', error);
       setExpenseEntries([]);
+    });
+
+    const productsQuery = query(collection(db, 'users', user.uid, 'products'));
+    const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
+      const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ProductCatalogItem));
+      setProductCatalog(productsData.sort((a, b) => a.description.localeCompare(b.description)));
+    }, (error) => {
+      console.error('Products listener error:', error);
+      setProductCatalog([]);
+    });
+
+    const cashLaunchesQuery = query(collection(db, 'users', user.uid, 'cash_launches'));
+    const unsubscribeCashLaunches = onSnapshot(cashLaunchesQuery, (snapshot) => {
+      const launchesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CashRegisterLaunch));
+      setCashLaunches(launchesData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+    }, (error) => {
+      console.error('Cash launches listener error:', error);
+      setCashLaunches([]);
     });
 
     const settingsDoc = doc(db, 'users', user.uid, 'settings', 'config');
@@ -177,6 +202,8 @@ export function useUserCollections({
       unsubscribeWarranties();
       unsubscribeAppointments();
       unsubscribeExpenses();
+      unsubscribeProducts();
+      unsubscribeCashLaunches();
       unsubscribeSettings();
       unsubscribeUsers();
       unsubscribeMessageLogs();
@@ -193,6 +220,8 @@ export function useUserCollections({
     settingsLoaded,
     messageLogs,
     appointments,
-    expenseEntries
+    expenseEntries,
+    productCatalog,
+    cashLaunches
   };
 }

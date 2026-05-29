@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { AppHeader } from './AppHeader';
 import { BottomNav } from './BottomNav';
 import { SidebarNav } from './SidebarNav';
 import { TopBar } from './TopBar';
@@ -45,19 +46,32 @@ export const AppShell = ({
         />
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <TopBar
-            alertCount={alertCount}
-            businessName={businessName}
-            colorMode={colorMode}
-            view={view}
-            onColorModeChange={onColorModeChange}
-            onRequestNotifications={onRequestNotifications}
-            onSettingsClick={() => onViewChange('settings')}
-            onSignOut={onSignOut}
-          />
+          <div className="lg:hidden">
+            <AppHeader
+              alertCount={alertCount}
+              colorMode={colorMode}
+              onColorModeChange={onColorModeChange}
+              onRequestNotifications={onRequestNotifications}
+              onSettingsClick={() => onViewChange('settings')}
+              onSignOut={onSignOut}
+            />
+          </div>
+
+          <div className="hidden lg:block">
+            <TopBar
+              alertCount={alertCount}
+              businessName={businessName}
+              colorMode={colorMode}
+              view={view}
+              onColorModeChange={onColorModeChange}
+              onRequestNotifications={onRequestNotifications}
+              onSettingsClick={() => onViewChange('settings')}
+              onSignOut={onSignOut}
+            />
+          </div>
 
           <main className="flex-1 px-3 pb-24 pt-4 sm:px-5 lg:px-8 lg:pb-8">
-            <div className="mx-auto w-full max-w-[1600px] space-y-6">
+            <div className="mx-auto w-full max-w-5xl space-y-6 lg:max-w-[1600px]">
               {children}
             </div>
           </main>

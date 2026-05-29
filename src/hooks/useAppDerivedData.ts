@@ -1,7 +1,7 @@
 import { isBefore, parseISO, startOfDay } from 'date-fns';
 import { useMemo } from 'react';
 import { DEFAULT_SERVICE_TYPES } from '../constants/appDefaults';
-import { normalizeServiceTypeOptions } from '../lib/serviceTypes';
+import { getServiceTypeKey, normalizeServiceTypeOptions } from '../lib/serviceTypes';
 import type { Appointment, Client, MaintenanceRecord, Settings } from '../types';
 
 type UseAppDerivedDataParams = {
@@ -58,14 +58,18 @@ export const useAppDerivedData = ({
   const serviceTypeOptions = useMemo(() => {
     const extra = settings?.serviceTypes || [];
     const fromEditing = editingClient?.lastServiceType ? [editingClient.lastServiceType] : [];
-    return normalizeServiceTypeOptions([...DEFAULT_SERVICE_TYPES, ...extra, ...fromEditing]);
-  }, [editingClient?.lastServiceType, settings?.serviceTypes]);
+    const disabledDefaultKeys = new Set((settings?.disabledDefaultServiceTypes || []).map(getServiceTypeKey));
+    const activeDefaults = DEFAULT_SERVICE_TYPES.filter(type => !disabledDefaultKeys.has(getServiceTypeKey(type)));
+    return normalizeServiceTypeOptions([...activeDefaults, ...extra, ...fromEditing]);
+  }, [editingClient?.lastServiceType, settings?.disabledDefaultServiceTypes, settings?.serviceTypes]);
 
   const historyServiceTypeOptions = useMemo(() => {
     const fromRecords = maintenances.map(maintenance => maintenance.serviceType);
     const extra = settings?.serviceTypes || [];
-    return normalizeServiceTypeOptions([...DEFAULT_SERVICE_TYPES, ...extra, ...fromRecords]);
-  }, [maintenances, settings?.serviceTypes]);
+    const disabledDefaultKeys = new Set((settings?.disabledDefaultServiceTypes || []).map(getServiceTypeKey));
+    const activeDefaults = DEFAULT_SERVICE_TYPES.filter(type => !disabledDefaultKeys.has(getServiceTypeKey(type)));
+    return normalizeServiceTypeOptions([...activeDefaults, ...extra, ...fromRecords]);
+  }, [maintenances, settings?.disabledDefaultServiceTypes, settings?.serviceTypes]);
 
   const scheduleClientHistoryRows = useMemo(() => {
     if (!editingClient) return [];

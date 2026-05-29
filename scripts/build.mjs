@@ -2,18 +2,20 @@ import { spawnSync } from 'node:child_process';
 
 const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
-const env = {
+const baseEnv = {
   ...process.env,
   GOMAXPROCS: process.env.GOMAXPROCS || '1',
 };
 
-const run = (args) => {
-  const command = process.platform === 'win32' ? [npmCommand, ...args].join(' ') : npmCommand;
-  const commandArgs = process.platform === 'win32' ? [] : args;
+const run = (args, options = {}) => {
+  const command = process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : npmCommand;
+  const commandArgs = process.platform === 'win32' ? ['/d', '/s', '/c', npmCommand, ...args] : args;
   const result = spawnSync(command, commandArgs, {
-    env,
+    env: {
+      ...baseEnv,
+      ...options.env,
+    },
     stdio: 'inherit',
-    shell: process.platform === 'win32',
   });
 
   if (result.error) {
@@ -21,8 +23,14 @@ const run = (args) => {
   }
 
   if (result.status !== 0) {
+    if (options.allowFailure) {
+      return false;
+    }
+
     process.exit(result.status ?? 1);
   }
+
+  return true;
 };
 
 const waitForWindowsProcessCleanup = async () => {
@@ -30,11 +38,26 @@ const waitForWindowsProcessCleanup = async () => {
     return;
   }
 
-  await new Promise((resolve) => {
-    setTimeout(resolve, 1000);
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+};
+
+const buildClient = async () => {
+  const clientBuilt = run(['run', 'build:client'], { allowFailure: process.platform === 'win32' });
+
+  if (clientBuilt) {
+    return;
+  }
+
+  console.warn('\nBuild padrão falhou no Windows. Tentando novamente em modo de baixa memória...\n');
+  await waitForWindowsProcessCleanup();
+
+  run(['run', 'build:client'], {
+    env: {
+      MOTOFIX_LOW_MEMORY_BUILD: '1',
+    },
   });
 };
 
-run(['run', 'build:client']);
+await buildClient();
 await waitForWindowsProcessCleanup();
 run(['run', 'build:server']);

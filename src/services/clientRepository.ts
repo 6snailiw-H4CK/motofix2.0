@@ -1,4 +1,4 @@
-import { addDoc, collection, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
 export type ClientWriteData = Record<string, unknown>;
@@ -15,6 +15,10 @@ export const clientRepository = {
 
   async update(userId: string, clientId: string, data: ClientWriteData) {
     await updateDoc(clientDocPath(userId, clientId), data);
+  },
+
+  async setWithId(userId: string, clientId: string, data: ClientWriteData) {
+    await setDoc(clientDocPath(userId, clientId), data, { merge: true });
   },
 
   async remove(userId: string, clientId: string) {

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { endOfMonth, format, isWithinInterval, parseISO, startOfMonth } from 'date-fns';
-import { CheckCircle, CheckCircle2, ChevronRight, DollarSign, Filter, MessageCircle, RefreshCw, Trash2, Wrench } from 'lucide-react';
+import { CheckCircle, CheckCircle2, ChevronRight, DollarSign, FileText, Filter, MessageCircle, RefreshCw, Trash2, Wrench } from 'lucide-react';
 import { cn, safeFormat } from '../../lib/utils';
 import type { MaintenanceRecord, MessageLog } from '../../types';
 
@@ -26,6 +26,7 @@ type HistoryViewProps = {
   onConfirmPayment: (record: MaintenanceRecord) => Promise<void> | void;
   onDeleteMaintenanceClick: (record: MaintenanceRecord) => void;
   onDeleteMessageLogClick: (log: MessageLog) => void;
+  onOpenGeneralReport: () => void;
 };
 
 const initialFilters = (): HistoryFilters => ({
@@ -47,6 +48,7 @@ export const HistoryView = ({
   onConfirmPayment,
   onDeleteMaintenanceClick,
   onDeleteMessageLogClick,
+  onOpenGeneralReport,
 }: HistoryViewProps) => {
   const [filters, setFilters] = useState<HistoryFilters>(initialFilters);
   const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
@@ -126,12 +128,12 @@ export const HistoryView = ({
         <div>
           <h2 className="text-lg font-bold">Historico de Servicos</h2>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:min-w-[28rem]">
+        <div className="grid grid-cols-3 gap-2 lg:min-w-[38rem]">
           <button
             type="button"
             onClick={() => setOpenTopPanel((current) => current === 'filters' ? null : 'filters')}
             className={cn(
-              'bg-slate-800/40 p-3 rounded-2xl border text-right transition-all hover:bg-slate-800/60',
+              'bg-slate-800/40 p-2.5 sm:p-3 rounded-2xl border text-right transition-all hover:bg-slate-800/60',
               openTopPanel === 'filters' ? 'border-primary/60 shadow-lg shadow-primary/5' : 'border-slate-700/50'
             )}
             aria-expanded={openTopPanel === 'filters'}
@@ -145,7 +147,7 @@ export const HistoryView = ({
             type="button"
             onClick={() => setOpenTopPanel((current) => current === 'messageLogs' ? null : 'messageLogs')}
             className={cn(
-              'bg-slate-800/40 p-3 rounded-2xl border text-right transition-all hover:bg-slate-800/60',
+              'bg-slate-800/40 p-2.5 sm:p-3 rounded-2xl border text-right transition-all hover:bg-slate-800/60',
               openTopPanel === 'messageLogs' ? 'border-emerald-400/70 shadow-lg shadow-emerald-500/5' : 'border-emerald-500/20'
             )}
             aria-expanded={openTopPanel === 'messageLogs'}
@@ -163,6 +165,19 @@ export const HistoryView = ({
             ) : (
               <p className="mt-2 text-[9px] text-slate-500">Nenhum aviso no periodo</p>
             )}
+          </button>
+
+          <button
+            type="button"
+            onClick={onOpenGeneralReport}
+            className="rounded-2xl border border-sky-500/20 bg-slate-800/40 p-2.5 text-right transition-all hover:border-sky-400/50 hover:bg-slate-800/60 sm:p-3"
+          >
+            <div className="mb-2 flex items-center justify-end gap-2 text-sky-400">
+              <FileText className="h-3.5 w-3.5" />
+              <p className="text-[10px] font-bold uppercase tracking-widest">Relatorio</p>
+            </div>
+            <p className="text-sm font-bold text-white">Detalhado</p>
+            <p className="mt-1 text-[9px] text-slate-500">Geral do app</p>
           </button>
         </div>
       </div>

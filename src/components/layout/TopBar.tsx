@@ -11,6 +11,10 @@ const viewTitles: Partial<Record<AppView, { title: string; subtitle: string }>> 
     title: 'Ordens de Servico',
     subtitle: 'Servicos rapidos, recorrencias e saldos',
   },
+  'cash-register': {
+    title: 'Lancamentos Caixa',
+    subtitle: 'Venda rapida com mercadorias importadas',
+  },
   'clients-schedule': {
     title: 'Clientes',
     subtitle: 'Agenda de relacionamento e fichas',

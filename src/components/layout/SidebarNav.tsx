@@ -3,6 +3,7 @@ import {
   Calendar,
   DollarSign,
   LayoutDashboard,
+  ReceiptText,
   Settings as SettingsIcon,
   Shield,
   ShieldCheck,
@@ -39,6 +40,12 @@ export const getPrimaryNavItems = (isAdmin: boolean): SidebarNavItem[] => [
     icon: Wrench,
     label: 'Ordens de Servico',
     match: ['clients', 'new-client'],
+  },
+  {
+    id: 'cash-register',
+    icon: ReceiptText,
+    label: 'Lancamentos Caixa',
+    match: ['cash-register'],
   },
   {
     id: 'appointments',
