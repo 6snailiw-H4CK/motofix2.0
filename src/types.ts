@@ -7,7 +7,9 @@ export type AppView =
   | 'dashboard-recurring'
   | 'dashboard-revenue'
   | 'dashboard-services'
+  | 'returns'
   | 'clients'
+  | 'pendencies'
   | 'appointments'
   | 'clients-schedule'
   | 'clients-schedule-add'
@@ -21,6 +23,8 @@ export type AppView =
   | 'report'
   | 'general-report'
   | 'cash-register'
+  | 'products'
+  | 'fiscal'
   | 'checkout'
   | 'subscription-expired'
   | 'expenses';
@@ -117,17 +121,31 @@ export interface ProductCatalogItem {
   id: string;
   sourceCode: string;
   description: string;
+  variation?: string;
+  variations?: ProductCatalogVariation[];
   ncm: string;
   salePrice: number;
   importedAt: string;
   userId: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
+
+export interface ProductCatalogVariation {
+  id: string;
+  name: string;
+  salePrice: number;
+}
+
+export type ProductCatalogFormInput = Pick<ProductCatalogItem, 'sourceCode' | 'description' | 'variation' | 'variations' | 'ncm' | 'salePrice'>;
 
 export interface CashRegisterItem {
   id: string;
   productId?: string;
+  variationId?: string;
   sourceCode: string;
   description: string;
+  variation?: string;
   ncm: string;
   quantity: number;
   unitPrice: number;
@@ -155,11 +173,130 @@ export interface CashRegisterLaunch {
   merchandiseTotal: number;
   servicesTotal: number;
   discountTotal: number;
+  orderDiscountValue?: number;
+  orderDiscountPercent?: number;
   total: number;
   invoiced?: boolean;
+  fiscalInvoiceId?: string;
+  fiscalReference?: string;
+  fiscalIssuedAt?: string;
   userId: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export type FiscalEnvironment = 'homologation' | 'production';
+export type FiscalDocumentModel = 'nfse' | 'nfe' | 'nfce';
+export type FiscalOperationSource = 'manual' | 'cash_register';
+export type FiscalInvoiceStatus = 'draft' | 'queued' | 'processing' | 'authorized' | 'rejected' | 'cancelled' | 'error';
+export type FiscalLogLevel = 'info' | 'warning' | 'error' | 'success';
+
+export interface FiscalCompany {
+  id: string;
+  userId: string;
+  legalName: string;
+  tradeName?: string;
+  document: string;
+  municipalRegistration?: string;
+  stateRegistration?: string;
+  taxRegime?: string;
+  cnae?: string;
+  serviceCityCode?: string;
+  serviceCityName?: string;
+  address?: string;
+  number?: string;
+  complement?: string;
+  district?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  email?: string;
+  phone?: string;
+  focusEnvironment: FiscalEnvironment;
+  focusCompanyId?: string;
+  nfseEnabled: boolean;
+  nfeEnabled: boolean;
+  nfceEnabled: boolean;
+  autoIssueFromCashLaunch?: boolean;
+  certificateUploadedAt?: string;
+  certificateExpiresAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FiscalCompanyFormInput extends Partial<FiscalCompany> {
+  focusApiToken?: string;
+  certificateBase64?: string;
+  certificatePassword?: string;
+  focusOverrides?: Record<string, unknown>;
+}
+
+export interface FiscalCustomer {
+  name: string;
+  document?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  number?: string;
+  district?: string;
+  cityCode?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+}
+
+export interface FiscalServiceInput {
+  description: string;
+  serviceCode?: string;
+  municipalTaxCode?: string;
+  cnae?: string;
+  cityCode?: string;
+  amount: number;
+  issRate?: number;
+  deductions?: number;
+  withheldIss?: boolean;
+}
+
+export interface FiscalInvoice {
+  id: string;
+  userId: string;
+  companyId: string;
+  companyDocument: string;
+  model: FiscalDocumentModel;
+  environment: FiscalEnvironment;
+  reference: string;
+  status: FiscalInvoiceStatus;
+  source: FiscalOperationSource;
+  cashLaunchId?: string;
+  customer: FiscalCustomer;
+  service: FiscalServiceInput;
+  total: number;
+  focusStatus?: string;
+  focusMessage?: string;
+  focusResponse?: Record<string, unknown>;
+  xmlUrl?: string;
+  pdfUrl?: string;
+  xmlStored?: boolean;
+  pdfStored?: boolean;
+  createdAt: string;
+  updatedAt: string;
+  issuedAt?: string;
+  authorizedAt?: string;
+  cancelledAt?: string;
+}
+
+export interface FiscalLog {
+  id: string;
+  userId: string;
+  companyId?: string;
+  invoiceId?: string;
+  reference?: string;
+  model?: FiscalDocumentModel;
+  level: FiscalLogLevel;
+  event: string;
+  message: string;
+  details?: Record<string, unknown>;
+  createdAt: string;
 }
 
 export interface Appointment {

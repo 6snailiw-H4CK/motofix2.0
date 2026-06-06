@@ -2,8 +2,16 @@
 @import "tailwindcss";
 
 @theme {
-  --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --color-primary: #ef4444;
+  --font-display: "MS Sans Serif", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --color-primary: #c2410c; /* professional warm accent */
+  --color-primary-dark: #9a3412;
+  --color-accent: #f59e0b;
+  --color-muted: #475569;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f8fafc;
+  --color-border: rgba(128, 128, 128, 0.75);
+  --radius: 0px;
+  --elevation-1: none;
   --color-background-dark: #08111f;
 }
 
@@ -11,17 +19,17 @@
   body {
     @apply bg-background-dark text-slate-100 antialiased;
     background:
-      radial-gradient(circle at top left, rgba(239, 68, 68, 0.16), transparent 30rem),
-      radial-gradient(circle at 85% 12%, rgba(56, 189, 248, 0.10), transparent 26rem),
-      linear-gradient(135deg, #08111f 0%, #0b1424 45%, #111827 100%);
+      radial-gradient(circle at top left, rgba(239, 68, 68, 0.09), transparent 30rem),
+      radial-gradient(circle at 85% 12%, rgba(245, 158, 11, 0.05), transparent 26rem),
+      linear-gradient(135deg, #08111f 0%, #0b1424 45%, #0f1724 100%);
     min-height: 100vh;
   }
 
   html:not(.light) .app-shell {
     background:
-      radial-gradient(circle at 8% 4%, rgba(239, 68, 68, 0.18), transparent 22rem),
-      radial-gradient(circle at 92% 0%, rgba(14, 165, 233, 0.12), transparent 24rem),
-      linear-gradient(135deg, #08111f 0%, #0b1424 48%, #111827 100%);
+      radial-gradient(circle at 8% 4%, rgba(239, 68, 68, 0.10), transparent 22rem),
+      radial-gradient(circle at 92% 0%, rgba(245, 158, 11, 0.045), transparent 24rem),
+      linear-gradient(135deg, #08111f 0%, #0b1424 48%, #0f1724 100%);
     color: #e5edf8;
     position: relative;
     isolation: isolate;
@@ -45,9 +53,10 @@
   html:not(.light) .app-sidebar,
   html:not(.light) .app-bottom-nav {
     background-color: rgba(8, 17, 31, 0.82) !important;
-    border-color: rgba(148, 163, 184, 0.14) !important;
-    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.20);
-    backdrop-filter: blur(18px);
+    border-color: rgba(100, 116, 139, 0.10) !important;
+    box-shadow: var(--elevation-1);
+    backdrop-filter: blur(14px);
+    border-radius: var(--radius);
   }
 
   html:not(.light) .app-topbar,
@@ -123,6 +132,28 @@
     color: #6f839d !important;
   }
 
+  html:not(.light) .text-slate-100,
+  html:not(.light) .text-white {
+    color: #f8fafc !important;
+  }
+
+  html:not(.light) .text-slate-300,
+  html:not(.light) .text-slate-400 {
+    color: #cbd5e1 !important;
+  }
+
+  html:not(.light) .bg-slate-900 .text-slate-900,
+  html:not(.light) .bg-slate-900 .text-slate-800,
+  html:not(.light) .bg-slate-900 .text-slate-700,
+  html:not(.light) .bg-slate-800 .text-slate-900,
+  html:not(.light) .bg-slate-800 .text-slate-800,
+  html:not(.light) .bg-slate-800 .text-slate-700,
+  html:not(.light) .bg-slate-700 .text-slate-900,
+  html:not(.light) .bg-slate-700 .text-slate-800,
+  html:not(.light) .bg-slate-700 .text-slate-700 {
+    color: #f8fafc !important;
+  }
+
   html:not(.light) input,
   html:not(.light) select,
   html:not(.light) textarea {
@@ -138,8 +169,9 @@
   html:not(.light) input:focus,
   html:not(.light) select:focus,
   html:not(.light) textarea:focus {
-    border-color: rgba(239, 68, 68, 0.55) !important;
-    box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.25);
+    border-color: rgba(239, 68, 68, 0.48) !important;
+    box-shadow: 0 6px 24px rgba(239, 68, 68, 0.07), 0 0 0 1px rgba(239, 68, 68, 0.16);
+    outline: none;
   }
 
   html.light {
@@ -149,8 +181,8 @@
   html.light body {
     @apply bg-slate-100 text-slate-900;
     background:
-      radial-gradient(circle at top left, rgba(239, 68, 68, 0.10), transparent 28rem),
-      radial-gradient(circle at 88% 8%, rgba(14, 165, 233, 0.12), transparent 24rem),
+      radial-gradient(circle at top left, rgba(239, 68, 68, 0.07), transparent 28rem),
+      radial-gradient(circle at 88% 8%, rgba(245, 158, 11, 0.08), transparent 24rem),
       linear-gradient(135deg, #f8fafc 0%, #eef4fb 52%, #f1f5f9 100%);
   }
 
@@ -163,30 +195,28 @@
   }
 
   html.light .app-shell {
-    background:
-      radial-gradient(circle at 8% 4%, rgba(239, 68, 68, 0.10), transparent 22rem),
-      radial-gradient(circle at 92% 0%, rgba(14, 165, 233, 0.12), transparent 24rem),
-      linear-gradient(135deg, #f8fafc 0%, #eef4fb 52%, #f1f5f9 100%) !important;
+    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 48%, #eef2ff 100%) !important;
   }
 
   html.light .app-header {
-    background-color: rgba(255, 255, 255, 0.86) !important;
-    border-bottom-color: rgba(226, 232, 240, 0.88) !important;
-    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
-    backdrop-filter: blur(18px);
+    background-color: rgba(255, 255, 255, 0.94) !important;
+    border-bottom-color: rgba(226, 232, 240, 0.92) !important;
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+    backdrop-filter: blur(14px);
+    border-radius: calc(var(--radius) - 4px);
   }
 
   html.light .app-bottom-nav {
-    background-color: rgba(255, 255, 255, 0.88) !important;
-    border-top-color: rgba(226, 232, 240, 0.9) !important;
-    box-shadow: 0 -18px 40px rgba(15, 23, 42, 0.10);
-    backdrop-filter: blur(18px);
+    background-color: rgba(255, 255, 255, 0.92) !important;
+    border-top-color: rgba(226, 232, 240, 0.92) !important;
+    box-shadow: 0 -12px 26px rgba(15, 23, 42, 0.08);
+    backdrop-filter: blur(12px);
   }
 
   html.light .app-sidebar,
   html.light .app-topbar {
     background-color: rgba(255, 255, 255, 0.96) !important;
-    border-color: #e2e8f0 !important;
+    border-color: rgba(226, 232, 240, 0.95) !important;
     color: #0f172a !important;
   }
 
@@ -226,7 +256,9 @@
   html.light .bg-slate-700\/40,
   html.light .bg-slate-700\/30,
   html.light .bg-white\/5 {
-    background-color: rgba(248, 250, 252, 0.95) !important;
+    background-color: rgba(255, 255, 255, 0.96) !important;
+    border-color: rgba(226, 232, 240, 0.92) !important;
+    box-shadow: 0 12px 26px rgba(15, 23, 42, 0.06);
   }
 
   html.light [class~="bg-[#0b0f18]"],
@@ -234,10 +266,10 @@
   html.light [class~="bg-[#0b0d12]"],
   html.light [class~="bg-[#08090d]"],
   html.light [class~="bg-[#0b0c10]/92"] {
-    background-color: rgba(255, 255, 255, 0.94) !important;
-    border-color: rgba(203, 213, 225, 0.9) !important;
+    background-color: rgba(255, 255, 255, 0.96) !important;
+    border-color: rgba(226, 232, 240, 0.94) !important;
     color: #0f172a !important;
-    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.10) !important;
+    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.06) !important;
   }
 
   html.light [class~="bg-[#0b0f18]"] .text-white,
@@ -298,6 +330,20 @@
   html.light .text-slate-500 {
     color: #334155 !important;
   }
+
+  html.light .bg-white .text-white,
+  html.light .bg-slate-100 .text-white,
+  html.light .bg-slate-200 .text-white,
+  html.light .bg-slate-300 .text-white,
+  html.light .bg-slate-400 .text-white,
+  html.light .bg-white .text-slate-100,
+  html.light .bg-slate-100 .text-slate-100,
+  html.light .bg-slate-200 .text-slate-100,
+  html.light .bg-slate-300 .text-slate-100,
+  html.light .bg-slate-400 .text-slate-100 {
+    color: #0f172a !important;
+  }
+
   html.light .institutional-text {
     color: #0f172a !important;
   }
@@ -353,7 +399,7 @@
   }
 
   html.light .text-emerald-400 {
-    color: #059669 !important;
+    color: var(--color-primary-dark) !important;
   }
 
   html.light .text-emerald-300 {
@@ -395,7 +441,177 @@
   html.light input,
   html.light select,
   html.light textarea {
+    background-color: #ffffff !important;
+    border-color: rgba(148, 163, 184, 0.35) !important;
     color: #0f172a !important;
+  }
+
+  html.light input[type="date"] {
+    color-scheme: light;
+  }
+
+  html.light input:focus,
+  html.light select:focus,
+  html.light textarea:focus {
+    border-color: rgba(194, 65, 12, 0.45) !important;
+    box-shadow: 0 8px 24px rgba(194, 65, 12, 0.1), 0 0 0 1px rgba(194, 65, 12, 0.16);
+    outline: none;
+  }
+
+  /* Semantic helpers for the new theme (presentation only) */
+  .text-primary { color: var(--color-primary) !important; }
+  .text-primary-dark { color: var(--color-primary-dark) !important; }
+  .bg-primary { background-color: var(--color-primary) !important; }
+  .bg-primary-10 { background-color: rgba(239, 68, 68, 0.10) !important; }
+  .ring-primary { box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.06) !important; }
+  .shadow-primary { box-shadow: 0 12px 36px rgba(239, 68, 68, 0.08), var(--elevation-1) !important; }
+
+  /* Modern inputs and buttons enhancement (non-invasive) */
+  input, textarea, select, .field {
+    border-radius: calc(var(--radius) - 4px);
+    transition: box-shadow 160ms ease, transform 120ms ease, border-color 160ms ease;
+  }
+
+  button, .btn {
+    border-radius: calc(var(--radius) - 2px);
+    transition: transform 140ms ease, box-shadow 140ms ease, opacity 120ms ease;
+    will-change: transform;
+  }
+
+  .card, .rounded-card {
+    border-radius: var(--radius) !important;
+    box-shadow: 0 10px 30px rgba(2,6,23,0.28);
+  }
+
+  html.retro, html.retro body {
+    font-family: var(--font-display);
+    background: #dcdcdc !important;
+    color: #000 !important;
+  }
+
+  html.retro * {
+    box-shadow: none !important;
+  }
+
+  html.retro .app-shell,
+  html.retro .app-header,
+  html.retro .app-topbar,
+  html.retro .app-sidebar,
+  html.retro .app-bottom-nav,
+  html.retro .card,
+  html.retro .rounded-xl,
+  html.retro .rounded-lg,
+  html.retro .rounded-2xl {
+    border-radius: 8px !important;
+  }
+
+  html.retro .app-shell {
+    background: #e8e8e8 !important;
+    border: 1px solid #a0a0a0 !important;
+  }
+
+  html.retro .app-header,
+  html.retro .app-topbar,
+  html.retro .app-sidebar,
+  html.retro .app-bottom-nav {
+    background: linear-gradient(180deg, #f7f7f7, #e5e5e5) !important;
+    border: 1px solid #a0a0a0 !important;
+    box-shadow: none !important;
+  }
+
+  html.retro .bg-slate-800\/40,
+  html.retro .bg-slate-800\/50,
+  html.retro .bg-slate-900\/40,
+  html.retro .bg-slate-900\/50,
+  html.retro .bg-slate-950\/40,
+  html.retro .bg-slate-950\/50,
+  html.retro .bg-background-dark,
+  html.retro .bg-primary\/5,
+  html.retro .bg-primary\/10,
+  html.retro .bg-white,
+  html.retro .bg-slate-100,
+  html.retro .bg-slate-200,
+  html.retro .bg-slate-300,
+  html.retro .bg-slate-400,
+  html.retro .bg-slate-500 {
+    background-color: #f5f5f5 !important;
+    color: #000 !important;
+  }
+
+  html.retro .border-slate-700,
+  html.retro .border-slate-800,
+  html.retro .border-slate-900,
+  html.retro .border-slate-950,
+  html.retro .border-slate-700\/50,
+  html.retro .border-slate-700\/40,
+  html.retro .border-slate-700\/30,
+  html.retro .border-slate-800\/50 {
+    border-color: #a0a0a0 !important;
+  }
+
+  html.retro .text-slate-100,
+  html.retro .text-slate-200,
+  html.retro .text-slate-300,
+  html.retro .text-slate-400,
+  html.retro .text-slate-500,
+  html.retro .text-slate-600,
+  html.retro .text-slate-700,
+  html.retro .text-slate-800,
+  html.retro .text-slate-900 {
+    color: #111 !important;
+  }
+
+  html.retro button,
+  html.retro .btn,
+  html.retro input[type="button"],
+  html.retro input[type="submit"],
+  html.retro input[type="reset"] {
+    background: linear-gradient(180deg, #ffffff, #ededed) !important;
+    color: #111 !important;
+    border: 1px solid #b0b0b0 !important;
+    border-right-color: #7b7b7b !important;
+    border-bottom-color: #7b7b7b !important;
+    box-shadow: inset 1px 1px 0 #fff !important;
+    transition: background-color 0.15s ease, transform 0.12s ease;
+  }
+
+  html.retro button:hover,
+  html.retro .btn:hover,
+  html.retro input[type="button"]:hover,
+  html.retro input[type="submit"]:hover,
+  html.retro input[type="reset"]:hover {
+    background: linear-gradient(180deg, #ffffff, #f2f2f2) !important;
+  }
+
+  html.retro button:active,
+  html.retro .btn:active,
+  html.retro input[type="button"]:active,
+  html.retro input[type="submit"]:active,
+  html.retro input[type="reset"]:active {
+    border-left-color: #7b7b7b !important;
+    border-top-color: #7b7b7b !important;
+    border-right-color: #fff !important;
+    border-bottom-color: #fff !important;
+    transform: translateY(1px);
+  }
+
+  html.retro input,
+  html.retro select,
+  html.retro textarea {
+    background: #ffffff !important;
+    border: 1px solid #b8b8b8 !important;
+    color: #111 !important;
+    box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.8) !important;
+  }
+
+  html.retro .hover\:bg-slate-800:hover,
+  html.retro .hover\:bg-slate-700:hover,
+  html.retro .hover\:bg-slate-900:hover {
+    background-color: #c0c0c0 !important;
+  }
+
+  html.retro .app-shell::before {
+    display: none !important;
   }
 
   html.light input[type="date"] {

@@ -1,8 +1,10 @@
 node_modules/
 dist/
+dist-server/
 build/
 coverage/
 backups/
+backup-current/
 
 .env
 .env.*
@@ -14,12 +16,26 @@ firestore-debug.log
 ui-debug.log
 
 firebase-service-account.json
+firebase-service-account*.json
 **/firebase-service-account.json
+**/firebase-service-account*.json
 backend/firebase-service-account.json
+serviceAccountKey.json
+**/serviceAccountKey.json
 *.service-account.json
 *.credentials.json
+*.pem
+*.p12
+*.pfx
+*.key
+*.backup
 
 *.log
+*.tmp
+fix_new_client.js
+replace_new_client.py
+test-oil-ranking.js
+start-process-test.tmp
 .DS_Store
 Thumbs.db
 npm-debug.log*

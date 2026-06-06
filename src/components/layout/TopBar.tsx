@@ -4,16 +4,32 @@ import type { AppView, ColorMode } from '../../types';
 
 const viewTitles: Partial<Record<AppView, { title: string; subtitle: string }>> = {
   dashboard: {
-    title: 'Dashboard',
-    subtitle: 'Visao geral da oficina',
+    title: 'Inicio',
+    subtitle: 'Prioridades de hoje para trazer clientes de volta',
+  },
+  returns: {
+    title: 'Retornos',
+    subtitle: 'Recorrencia e clientes para contatar',
+  },
+  pendencies: {
+    title: 'Pendencias',
+    subtitle: 'Clientes com valores a receber',
   },
   clients: {
-    title: 'Ordens de Servico',
-    subtitle: 'Servicos rapidos, recorrencias e saldos',
+    title: 'Servicos/Oleo',
+    subtitle: 'Servicos rapidos, oleo e recorrencia',
   },
   'cash-register': {
     title: 'Lancamentos Caixa',
     subtitle: 'Venda rapida com mercadorias importadas',
+  },
+  products: {
+    title: 'Mercadorias',
+    subtitle: 'Cadastro e edicao do catalogo importado',
+  },
+  fiscal: {
+    title: 'Fiscal',
+    subtitle: 'NFS-e, XML, PDF e logs fiscais',
   },
   'clients-schedule': {
     title: 'Clientes',
@@ -21,11 +37,11 @@ const viewTitles: Partial<Record<AppView, { title: string; subtitle: string }>> 
   },
   appointments: {
     title: 'Agenda',
-    subtitle: 'Compromissos e atendimentos',
+    subtitle: 'Agenda simples do dia da oficina',
   },
   expenses: {
-    title: 'Financeiro',
-    subtitle: 'Gastos, pagamentos e resultado',
+    title: 'Gastos',
+    subtitle: 'Controle rapido de despesas da oficina',
   },
   warranties: {
     title: 'Garantias',

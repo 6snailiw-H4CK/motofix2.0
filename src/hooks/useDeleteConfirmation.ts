@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 
-export type DeleteConfirmationType = 'client' | 'maintenance' | 'warranty' | 'appointment' | 'messageLog';
+export type DeleteConfirmationType = 'client' | 'maintenance' | 'warranty' | 'appointment' | 'messageLog' | 'cashLaunch' | 'product';
 
 type DeleteConfirmationState = {
   id: string;

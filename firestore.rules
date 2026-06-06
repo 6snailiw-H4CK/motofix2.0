@@ -14,17 +14,8 @@ service cloud.firestore {
       return signedIn() && request.auth.token.admin == true;
     }
 
-    function hasAdminEmail() {
-      return signedIn()
-        && request.auth.token.email_verified == true
-        && request.auth.token.email in [
-          '6snailiw@gmail.com',
-          'emailgithubb@gmail.com'
-        ];
-    }
-
     function isAdmin() {
-      return hasAdminClaim() || hasAdminEmail();
+      return hasAdminClaim();
     }
 
     function isActiveOwner(userId) {
@@ -61,6 +52,542 @@ service cloud.firestore {
         && request.resource.data.isActive == false;
     }
 
+    function canReadUserData(userId) {
+      return isActiveOwner(userId) || isAdmin();
+    }
+
+    function optionalUserIdMatches(userId) {
+      return !request.resource.data.keys().hasAny(['userId'])
+        || request.resource.data.userId == userId;
+    }
+
+    function storedUserIdMatches(userId) {
+      return !resource.data.keys().hasAny(['userId'])
+        || resource.data.userId == userId;
+    }
+
+    function isText(field, maxLength) {
+      return request.resource.data[field] is string
+        && request.resource.data[field].size() <= maxLength;
+    }
+
+    function optionalText(field, maxLength) {
+      return !request.resource.data.keys().hasAny([field])
+        || isText(field, maxLength);
+    }
+
+    function isNumberInRange(field, minValue, maxValue) {
+      return request.resource.data[field] is number
+        && request.resource.data[field] >= minValue
+        && request.resource.data[field] <= maxValue;
+    }
+
+    function optionalNumberInRange(field, minValue, maxValue) {
+      return !request.resource.data.keys().hasAny([field])
+        || isNumberInRange(field, minValue, maxValue);
+    }
+
+    function optionalBool(field) {
+      return !request.resource.data.keys().hasAny([field])
+        || request.resource.data[field] is bool;
+    }
+
+    function optionalList(field, maxLength) {
+      return !request.resource.data.keys().hasAny([field])
+        || (request.resource.data[field] is list && request.resource.data[field].size() <= maxLength);
+    }
+
+    function optionalMap(field) {
+      return !request.resource.data.keys().hasAny([field])
+        || request.resource.data[field] is map;
+    }
+
+    function paymentStatusValid() {
+      return !request.resource.data.keys().hasAny(['statusPagamento'])
+        || request.resource.data.statusPagamento in ['Pago', 'Pendente', 'Parcial'];
+    }
+
+    function maintenanceStatusValid() {
+      return request.resource.data.status in ['OK', 'WARNING', 'OVERDUE'];
+    }
+
+    function cashLaunchStatusValid() {
+      return request.resource.data.status in ['Em Lancamento', 'Finalizado', 'Pendente'];
+    }
+
+    function requiredBaseFields(userId, requiredKeys, allowedKeys) {
+      return request.resource.data.keys().hasOnly(allowedKeys)
+        && request.resource.data.keys().hasAll(requiredKeys)
+        && request.resource.data.userId == userId;
+    }
+
+    function clientShape(userId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'name',
+          'bikeModel',
+          'contact',
+          'lastMaintenanceDate',
+          'nextMaintenanceDate',
+          'recurrenceDays',
+          'status',
+          'createdAt'
+        ], clientKeys())
+        && isText('name', 120)
+        && isText('bikeModel', 120)
+        && isText('contact', 60)
+        && optionalText('email', 160)
+        && optionalText('vehiclePlate', 20)
+        && optionalText('oilType', 80)
+        && optionalNumberInRange('oilPrice', 0, 10000000)
+        && optionalNumberInRange('mileageKm', 0, 2000000)
+        && isText('lastMaintenanceDate', 40)
+        && isText('nextMaintenanceDate', 40)
+        && isNumberInRange('recurrenceDays', 0, 3650)
+        && maintenanceStatusValid()
+        && optionalBool('isRecurringRevenue')
+        && optionalBool('notificacao_enviada')
+        && optionalText('notificacaoStatus', 40)
+        && optionalText('lastServiceType', 120)
+        && optionalNumberInRange('lastServiceValue', 0, 10000000)
+        && optionalText('lastServiceNotes', 5000)
+        && isText('createdAt', 40)
+        && optionalText('lastAlertDate', 40)
+        && optionalNumberInRange('serviceValue', 0, 10000000)
+        && paymentStatusValid()
+        && optionalNumberInRange('valorPago', 0, 10000000)
+        && optionalNumberInRange('saldoDevedor', 0, 10000000)
+        && optionalMap('automation');
+    }
+
+    function maintenanceShape(userId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'clientId',
+          'clientName',
+          'bikeModel',
+          'date',
+          'serviceType',
+          'serviceValue',
+          'isRecurringRevenue',
+          'notes'
+        ], maintenanceKeys())
+        && isText('clientId', 160)
+        && isText('clientName', 120)
+        && isText('bikeModel', 120)
+        && isText('date', 40)
+        && optionalText('oilType', 80)
+        && optionalNumberInRange('oilPrice', 0, 10000000)
+        && isText('serviceType', 120)
+        && isNumberInRange('serviceValue', 0, 10000000)
+        && request.resource.data.isRecurringRevenue is bool
+        && isText('notes', 5000)
+        && paymentStatusValid()
+        && optionalNumberInRange('valorPago', 0, 10000000)
+        && optionalNumberInRange('saldoDevedor', 0, 10000000);
+    }
+
+    function warrantyShape(userId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'clientName',
+          'serviceType',
+          'serviceDescription',
+          'serviceValue',
+          'serviceDate',
+          'durationMonths',
+          'expiryDate',
+          'clientPhone',
+          'warrantyNumber',
+          'createdAt'
+        ], warrantyKeys())
+        && isText('clientName', 120)
+        && isText('serviceType', 120)
+        && isText('serviceDescription', 5000)
+        && isNumberInRange('serviceValue', 0, 10000000)
+        && isText('serviceDate', 40)
+        && isNumberInRange('durationMonths', 0, 240)
+        && isText('expiryDate', 40)
+        && isText('clientPhone', 60)
+        && isNumberInRange('warrantyNumber', 0, 1000000000)
+        && isText('createdAt', 40);
+    }
+
+    function appointmentShape(userId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'clientName',
+          'bikeModel',
+          'scheduledDate',
+          'serviceRequested',
+          'completed',
+          'createdAt'
+        ], appointmentKeys())
+        && isText('clientName', 120)
+        && isText('bikeModel', 120)
+        && isText('scheduledDate', 40)
+        && optionalText('address', 240)
+        && isText('serviceRequested', 5000)
+        && optionalNumberInRange('value', 0, 10000000)
+        && request.resource.data.completed is bool
+        && isText('createdAt', 40);
+    }
+
+    function expenseShape(userId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'description',
+          'amount',
+          'paymentMethod',
+          'date',
+          'createdAt'
+        ], expenseKeys())
+        && isText('description', 240)
+        && optionalText('supplier', 160)
+        && isNumberInRange('amount', 0, 10000000)
+        && isText('paymentMethod', 80)
+        && isText('date', 40)
+        && optionalText('note', 5000)
+        && isText('createdAt', 40);
+    }
+
+    function productShape(userId, productId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'id',
+          'sourceCode',
+          'description',
+          'ncm',
+          'salePrice'
+        ], productKeys())
+        && isText('id', 160)
+        && request.resource.data.id == productId
+        && isText('sourceCode', 80)
+        && isText('description', 240)
+        && optionalText('variation', 160)
+        && optionalList('variations', 80)
+        && isText('ncm', 20)
+        && isNumberInRange('salePrice', 0, 10000000)
+        && optionalText('importedAt', 40)
+        && optionalText('createdAt', 40)
+        && optionalText('updatedAt', 40);
+    }
+
+    function cashLaunchShape(userId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'orderNumber',
+          'clientName',
+          'status',
+          'openingDate',
+          'expectedDate',
+          'items',
+          'merchandiseTotal',
+          'servicesTotal',
+          'discountTotal',
+          'total',
+          'createdAt',
+          'updatedAt'
+        ], cashLaunchKeys())
+        && isText('orderNumber', 80)
+        && optionalText('clientId', 160)
+        && isText('clientName', 120)
+        && optionalText('bikeModel', 120)
+        && cashLaunchStatusValid()
+        && isText('openingDate', 40)
+        && isText('expectedDate', 40)
+        && optionalText('request', 5000)
+        && optionalText('servicesExecuted', 5000)
+        && optionalText('observation', 5000)
+        && request.resource.data.items is list
+        && request.resource.data.items.size() <= 200
+        && isNumberInRange('merchandiseTotal', 0, 10000000)
+        && isNumberInRange('servicesTotal', 0, 10000000)
+        && isNumberInRange('discountTotal', 0, 10000000)
+        && optionalNumberInRange('orderDiscountValue', 0, 10000000)
+        && optionalNumberInRange('orderDiscountPercent', 0, 100)
+        && isNumberInRange('total', 0, 10000000)
+        && optionalBool('invoiced')
+        && optionalText('fiscalInvoiceId', 160)
+        && optionalText('fiscalReference', 160)
+        && optionalText('fiscalIssuedAt', 40)
+        && isText('createdAt', 40)
+        && isText('updatedAt', 40);
+    }
+
+    function messageLogShape(userId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'clientId',
+          'clientName',
+          'phone',
+          'channel',
+          'status',
+          'trigger',
+          'message',
+          'createdAt'
+        ], messageLogKeys())
+        && isText('clientId', 160)
+        && isText('clientName', 120)
+        && optionalText('bikeModel', 120)
+        && isText('phone', 60)
+        && request.resource.data.channel in ['whatsapp', 'email', 'manual']
+        && request.resource.data.status in ['pending', 'opened_whatsapp', 'sent', 'failed']
+        && request.resource.data.trigger in ['manual', 'scheduled', 'retry']
+        && isText('message', 2000)
+        && isText('createdAt', 40)
+        && optionalText('sentAt', 40)
+        && optionalText('error', 1000);
+    }
+
+    function settingsShape(userId) {
+      return request.resource.data.keys().hasOnly([
+          'userId',
+          'whatsappTemplate',
+          'oilTypes',
+          'serviceTypes',
+          'disabledDefaultServiceTypes',
+          'businessEmail',
+          'warrantyCategories',
+          'businessName',
+          'businessPhone',
+          'businessWhatsapp',
+          'businessInstagram',
+          'businessAddress',
+          'isProfileComplete',
+          'expenses'
+        ])
+        && optionalUserIdMatches(userId)
+        && optionalText('whatsappTemplate', 2000)
+        && optionalList('oilTypes', 80)
+        && optionalList('serviceTypes', 120)
+        && optionalList('disabledDefaultServiceTypes', 120)
+        && optionalText('businessEmail', 160)
+        && optionalList('warrantyCategories', 80)
+        && optionalText('businessName', 160)
+        && optionalText('businessPhone', 60)
+        && optionalText('businessWhatsapp', 60)
+        && optionalText('businessInstagram', 80)
+        && optionalText('businessAddress', 240)
+        && optionalBool('isProfileComplete')
+        && optionalList('expenses', 80);
+    }
+
+    function validOwnerCreate(userId, allowedKeys) {
+      return isActiveOwner(userId)
+        && request.resource.data.keys().hasOnly(allowedKeys)
+        && request.resource.data.keys().hasAny(['userId'])
+        && request.resource.data.userId == userId;
+    }
+
+    function validOwnerUpdate(userId, allowedKeys) {
+      return isActiveOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedKeys)
+        && optionalUserIdMatches(userId)
+        && storedUserIdMatches(userId);
+    }
+
+    function validSettingsCreate(userId) {
+      return isActiveOwner(userId)
+        && request.resource.data.keys().hasOnly([
+          'userId',
+          'whatsappTemplate',
+          'oilTypes',
+          'serviceTypes',
+          'disabledDefaultServiceTypes',
+          'businessEmail',
+          'warrantyCategories',
+          'businessName',
+          'businessPhone',
+          'businessWhatsapp',
+          'businessInstagram',
+          'businessAddress',
+          'isProfileComplete',
+          'expenses'
+        ])
+        && optionalUserIdMatches(userId);
+    }
+
+    function validSettingsUpdate(userId) {
+      return isActiveOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'userId',
+          'whatsappTemplate',
+          'oilTypes',
+          'serviceTypes',
+          'disabledDefaultServiceTypes',
+          'businessEmail',
+          'warrantyCategories',
+          'businessName',
+          'businessPhone',
+          'businessWhatsapp',
+          'businessInstagram',
+          'businessAddress',
+          'isProfileComplete',
+          'expenses'
+        ])
+        && optionalUserIdMatches(userId);
+    }
+
+    function clientKeys() {
+      return [
+        'name',
+        'bikeModel',
+        'oilType',
+        'oilPrice',
+        'contact',
+        'email',
+        'vehiclePlate',
+        'mileageKm',
+        'lastMaintenanceDate',
+        'nextMaintenanceDate',
+        'recurrenceDays',
+        'status',
+        'isRecurringRevenue',
+        'notificacao_enviada',
+        'notificacaoStatus',
+        'lastServiceType',
+        'lastServiceValue',
+        'lastServiceNotes',
+        'userId',
+        'createdAt',
+        'lastAlertDate',
+        'serviceValue',
+        'statusPagamento',
+        'valorPago',
+        'saldoDevedor',
+        'automation'
+      ];
+    }
+
+    function maintenanceKeys() {
+      return [
+        'clientId',
+        'clientName',
+        'bikeModel',
+        'date',
+        'oilType',
+        'oilPrice',
+        'serviceType',
+        'serviceValue',
+        'isRecurringRevenue',
+        'notes',
+        'userId',
+        'statusPagamento',
+        'valorPago',
+        'saldoDevedor'
+      ];
+    }
+
+    function warrantyKeys() {
+      return [
+        'clientName',
+        'serviceType',
+        'serviceDescription',
+        'serviceValue',
+        'serviceDate',
+        'durationMonths',
+        'expiryDate',
+        'clientPhone',
+        'warrantyNumber',
+        'userId',
+        'createdAt'
+      ];
+    }
+
+    function appointmentKeys() {
+      return [
+        'clientName',
+        'bikeModel',
+        'scheduledDate',
+        'address',
+        'serviceRequested',
+        'value',
+        'completed',
+        'createdAt',
+        'userId'
+      ];
+    }
+
+    function expenseKeys() {
+      return [
+        'description',
+        'supplier',
+        'amount',
+        'paymentMethod',
+        'date',
+        'note',
+        'userId',
+        'createdAt'
+      ];
+    }
+
+    function productKeys() {
+      return [
+        'id',
+        'sourceCode',
+        'description',
+        'variation',
+        'variations',
+        'ncm',
+        'salePrice',
+        'importedAt',
+        'userId',
+        'createdAt',
+        'updatedAt'
+      ];
+    }
+
+    function cashLaunchKeys() {
+      return [
+        'orderNumber',
+        'clientId',
+        'clientName',
+        'bikeModel',
+        'status',
+        'openingDate',
+        'expectedDate',
+        'request',
+        'servicesExecuted',
+        'observation',
+        'items',
+        'merchandiseTotal',
+        'servicesTotal',
+        'discountTotal',
+        'orderDiscountValue',
+        'orderDiscountPercent',
+        'total',
+        'invoiced',
+        'fiscalInvoiceId',
+        'fiscalReference',
+        'fiscalIssuedAt',
+        'userId',
+        'createdAt',
+        'updatedAt'
+      ];
+    }
+
+    function cashFiscalFields() {
+      return ['fiscalInvoiceId', 'fiscalReference', 'fiscalIssuedAt'];
+    }
+
+    function messageLogKeys() {
+      return [
+        'clientId',
+        'clientName',
+        'bikeModel',
+        'phone',
+        'channel',
+        'status',
+        'trigger',
+        'message',
+        'createdAt',
+        'sentAt',
+        'error',
+        'userId'
+      ];
+    }
+
     match /users/{userId} {
       allow get: if isOwner(userId) || isAdmin();
       allow list: if isAdmin();
@@ -69,8 +596,104 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /users/{userId}/fiscal_private/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId}/fiscal_invoice_files/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId}/clients/{clientId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isAdmin() || (validOwnerCreate(userId, clientKeys()) && clientShape(userId));
+      allow update: if isAdmin() || (validOwnerUpdate(userId, clientKeys()) && clientShape(userId));
+      allow delete: if isActiveOwner(userId) || isAdmin();
+    }
+
+    match /users/{userId}/maintenances/{maintenanceId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isAdmin() || (validOwnerCreate(userId, maintenanceKeys()) && maintenanceShape(userId));
+      allow update: if isAdmin() || (validOwnerUpdate(userId, maintenanceKeys()) && maintenanceShape(userId));
+      allow delete: if isActiveOwner(userId) || isAdmin();
+    }
+
+    match /users/{userId}/warranties/{warrantyId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isAdmin() || (validOwnerCreate(userId, warrantyKeys()) && warrantyShape(userId));
+      allow update: if isAdmin() || (validOwnerUpdate(userId, warrantyKeys()) && warrantyShape(userId));
+      allow delete: if isActiveOwner(userId) || isAdmin();
+    }
+
+    match /users/{userId}/appointments/{appointmentId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isAdmin() || (validOwnerCreate(userId, appointmentKeys()) && appointmentShape(userId));
+      allow update: if isAdmin() || (validOwnerUpdate(userId, appointmentKeys()) && appointmentShape(userId));
+      allow delete: if isActiveOwner(userId) || isAdmin();
+    }
+
+    match /users/{userId}/expenses/{expenseId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isAdmin() || (validOwnerCreate(userId, expenseKeys()) && expenseShape(userId));
+      allow update: if isAdmin() || (validOwnerUpdate(userId, expenseKeys()) && expenseShape(userId));
+      allow delete: if isActiveOwner(userId) || isAdmin();
+    }
+
+    match /users/{userId}/products/{productId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isAdmin() || (validOwnerCreate(userId, productKeys()) && productShape(userId, productId));
+      allow update: if isAdmin() || (validOwnerUpdate(userId, productKeys()) && productShape(userId, productId));
+      allow delete: if isActiveOwner(userId) || isAdmin();
+    }
+
+    match /users/{userId}/cash_launches/{launchId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isAdmin()
+        || (
+          validOwnerCreate(userId, cashLaunchKeys())
+          && !request.resource.data.keys().hasAny(cashFiscalFields())
+          && cashLaunchShape(userId)
+        );
+      allow update: if isAdmin()
+        || (
+          validOwnerUpdate(userId, cashLaunchKeys())
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(cashFiscalFields())
+          && cashLaunchShape(userId)
+        );
+      allow delete: if isActiveOwner(userId) || isAdmin();
+    }
+
+    match /users/{userId}/settings/{settingId} {
+      allow read: if settingId == 'config' && canReadUserData(userId);
+      allow create: if settingId == 'config' && (isAdmin() || (validSettingsCreate(userId) && settingsShape(userId)));
+      allow update: if settingId == 'config' && (isAdmin() || (validSettingsUpdate(userId) && settingsShape(userId)));
+      allow delete: if false;
+    }
+
+    match /users/{userId}/message_logs/{messageLogId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isAdmin() || (validOwnerCreate(userId, messageLogKeys()) && messageLogShape(userId));
+      allow update: if isAdmin() || (validOwnerUpdate(userId, messageLogKeys()) && messageLogShape(userId));
+      allow delete: if isActiveOwner(userId) || isAdmin();
+    }
+
+    match /users/{userId}/fiscal_companies/{companyId} {
+      allow read: if canReadUserData(userId);
+      allow write: if false;
+    }
+
+    match /users/{userId}/fiscal_invoices/{invoiceId} {
+      allow read: if canReadUserData(userId);
+      allow write: if false;
+    }
+
+    match /users/{userId}/fiscal_logs/{logId} {
+      allow read: if canReadUserData(userId);
+      allow write: if false;
+    }
+
     match /users/{userId}/{document=**} {
-      allow read, write: if isActiveOwner(userId) || isAdmin();
+      allow read, write: if false;
     }
 
     match /{document=**} {

@@ -1,4 +1,4 @@
-import { ChevronLeft, RefreshCw, TrendingUp, Wrench } from 'lucide-react';
+import { ChevronLeft, ReceiptText, RefreshCw, TrendingUp, Wrench } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { getServiceTypeLabel } from '../../lib/serviceTypes';
 import type { MaintenanceRecord } from '../../types';
@@ -11,6 +11,14 @@ type DashboardStats = {
 
 type ClientStat = {
   name: string;
+  sourceRows?: Array<{
+    date: string;
+    id: string;
+    label: string;
+    origin: 'Recorrentes' | 'Lancamentos Caixa';
+    status: string;
+    value: number;
+  }>;
   totalSpent: number;
   isRecurring: boolean;
 };
@@ -39,6 +47,12 @@ const currency = (value: number) =>
     maximumFractionDigits: 2,
   });
 
+const formatDate = (date: string) => {
+  const parsed = parseISO(date);
+  if (!Number.isFinite(parsed.getTime())) return '-';
+  return format(parsed, 'dd/MM/yyyy');
+};
+
 const BackButton = ({ onBack }: { onBack: () => void }) => (
   <button
     type="button"
@@ -51,7 +65,13 @@ const BackButton = ({ onBack }: { onBack: () => void }) => (
 );
 
 export const DashboardRevenueView = ({ dashboardStats, clientStats, onBack }: DashboardDetailViewProps) => {
-  const topClients = clientStats.slice(0, 10);
+  const topClients = clientStats.filter((stat) => stat.totalSpent > 0).slice(0, 10);
+  const sourceRows = topClients.flatMap((stat) => (
+    (stat.sourceRows || []).map((source) => ({
+      ...source,
+      clientName: stat.name,
+    }))
+  ));
 
   return (
     <div className="space-y-4">
@@ -66,13 +86,46 @@ export const DashboardRevenueView = ({ dashboardStats, clientStats, onBack }: Da
       </div>
 
       <div className="bg-slate-800/40 border border-slate-700/50 rounded-xl p-4">
-        <h3 className="font-bold text-white mb-4">Receita por Cliente (Top 10)</h3>
+        <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 className="font-bold text-white">Receita por Cliente (Top 10)</h3>
+            <p className="text-xs text-slate-500">Valores do mes atual vindos de servicos e lancamentos caixa faturados.</p>
+          </div>
+          <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+            {sourceRows.length} origem(ns)
+          </span>
+        </div>
         {topClients.length > 0 ? (
-          <div className="space-y-2 max-h-80 overflow-y-auto">
+          <div className="space-y-3 max-h-[34rem] overflow-y-auto">
             {topClients.map((stat, index) => (
-              <div key={`${stat.name}-${index}`} className="flex items-center justify-between p-2 bg-slate-700/20 rounded-lg">
-                <span className="text-sm font-medium text-slate-200">{index + 1}. {stat.name}</span>
-                <span className="text-emerald-400 font-bold">R$ {currency(stat.totalSpent)}</span>
+              <div key={`${stat.name}-${index}`} className="rounded-xl border border-slate-700/40 bg-slate-700/20 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-black text-slate-100">{index + 1}. {stat.name}</span>
+                  <span className="text-emerald-400 font-black">R$ {currency(stat.totalSpent)}</span>
+                </div>
+
+                {(stat.sourceRows || []).length > 0 && (
+                  <div className="mt-3 space-y-1.5">
+                    {stat.sourceRows?.map((source) => (
+                      <div key={`${source.origin}-${source.id}`} className="grid gap-2 rounded-lg bg-slate-950/35 p-2 text-xs sm:grid-cols-[1fr_auto_auto] sm:items-center">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-slate-800 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-slate-300">
+                              <ReceiptText className="h-3 w-3" />
+                              {source.origin}
+                            </span>
+                            <span className="truncate font-bold text-slate-200">{source.label}</span>
+                          </div>
+                          <p className="mt-1 text-[10px] text-slate-500">
+                            {formatDate(source.date)} - {source.status}
+                          </p>
+                        </div>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{source.status}</span>
+                        <span className="text-right font-black text-emerald-400">R$ {currency(source.value)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>

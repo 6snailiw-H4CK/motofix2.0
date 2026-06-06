@@ -1,5 +1,6 @@
-import { ArrowLeft, Plus, RefreshCw } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, MessageSquare, Plus, RefreshCw } from 'lucide-react';
+import { addDays, format, parseISO } from 'date-fns';
 import type { Client } from '../../types';
 import { isOilChangeService } from '../../lib/serviceTypes';
 
@@ -65,6 +66,27 @@ export const ClientForm = ({
 }: ClientFormProps) => {
   const isOilChange = isOilChangeService(serviceType);
   const defaultOilType = editingClient?.oilType || oilTypes[0] || '10W30';
+  const initialServiceDate = !isNewService && editingClient?.lastMaintenanceDate
+    ? format(parseISO(editingClient.lastMaintenanceDate), 'yyyy-MM-dd')
+    : format(new Date(), 'yyyy-MM-dd');
+  const [serviceDate, setServiceDate] = useState(initialServiceDate);
+  const [recurrenceDays, setRecurrenceDays] = useState(editingClient?.recurrenceDays || 29);
+  const [isRecurringRevenue, setIsRecurringRevenue] = useState(editingClient?.isRecurringRevenue ?? true);
+
+  useEffect(() => {
+    setServiceDate(initialServiceDate);
+    setRecurrenceDays(editingClient?.recurrenceDays || 29);
+    setIsRecurringRevenue(editingClient?.isRecurringRevenue ?? true);
+  }, [editingClient?.id, initialServiceDate, isNewService]);
+
+  const nextReturnDate = useMemo(() => {
+    if (!isRecurringRevenue || !serviceDate) return '';
+
+    const parsedDate = parseISO(`${serviceDate}T12:00:00Z`);
+    if (!Number.isFinite(parsedDate.getTime())) return '';
+
+    return format(addDays(parsedDate, Math.max(1, recurrenceDays || 29)), 'dd/MM/yyyy');
+  }, [isRecurringRevenue, recurrenceDays, serviceDate]);
 
   return (
     <div className="mx-auto max-w-xl space-y-4 lg:max-w-4xl xl:max-w-5xl">
@@ -247,11 +269,8 @@ export const ClientForm = ({
             <input
               name="lastMaintenanceDate"
               type="date"
-              defaultValue={
-                !isNewService && editingClient?.lastMaintenanceDate
-                  ? format(parseISO(editingClient.lastMaintenanceDate), 'yyyy-MM-dd')
-                  : format(new Date(), 'yyyy-MM-dd')
-              }
+              value={serviceDate}
+              onChange={(event) => setServiceDate(event.target.value)}
               required
               className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
             />
@@ -262,7 +281,8 @@ export const ClientForm = ({
             <input
               name="recurrenceDays"
               type="number"
-              defaultValue={editingClient?.recurrenceDays || 29}
+              value={recurrenceDays}
+              onChange={(event) => setRecurrenceDays(parseInt(event.target.value, 10) || 29)}
               required
               className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
             />
@@ -272,12 +292,31 @@ export const ClientForm = ({
             <input
               name="isRecurringRevenue"
               type="checkbox"
-              defaultChecked={editingClient?.isRecurringRevenue ?? true}
+              checked={isRecurringRevenue}
+              onChange={(event) => setIsRecurringRevenue(event.target.checked)}
               className="w-4 h-4 rounded border-slate-700 bg-slate-900 text-primary focus:ring-primary"
             />
-            <label className="text-xs font-bold text-slate-400">Receita Recorrente</label>
+            <label className="text-xs font-bold text-slate-400">Recorrente</label>
           </div>
         </div>
+
+        {isRecurringRevenue && (
+          <div className="rounded-2xl border border-primary/25 bg-primary/5 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-primary">Proximo contato calculado</p>
+                <p className="mt-1 text-xl font-black text-white">{nextReturnDate || 'Informe a data do servico'}</p>
+                <p className="text-xs text-slate-400">
+                  Depois de salvar, o cliente entra na fila de contato quando esse alerta chegar.
+                </p>
+              </div>
+              <div className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-emerald-500/15 px-4 text-sm font-black text-emerald-300">
+                <MessageSquare className="h-4 w-4" />
+                Enviar lembrete no WhatsApp
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-1.5">
           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Observacoes</label>

@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
 import { addDays, format } from 'date-fns';
-import { onAuthStateChanged, User } from 'firebase/auth';
+import { getIdTokenResult, onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import { UserProfile } from '../types';
 
-const ADMIN_EMAILS = ['6snailiw@gmail.com', 'emailgithubb@gmail.com'];
+const applyClaimRole = (profile: UserProfile, isAdminClaim: boolean): UserProfile => ({
+  ...profile,
+  role: isAdminClaim ? 'admin' : 'user',
+  isActive: isAdminClaim ? true : profile.isActive,
+});
 
 export function useAuthProfile() {
   const [user, setUser] = useState<User | null>(null);
@@ -18,6 +22,8 @@ export function useAuthProfile() {
 
     const loadUserProfile = async (firebaseUser: User) => {
       try {
+        const tokenResult = await getIdTokenResult(firebaseUser, true);
+        const isAdminClaim = tokenResult.claims.admin === true;
         const userDoc = doc(db, 'users', firebaseUser.uid);
         const userSnap = await Promise.race([
           getDoc(userDoc),
@@ -32,17 +38,27 @@ export function useAuthProfile() {
         setIsNewUser(!userExists);
 
         if (userExists) {
-          setUserProfile(userSnap.data() as UserProfile);
+          const profileData = userSnap.data() as UserProfile;
+          const claimProfile = applyClaimRole(profileData, isAdminClaim);
+
+          if (isAdminClaim && (profileData.role !== 'admin' || profileData.isActive !== true)) {
+            await setDoc(userDoc, {
+              role: 'admin',
+              isActive: true,
+              updatedAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
+            }, { merge: true });
+          }
+
+          setUserProfile(claimProfile);
         } else {
-          const isAdminUser = ADMIN_EMAILS.includes(firebaseUser.email || '');
           const newProfile: UserProfile = {
             uid: firebaseUser.uid,
             email: firebaseUser.email || '',
             displayName: firebaseUser.displayName || 'Usuário',
-            role: isAdminUser ? 'admin' : 'user',
-            isActive: isAdminUser,
+            role: isAdminClaim ? 'admin' : 'user',
+            isActive: isAdminClaim,
             subscription: {
-              status: isAdminUser ? 'active' : 'inactive',
+              status: isAdminClaim ? 'active' : 'inactive',
               plan: 'free',
               startsAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
               expiresAt: format(addDays(new Date(), 30), "yyyy-MM-dd'T'HH:mm:ss'Z'"),

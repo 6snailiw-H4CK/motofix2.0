@@ -1,11 +1,12 @@
 import { isAfter, parseISO } from 'date-fns';
 import { useCallback, useMemo } from 'react';
-import type { Client, MaintenanceRecord, Warranty } from '../types';
+import type { CashRegisterLaunch, Client, MaintenanceRecord, Warranty } from '../types';
 import { getServiceTypeLabel, isOilChangeService } from '../lib/serviceTypes';
 
 export type ServiceListFilter = 'all' | 'recorrentes' | 'eventuais';
 
 type UseMaintenanceStatsParams = {
+  cashLaunches: CashRegisterLaunch[];
   clients: Client[];
   maintenances: MaintenanceRecord[];
   warranties: Warranty[];
@@ -30,6 +31,18 @@ const parseDateTime = (date?: string) => {
   return Number.isFinite(value) ? value : Number.POSITIVE_INFINITY;
 };
 
+const parseSafeDate = (date?: string) => {
+  if (!date) return null;
+  const parsed = parseISO(date);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
+};
+
+const isSameMonth = (date: Date, month: number, year: number) => (
+  date.getMonth() === month && date.getFullYear() === year
+);
+
+const roundCurrency = (value: number) => Math.round(value * 100) / 100;
+
 const getClientPriority = (client: Client, balance: number) => {
   let priority = 0;
   if (client.status === 'WARNING') priority += 10;
@@ -38,7 +51,10 @@ const getClientPriority = (client: Client, balance: number) => {
   return priority;
 };
 
+const getCashLaunchDate = (launch: CashRegisterLaunch) => parseSafeDate(launch.openingDate || launch.createdAt);
+
 export const useMaintenanceStats = ({
+  cashLaunches,
   clients,
   maintenances,
   warranties,
@@ -50,6 +66,10 @@ export const useMaintenanceStats = ({
   const dashboardMaintenances = useMemo(() => {
     return maintenances.filter(maintenance => !maintenance.clientId || activeClientIds.has(maintenance.clientId));
   }, [activeClientIds, maintenances]);
+
+  const dashboardCashLaunches = useMemo(() => (
+    cashLaunches.filter((launch) => Array.isArray(launch.items) && launch.items.length > 0)
+  ), [cashLaunches]);
 
   const dashboardStats = useMemo(() => {
     const today = new Date();
@@ -73,16 +93,112 @@ export const useMaintenanceStats = ({
       }
     });
 
+    dashboardCashLaunches.forEach((launch) => {
+      if (launch.status !== 'Finalizado' || !launch.invoiced) return;
+      const launchDate = parseSafeDate(launch.openingDate || launch.createdAt);
+      if (!launchDate || !isSameMonth(launchDate, currentMonth, currentYear)) return;
+
+      const value = Number(launch.total) || 0;
+      if (value <= 0) return;
+      revenue += value;
+      servicesCount++;
+    });
+
     return { revenue, recurringRevenue, servicesCount };
-  }, [dashboardMaintenances]);
+  }, [dashboardCashLaunches, dashboardMaintenances]);
 
   const clientStats = useMemo(() => {
-    return clients.map((client) => ({
-      name: client.name,
-      totalSpent: client.lastServiceValue || client.serviceValue || client.oilPrice || 0,
-      isRecurring: !!client.isRecurringRevenue,
-    }));
-  }, [clients]);
+    const today = new Date();
+    const currentMonth = today.getMonth();
+    const currentYear = today.getFullYear();
+    const map = new Map<string, {
+      isRecurring: boolean;
+      name: string;
+      sourceRows: Array<{
+        date: string;
+        id: string;
+        label: string;
+        origin: 'Recorrentes' | 'Lancamentos Caixa';
+        status: string;
+        value: number;
+      }>;
+      totalSpent: number;
+    }>();
+
+    const addSource = (
+      clientName: string,
+      source: {
+        date: string;
+        id: string;
+        isRecurring?: boolean;
+        label: string;
+        origin: 'Recorrentes' | 'Lancamentos Caixa';
+        status: string;
+        value: number;
+      }
+    ) => {
+      if (source.value <= 0) return;
+      const name = clientName.trim() || 'Consumidor final';
+      const key = name.toLowerCase();
+      const current = map.get(key) || {
+        isRecurring: false,
+        name,
+        sourceRows: [],
+        totalSpent: 0,
+      };
+
+      current.isRecurring = current.isRecurring || Boolean(source.isRecurring);
+      current.totalSpent = roundCurrency(current.totalSpent + source.value);
+      current.sourceRows.push({
+        date: source.date,
+        id: source.id,
+        label: source.label,
+        origin: source.origin,
+        status: source.status,
+        value: roundCurrency(source.value),
+      });
+      map.set(key, current);
+    };
+
+    dashboardMaintenances.forEach((maintenance) => {
+      const maintenanceDate = parseSafeDate(maintenance.date);
+      if (!maintenanceDate || !isSameMonth(maintenanceDate, currentMonth, currentYear)) return;
+
+      const value = Number(maintenance.serviceValue) || 0;
+      addSource(maintenance.clientName || 'Cliente sem nome', {
+        date: maintenance.date,
+        id: maintenance.id,
+        isRecurring: maintenance.isRecurringRevenue,
+        label: getServiceTypeLabel(maintenance.serviceType),
+        origin: 'Recorrentes',
+        status: maintenance.statusPagamento || 'Pago',
+        value,
+      });
+    });
+
+    dashboardCashLaunches.forEach((launch) => {
+      if (launch.status !== 'Finalizado' || !launch.invoiced) return;
+      const launchDate = getCashLaunchDate(launch);
+      if (!launchDate || !isSameMonth(launchDate, currentMonth, currentYear)) return;
+
+      const value = Number(launch.total) || 0;
+      addSource(launch.clientName || 'Consumidor final', {
+        date: launch.openingDate || launch.createdAt || '',
+        id: launch.id,
+        label: launch.orderNumber || 'Lancamento Caixa',
+        origin: 'Lancamentos Caixa',
+        status: 'Faturado',
+        value,
+      });
+    });
+
+    return Array.from(map.values())
+      .map((client) => ({
+        ...client,
+        sourceRows: client.sourceRows.sort((a, b) => parseDateTime(b.date) - parseDateTime(a.date)),
+      }))
+      .sort((a, b) => b.totalSpent - a.totalSpent);
+  }, [dashboardCashLaunches, dashboardMaintenances]);
 
   const activeWarrantiesCount = useMemo(() => {
     return warranties.filter(warranty => isAfter(parseISO(warranty.expiryDate), new Date())).length;
@@ -97,6 +213,7 @@ export const useMaintenanceStats = ({
     let aReceber = 0;
     let parcialAReceber = 0;
     let faturamentoBrutoMes = 0;
+    let aReceberMes = 0;
 
     dashboardMaintenances.forEach((maintenance) => {
       const maintenanceDate = parseISO(maintenance.date);
@@ -105,6 +222,9 @@ export const useMaintenanceStats = ({
 
       if (status === 'pendente') {
         aReceber += maintenance.saldoDevedor || 0;
+        if (isCurrentMonth) {
+          aReceberMes += maintenance.saldoDevedor || 0;
+        }
       }
 
       if (status === 'parcial') {
@@ -122,20 +242,36 @@ export const useMaintenanceStats = ({
       }
     });
 
+    dashboardCashLaunches.forEach((launch) => {
+      const total = Number(launch.total) || 0;
+      if (total <= 0) return;
+
+      const launchDate = parseSafeDate(launch.openingDate || launch.createdAt);
+      const isCurrentMonth = launchDate ? isSameMonth(launchDate, currentMonth, currentYear) : false;
+
+      if (launch.status === 'Pendente' || (launch.status === 'Finalizado' && !launch.invoiced)) {
+        aReceber += total;
+        if (isCurrentMonth) {
+          aReceberMes += total;
+          faturamentoBrutoMes += total;
+        }
+        return;
+      }
+
+      if (launch.status === 'Finalizado' && launch.invoiced && isCurrentMonth) {
+        totalRecebidoMes += total;
+        faturamentoBrutoMes += total;
+      }
+    });
+
     return {
-      totalRecebidoMes: Math.round(totalRecebidoMes * 100) / 100,
-      aReceber: Math.round(aReceber * 100) / 100,
-      parcialAReceber: Math.round(parcialAReceber * 100) / 100,
-      faturamentoBrutoMes: Math.round(faturamentoBrutoMes * 100) / 100,
-      aReceberMes: dashboardMaintenances
-        .filter((maintenance) => {
-          const maintenanceDate = parseISO(maintenance.date);
-          const inMonth = maintenanceDate.getMonth() === currentMonth && maintenanceDate.getFullYear() === currentYear;
-          return inMonth && normalizePaymentStatus(maintenance.statusPagamento).toLowerCase() === 'pendente';
-        })
-        .reduce((sum, maintenance) => sum + (maintenance.saldoDevedor || 0), 0),
+      totalRecebidoMes: roundCurrency(totalRecebidoMes),
+      aReceber: roundCurrency(aReceber),
+      parcialAReceber: roundCurrency(parcialAReceber),
+      faturamentoBrutoMes: roundCurrency(faturamentoBrutoMes),
+      aReceberMes: roundCurrency(aReceberMes),
     };
-  }, [dashboardMaintenances]);
+  }, [dashboardCashLaunches, dashboardMaintenances]);
 
   const overdueClients = useMemo(() => clients.filter(client => client.status === 'OVERDUE'), [clients]);
 

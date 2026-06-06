@@ -28,10 +28,12 @@ import { useClientStatusSync } from './hooks/useClientStatusSync';
 import { useCashRegisterActions } from './hooks/useCashRegisterActions';
 import { useDeleteConfirmation } from './hooks/useDeleteConfirmation';
 import { useExpenseActions } from './hooks/useExpenseActions';
+import { useFiscalActions } from './hooks/useFiscalActions';
 import { useMaintenanceActions } from './hooks/useMaintenanceActions';
 import { useMaintenanceStats } from './hooks/useMaintenanceStats';
 import { useMessageLogActions } from './hooks/useMessageLogActions';
 import { useNotifications } from './hooks/useNotifications';
+import { useProductActions } from './hooks/useProductActions';
 import { useServiceTypeActions } from './hooks/useServiceTypeActions';
 import { useSettingsActions } from './hooks/useSettingsActions';
 import { useSubscriptionExpiryGuard } from './hooks/useSubscriptionExpiryGuard';
@@ -57,7 +59,10 @@ export default function App() {
     expenseEntries,
     messageLogs,
     productCatalog,
-    cashLaunches
+    cashLaunches,
+    fiscalCompanies,
+    fiscalInvoices,
+    fiscalLogs
   } = useUserCollections({ user, userProfile, isNewUser });
   const {
     colorMode,
@@ -132,6 +137,13 @@ export default function App() {
   const cashRegisterActions = useCashRegisterActions({
     user,
   });
+  const fiscalActions = useFiscalActions({
+    fiscalCompanies,
+  });
+  const productActions = useProductActions({
+    user,
+    onDeleted: handleDeleteConfirmed,
+  });
   const maintenanceActions = useMaintenanceActions({
     user,
     clients,
@@ -178,6 +190,7 @@ export default function App() {
   });
 
   const maintenanceStats = useMaintenanceStats({
+    cashLaunches,
     clients,
     maintenances,
     warranties,
@@ -228,8 +241,10 @@ export default function App() {
             client: clientActions,
             clientForm,
             expense: expenseActions,
+            fiscal: fiscalActions,
             maintenance: maintenanceActions,
             messageLog: messageLogActions,
+            product: productActions,
             sendWhatsApp,
             serviceType: serviceTypeActions,
             settings: settingsActions,
@@ -243,6 +258,9 @@ export default function App() {
             clients,
             dailyPendingAlerts,
             expenseEntries,
+            fiscalCompanies,
+            fiscalInvoices,
+            fiscalLogs,
             historyServiceTypeOptions,
             maintenanceStats,
             maintenances,

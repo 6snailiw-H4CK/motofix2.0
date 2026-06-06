@@ -6,11 +6,13 @@ import {
   DollarSign,
   Edit2,
   MessageCircle,
+  PackagePlus,
   Plus,
   ReceiptText,
   RefreshCw,
   Search,
   Trash2,
+  UserPlus,
   Wrench,
 } from 'lucide-react';
 import { cn, safeFormat } from '../../lib/utils';
@@ -27,6 +29,8 @@ type ClientsViewProps = {
   serviceListFilter: ServiceListFilter;
   processingId: string | null;
   deleteConfirmId?: string | null;
+  onNewClient: () => void;
+  onNewProduct: () => void;
   onNewRecord: () => void;
   onOpenCashRegister: () => void;
   onSearchChange: (value: string) => void;
@@ -73,6 +77,8 @@ export const ClientsView = ({
   serviceListFilter,
   processingId,
   deleteConfirmId,
+  onNewClient,
+  onNewProduct,
   onNewRecord,
   onOpenCashRegister,
   onSearchChange,
@@ -104,7 +110,7 @@ export const ClientsView = ({
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-2 lg:grid-cols-[1fr_auto]">
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[1fr_auto_auto_auto]">
         <button
           type="button"
           onClick={onNewRecord}
@@ -116,8 +122,26 @@ export const ClientsView = ({
 
         <button
           type="button"
+          onClick={onNewClient}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-xs font-bold text-primary transition-all hover:border-primary/60 hover:bg-primary/15"
+        >
+          <UserPlus className="h-4 w-4" />
+          Novo Cliente
+        </button>
+
+        <button
+          type="button"
+          onClick={onNewProduct}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-xs font-bold text-primary transition-all hover:border-primary/60 hover:bg-primary/15"
+        >
+          <PackagePlus className="h-4 w-4" />
+          Nova Peca
+        </button>
+
+        <button
+          type="button"
           onClick={onOpenCashRegister}
-          className="hidden min-w-56 items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-xs font-bold text-primary transition-all hover:border-primary/60 hover:bg-primary/15 lg:inline-flex"
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-xs font-bold text-primary transition-all hover:border-primary/60 hover:bg-primary/15"
         >
           <ReceiptText className="h-4 w-4" />
           Lancamentos Caixa

@@ -1,14 +1,17 @@
 import { format } from 'date-fns';
-import { useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
 import {
   Activity,
   ArrowLeft,
   Check,
+  Download,
   FileSpreadsheet,
   History,
   PackageSearch,
   Plus,
+  Printer,
   ReceiptText,
+  RefreshCw,
   Save,
   Search,
   Trash2,
@@ -17,27 +20,52 @@ import {
 } from 'lucide-react';
 import { cn, safeFormat } from '../../lib/utils';
 import type { CashRegisterDraft } from '../../hooks/useCashRegisterActions';
-import type { CashRegisterItem, CashRegisterLaunch, Client, ProductCatalogItem } from '../../types';
+import type { CashRegisterItem, CashRegisterLaunch, Client, ProductCatalogItem, ProductCatalogVariation } from '../../types';
+
+type QuickClientInput = Pick<Client, 'name'> & Partial<Pick<Client, 'contact' | 'bikeModel'>>;
 
 type CashRegisterViewProps = {
   cashLaunches: CashRegisterLaunch[];
   clients: Client[];
   products: ProductCatalogItem[];
+  fiscalAutoIssueEnabled?: boolean;
   isImportingProducts: boolean;
   isSavingLaunch: boolean;
+  deleteConfirmId?: string | null;
+  deletingLaunchId?: string | null;
+  initialLaunchId?: string | null;
   onBack: () => void;
+  onAutoIssueFiscalFromCashLaunch?: (cashLaunchId: string) => Promise<void> | void;
+  onDeleteLaunchClick: (launch: CashRegisterLaunch) => void;
   onImportProducts: (file: File) => Promise<number> | number;
-  onSaveLaunch: (draft: CashRegisterDraft) => Promise<boolean> | boolean;
+  onInitialLaunchLoaded?: () => void;
+  onOpenRecurringServices?: () => void;
+  onQuickSaveClient?: (client: QuickClientInput) => Promise<Client | null> | Client | null;
+  onSaveLaunch: (draft: CashRegisterDraft, launchId?: string) => Promise<boolean> | boolean;
 };
 
 type MainTab = 'control' | 'history' | 'monitoring';
 type WorkTab = 'opening' | 'items';
+type MonitoringStatusFilter = 'all' | CashRegisterLaunch['status'];
+type ProductPickerRow = {
+  id: string;
+  product: ProductCatalogItem;
+  variation?: ProductCatalogVariation;
+};
 
 const statusOptions: CashRegisterLaunch['status'][] = ['Em Lancamento', 'Finalizado', 'Pendente'];
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const today = () => format(new Date(), 'yyyy-MM-dd');
 
 const compactCurrency = (value: number) => currency.format(Number.isFinite(value) ? value : 0);
+
+const escapeHtml = (value: unknown) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 
 const parseNumber = (value: string | number) => {
   if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
@@ -59,7 +87,7 @@ const normalizeSearch = (value: string) =>
     .toLowerCase();
 
 const calculateItem = (item: CashRegisterItem): CashRegisterItem => {
-  const quantity = Math.max(0.01, Number(item.quantity) || 1);
+  const quantity = Math.max(1, Number(item.quantity) || 1);
   const unitPrice = Math.max(0, Number(item.unitPrice) || 0);
   const gross = quantity * unitPrice;
   const discountValue = Math.max(0, Number(item.discountValue) || 0);
@@ -80,42 +108,74 @@ const calculateItem = (item: CashRegisterItem): CashRegisterItem => {
 };
 
 const fieldClass = 'w-full rounded-xl border border-slate-700/60 bg-slate-950/50 px-3 py-2 text-xs text-slate-100 outline-none transition focus:border-primary/60 focus:ring-1 focus:ring-primary/50';
+const editableCellClass = 'w-24 rounded-lg border border-slate-600/70 bg-slate-900/90 px-2 py-1.5 text-right font-bold text-white outline-none transition focus:border-primary focus:ring-1 focus:ring-primary';
+const editableTextCellClass = 'w-full min-w-72 rounded-lg border border-slate-600/70 bg-slate-900/90 px-2 py-1.5 font-bold text-white outline-none transition focus:border-primary focus:ring-1 focus:ring-primary';
 const labelClass = 'text-[10px] font-bold uppercase tracking-widest text-slate-500';
 
 export const CashRegisterView = ({
   cashLaunches,
   clients,
   products,
+  fiscalAutoIssueEnabled = false,
   isImportingProducts,
   isSavingLaunch,
+  deleteConfirmId,
+  deletingLaunchId,
+  initialLaunchId,
   onBack,
+  onAutoIssueFiscalFromCashLaunch,
+  onDeleteLaunchClick,
   onImportProducts,
+  onInitialLaunchLoaded,
+  onOpenRecurringServices,
+  onQuickSaveClient,
   onSaveLaunch,
 }: CashRegisterViewProps) => {
   const [mainTab, setMainTab] = useState<MainTab>('control');
   const [workTab, setWorkTab] = useState<WorkTab>('opening');
+  const [editingLaunchId, setEditingLaunchId] = useState<string | null>(null);
+  const [editingOrderNumber, setEditingOrderNumber] = useState('');
   const [selectedClientId, setSelectedClientId] = useState('');
   const [clientName, setClientName] = useState('');
   const [bikeModel, setBikeModel] = useState('');
   const [status, setStatus] = useState<CashRegisterLaunch['status']>('Em Lancamento');
+  const [isInvoiced, setIsInvoiced] = useState(false);
   const [openingDate, setOpeningDate] = useState(today());
   const [expectedDate, setExpectedDate] = useState(today());
   const [observation, setObservation] = useState('');
   const [request, setRequest] = useState('');
   const [servicesExecuted, setServicesExecuted] = useState('');
   const [items, setItems] = useState<CashRegisterItem[]>([]);
+  const [orderDiscountValueInput, setOrderDiscountValueInput] = useState('');
+  const [orderDiscountPercentInput, setOrderDiscountPercentInput] = useState('');
   const [productSearch, setProductSearch] = useState('');
   const [isProductPickerOpen, setIsProductPickerOpen] = useState(false);
   const [historySearch, setHistorySearch] = useState('');
+  const [monitoringStatusFilter, setMonitoringStatusFilter] = useState<MonitoringStatusFilter>('all');
+  const [invoiceSuccess, setInvoiceSuccess] = useState<{ orderNumber: string; total: number } | null>(null);
+  const [isQuickClientOpen, setIsQuickClientOpen] = useState(false);
+  const [isSavingQuickClient, setIsSavingQuickClient] = useState(false);
+  const [quickClientForm, setQuickClientForm] = useState<QuickClientInput>({ name: '', contact: '', bikeModel: '' });
 
-  const filteredProducts = useMemo(() => {
+  const productPickerRows = useMemo<ProductPickerRow[]>(() => {
+    const expandedRows: ProductPickerRow[] = products.flatMap((product): ProductPickerRow[] => {
+      if (product.variations?.length) {
+        return product.variations.map((variation) => ({
+          id: `${product.id}:${variation.id}`,
+          product,
+          variation,
+        }));
+      }
+
+      return [{ id: product.id, product }];
+    });
     const search = normalizeSearch(productSearch.trim());
     const rows = search
-      ? products.filter((product) => {
-        const haystack = normalizeSearch(`${product.sourceCode} ${product.description} ${product.ncm}`);
+      ? expandedRows.filter(({ product, variation }) => {
+        const haystack = normalizeSearch(`${product.sourceCode} ${product.description} ${product.variation || ''} ${variation?.name || ''} ${variation?.salePrice || ''} ${product.ncm}`);
         return haystack.includes(search);
       })
-      : products;
+      : expandedRows;
 
     return rows.slice(0, 80);
   }, [productSearch, products]);
@@ -129,21 +189,40 @@ export const CashRegisterView = ({
     });
   }, [cashLaunches, historySearch]);
 
-  const pendingLaunches = useMemo(
-    () => cashLaunches.filter((launch) => launch.status !== 'Finalizado'),
-    [cashLaunches]
-  );
+  const monitoredLaunches = useMemo(() => (
+    monitoringStatusFilter === 'all'
+      ? cashLaunches
+      : cashLaunches.filter((launch) => launch.status === monitoringStatusFilter)
+  ), [cashLaunches, monitoringStatusFilter]);
+
+  useEffect(() => {
+    if (!invoiceSuccess) return undefined;
+
+    const timer = window.setTimeout(() => setInvoiceSuccess(null), 7000);
+    return () => window.clearTimeout(timer);
+  }, [invoiceSuccess]);
 
   const totals = useMemo(() => {
     const merchandiseGross = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
-    const total = items.reduce((sum, item) => sum + item.total, 0);
+    const itemsNetTotal = items.reduce((sum, item) => sum + item.total, 0);
+    const itemDiscountTotal = Math.max(0, merchandiseGross - itemsNetTotal);
+    const orderDiscountValue = Math.max(0, parseNumber(orderDiscountValueInput));
+    const orderDiscountPercent = Math.min(100, Math.max(0, parseNumber(orderDiscountPercentInput)));
+    const percentDiscountValue = itemsNetTotal * (orderDiscountPercent / 100);
+    const orderDiscountTotal = Math.min(itemsNetTotal, orderDiscountValue + percentDiscountValue);
+    const total = Math.max(0, itemsNetTotal - orderDiscountTotal);
+
     return {
-      discountTotal: Math.max(0, merchandiseGross - total),
+      discountTotal: itemDiscountTotal + orderDiscountTotal,
+      itemDiscountTotal,
       merchandiseGross,
+      orderDiscountPercent,
+      orderDiscountTotal,
+      orderDiscountValue,
       servicesTotal: 0,
       total,
     };
-  }, [items]);
+  }, [items, orderDiscountPercentInput, orderDiscountValueInput]);
 
   const selectedClient = clients.find((client) => client.id === selectedClientId);
 
@@ -156,6 +235,38 @@ export const CashRegisterView = ({
     }
   };
 
+  const updateQuickClientForm = (patch: Partial<QuickClientInput>) => {
+    setQuickClientForm((current) => ({ ...current, ...patch }));
+  };
+
+  const resetQuickClientForm = () => {
+    setQuickClientForm({ name: '', contact: '', bikeModel: '' });
+    setIsQuickClientOpen(false);
+  };
+
+  const handleQuickClientSave = async () => {
+    const name = quickClientForm.name.trim();
+    if (!name || !onQuickSaveClient) return;
+
+    setIsSavingQuickClient(true);
+    try {
+      const createdClient = await Promise.resolve(onQuickSaveClient({
+        name,
+        contact: quickClientForm.contact?.trim() || '',
+        bikeModel: quickClientForm.bikeModel?.trim() || '',
+      }));
+
+      if (createdClient?.id) {
+        setSelectedClientId(createdClient.id);
+      }
+      setClientName(createdClient?.name || name);
+      setBikeModel(createdClient?.bikeModel || quickClientForm.bikeModel?.trim() || '');
+      resetQuickClientForm();
+    } finally {
+      setIsSavingQuickClient(false);
+    }
+  };
+
   const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.currentTarget;
     const file = input.files?.[0];
@@ -165,9 +276,146 @@ export const CashRegisterView = ({
     input.value = '';
   };
 
-  const addProduct = (product: ProductCatalogItem) => {
+  const handleBackup = () => {
+    const backup = {
+      exportedAt: new Date().toISOString(),
+      module: 'Lancamentos Caixa',
+      version: 1,
+      products,
+      cashLaunches,
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `motofix-caixa-backup-${today()}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handlePrintOrder = () => {
+    const draft = buildDraft();
+    const orderNumber = editingOrderNumber || 'Lancamento nao salvo';
+    const itemRows = draft.items.map((item, index) => `
+      <tr>
+        <td>${index + 1}</td>
+        <td>${escapeHtml(item.sourceCode)}</td>
+        <td>
+          ${escapeHtml(item.description)}
+          ${item.variation ? `<div class="muted">Variacao: ${escapeHtml(item.variation)}</div>` : ''}
+        </td>
+        <td class="right">${item.quantity.toLocaleString('pt-BR')}</td>
+        <td class="right">${compactCurrency(item.netUnitPrice)}</td>
+        <td class="right">${compactCurrency(item.total)}</td>
+      </tr>
+    `).join('');
+    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    if (!printWindow) return;
+
+    printWindow.document.write(`<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Ordem de Servico - ${escapeHtml(orderNumber)}</title>
+          <style>
+            * { box-sizing: border-box; }
+            body { font-family: Arial, sans-serif; color: #111827; margin: 32px; }
+            .top { display: flex; justify-content: space-between; gap: 24px; border-bottom: 2px solid #ef4444; padding-bottom: 16px; margin-bottom: 20px; }
+            .brand { font-size: 24px; font-weight: 800; color: #ef4444; }
+            .muted { color: #64748b; font-size: 12px; }
+            h1 { font-size: 22px; margin: 0 0 4px; }
+            .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 24px; margin: 18px 0; }
+            .box { border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; }
+            .label { color: #64748b; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+            .value { margin-top: 4px; font-size: 14px; font-weight: 700; }
+            table { width: 100%; border-collapse: collapse; margin-top: 18px; font-size: 12px; }
+            th { background: #ef4444; color: white; text-align: left; padding: 9px; }
+            td { border-bottom: 1px solid #e2e8f0; padding: 9px; vertical-align: top; }
+            .right { text-align: right; }
+            .totals { margin-left: auto; margin-top: 18px; width: 300px; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; }
+            .totals div { display: flex; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid #e2e8f0; }
+            .totals div:last-child { border-bottom: 0; background: #fff1f2; color: #dc2626; font-weight: 800; }
+            .sign { display: grid; grid-template-columns: 1fr 1fr; gap: 60px; margin-top: 56px; font-size: 12px; }
+            .line { border-top: 1px solid #111827; padding-top: 8px; text-align: center; }
+            @media print { body { margin: 18mm; } }
+          </style>
+        </head>
+        <body>
+          <div class="top">
+            <div>
+              <div class="brand">MotoFix</div>
+              <div class="muted">Ordem de servico para conferencia do cliente</div>
+            </div>
+            <div style="text-align:right">
+              <h1>${escapeHtml(orderNumber)}</h1>
+              <div class="muted">Emitido em ${safeFormat(new Date(), 'dd/MM/yyyy HH:mm')}</div>
+            </div>
+          </div>
+
+          <div class="grid">
+            <div class="box"><div class="label">Cliente</div><div class="value">${escapeHtml(draft.clientName)}</div></div>
+            <div class="box"><div class="label">Moto / Placa</div><div class="value">${escapeHtml(draft.bikeModel || '-')}</div></div>
+            <div class="box"><div class="label">Abertura</div><div class="value">${safeFormat(draft.openingDate) || '-'}</div></div>
+            <div class="box"><div class="label">Status</div><div class="value">${escapeHtml(draft.status)}</div></div>
+          </div>
+
+          ${(draft.request || draft.servicesExecuted || draft.observation) ? `
+            <div class="box">
+              ${draft.request ? `<div><span class="label">Solicitacao</span><div class="value">${escapeHtml(draft.request)}</div></div>` : ''}
+              ${draft.servicesExecuted ? `<div style="margin-top:10px"><span class="label">Servicos executados</span><div class="value">${escapeHtml(draft.servicesExecuted)}</div></div>` : ''}
+              ${draft.observation ? `<div style="margin-top:10px"><span class="label">Observacao</span><div class="value">${escapeHtml(draft.observation)}</div></div>` : ''}
+            </div>
+          ` : ''}
+
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Codigo</th>
+                <th>Item</th>
+                <th class="right">Qtd</th>
+                <th class="right">Unit. liquido</th>
+                <th class="right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itemRows || '<tr><td colspan="6" style="text-align:center;color:#64748b">Nenhum item incluido.</td></tr>'}
+            </tbody>
+          </table>
+
+          <div class="totals">
+            <div><span>Mercadorias</span><strong>${compactCurrency(draft.merchandiseTotal)}</strong></div>
+            <div><span>Descontos</span><strong>${compactCurrency(draft.discountTotal)}</strong></div>
+            <div><span>Total</span><strong>${compactCurrency(draft.total)}</strong></div>
+          </div>
+
+          <div class="sign">
+            <div class="line">Assinatura do cliente</div>
+            <div class="line">Responsavel MotoFix</div>
+          </div>
+          <script>
+            window.onload = () => {
+              window.print();
+              window.onafterprint = () => window.close();
+            };
+          </script>
+        </body>
+      </html>`);
+    printWindow.document.close();
+  };
+
+  const addProduct = (product: ProductCatalogItem, variation?: ProductCatalogVariation) => {
+    const variationId = variation?.id || '';
+    const variationName = variation?.name || product.variation || '';
+    const salePrice = Number(variation?.salePrice ?? product.salePrice ?? 0);
+
     setItems((current) => {
-      const existing = current.find((item) => item.productId === product.id);
+      const existing = current.find((item) => (
+        item.productId === product.id
+        && (item.variationId || '') === variationId
+      ));
       if (existing) {
         return current.map((item) => (
           item.id === existing.id ? calculateItem({ ...item, quantity: item.quantity + 1 }) : item
@@ -179,15 +427,17 @@ export const CashRegisterView = ({
         calculateItem({
           id: makeId(),
           productId: product.id,
+          variationId,
           sourceCode: product.sourceCode,
           description: product.description,
+          variation: variationName,
           ncm: product.ncm,
           quantity: 1,
-          unitPrice: product.salePrice,
+          unitPrice: salePrice,
           discountValue: 0,
           discountPercent: 0,
-          netUnitPrice: product.salePrice,
-          total: product.salePrice,
+          netUnitPrice: salePrice,
+          total: salePrice,
           date: openingDate,
           note: '',
         }),
@@ -203,41 +453,110 @@ export const CashRegisterView = ({
     )));
   };
 
+  const updateItemQuantity = (itemId: string, value: string) => {
+    const quantity = Math.max(1, Math.round(parseNumber(value)));
+    updateItem(itemId, { quantity });
+  };
+
+  const loadLaunchForEdit = (launch: CashRegisterLaunch) => {
+    setEditingLaunchId(launch.id);
+    setEditingOrderNumber(launch.orderNumber);
+    setSelectedClientId(launch.clientId || '');
+    setClientName(launch.clientName || '');
+    setBikeModel(launch.bikeModel || '');
+    setStatus(launch.status);
+    setIsInvoiced(launch.status === 'Finalizado' && Boolean(launch.invoiced));
+    setOpeningDate(launch.openingDate || today());
+    setExpectedDate(launch.expectedDate || today());
+    setObservation(launch.observation || '');
+    setRequest(launch.request || '');
+    setServicesExecuted(launch.servicesExecuted || '');
+    setItems((launch.items || []).map((item) => calculateItem({ ...item, id: item.id || makeId() })));
+    setOrderDiscountValueInput(launch.orderDiscountValue ? String(launch.orderDiscountValue) : '');
+    setOrderDiscountPercentInput(launch.orderDiscountPercent ? String(launch.orderDiscountPercent) : '');
+    setMainTab('control');
+    setWorkTab('items');
+  };
+
+  useEffect(() => {
+    if (!initialLaunchId) return;
+
+    const launch = cashLaunches.find((item) => item.id === initialLaunchId);
+    if (!launch) return;
+
+    loadLaunchForEdit(launch);
+    onInitialLaunchLoaded?.();
+  }, [cashLaunches, initialLaunchId, onInitialLaunchLoaded]);
+
   const resetDraft = () => {
+    setEditingLaunchId(null);
+    setEditingOrderNumber('');
     setSelectedClientId('');
     setClientName('');
     setBikeModel('');
     setStatus('Em Lancamento');
+    setIsInvoiced(false);
     setOpeningDate(today());
     setExpectedDate(today());
     setObservation('');
     setRequest('');
     setServicesExecuted('');
     setItems([]);
+    setOrderDiscountValueInput('');
+    setOrderDiscountPercentInput('');
     setWorkTab('opening');
   };
 
-  const buildDraft = (statusOverride?: CashRegisterLaunch['status'], invoiced = false): CashRegisterDraft => ({
-    clientId: selectedClientId || undefined,
-    clientName: clientName.trim() || selectedClient?.name || 'Consumidor final',
-    bikeModel: bikeModel.trim() || selectedClient?.bikeModel || '',
-    status: statusOverride || status,
-    openingDate,
-    expectedDate,
-    request: request.trim(),
-    servicesExecuted: servicesExecuted.trim(),
-    observation: observation.trim(),
-    items,
-    merchandiseTotal: totals.merchandiseGross,
-    servicesTotal: totals.servicesTotal,
-    discountTotal: totals.discountTotal,
-    total: totals.total,
-    invoiced,
-  });
+  const handleStatusChange = (nextStatus: CashRegisterLaunch['status']) => {
+    setStatus(nextStatus);
+    if (nextStatus !== 'Finalizado') {
+      setIsInvoiced(false);
+    }
+  };
+
+  const buildDraft = (statusOverride?: CashRegisterLaunch['status'], invoiced = false): CashRegisterDraft => {
+    const finalStatus = statusOverride || status;
+    const finalInvoiced = finalStatus === 'Finalizado' && (invoiced || isInvoiced);
+
+    return {
+      ...(selectedClientId ? { clientId: selectedClientId } : {}),
+      clientName: clientName.trim() || selectedClient?.name || 'Consumidor final',
+      bikeModel: bikeModel.trim() || selectedClient?.bikeModel || '',
+      status: finalStatus,
+      openingDate,
+      expectedDate,
+      request: request.trim(),
+      servicesExecuted: servicesExecuted.trim(),
+      observation: observation.trim(),
+      items,
+      merchandiseTotal: totals.merchandiseGross,
+      servicesTotal: totals.servicesTotal,
+      discountTotal: totals.discountTotal,
+      orderDiscountValue: totals.orderDiscountValue,
+      orderDiscountPercent: totals.orderDiscountPercent,
+      total: totals.total,
+      invoiced: finalInvoiced,
+    };
+  };
 
   const handleSave = async (statusOverride?: CashRegisterLaunch['status'], invoiced = false) => {
-    const saved = await Promise.resolve(onSaveLaunch(buildDraft(statusOverride, invoiced)));
-    if (saved) resetDraft();
+    const isInvoiceAction = statusOverride === 'Finalizado' && invoiced;
+    const successOrderNumber = editingOrderNumber || 'Novo lancamento';
+    const successTotal = totals.total;
+    const shouldAutoIssueFiscal = Boolean(invoiced && statusOverride === 'Finalizado' && fiscalAutoIssueEnabled && editingLaunchId);
+    const saved = await Promise.resolve(onSaveLaunch(buildDraft(statusOverride, invoiced), editingLaunchId || undefined));
+    if (saved) {
+      if (isInvoiceAction) {
+        setInvoiceSuccess({
+          orderNumber: successOrderNumber,
+          total: successTotal,
+        });
+      }
+      if (shouldAutoIssueFiscal && editingLaunchId) {
+        await Promise.resolve(onAutoIssueFiscalFromCashLaunch?.(editingLaunchId));
+      }
+      resetDraft();
+    }
   };
 
   return (
@@ -260,6 +579,15 @@ export const CashRegisterView = ({
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <button
+            type="button"
+            onClick={handleBackup}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-4 py-2.5 text-xs font-bold text-slate-200 transition hover:border-primary/50 hover:text-white"
+          >
+            <Download className="h-4 w-4" />
+            Backup
+          </button>
+
           <label className={cn(
             'inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-2.5 text-xs font-bold text-primary transition hover:border-primary/60 hover:bg-primary/15',
             isImportingProducts && 'pointer-events-none opacity-60'
@@ -279,6 +607,49 @@ export const CashRegisterView = ({
           </div>
         </div>
       </div>
+
+      {invoiceSuccess && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-50 shadow-lg shadow-emerald-950/20 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-start gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-500/20 text-emerald-300">
+              <Check className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="font-black text-white">Faturamento confirmado</p>
+              <p className="mt-0.5 text-xs text-emerald-100/80">
+                {invoiceSuccess.orderNumber} foi faturada com sucesso no valor de {compactCurrency(invoiceSuccess.total)}.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setInvoiceSuccess(null)}
+            className="rounded-xl bg-emerald-500/15 px-3 py-2 text-xs font-black uppercase tracking-wide text-emerald-100 transition hover:bg-emerald-500/25"
+          >
+            Ok
+          </button>
+        </div>
+      )}
+
+      {onOpenRecurringServices && (
+        <div className="hidden lg:grid lg:grid-cols-[minmax(0,360px)]">
+          <button
+            type="button"
+            onClick={onOpenRecurringServices}
+            className="group flex items-center gap-3 rounded-2xl border border-primary/25 bg-primary/10 p-4 text-left shadow-lg shadow-primary/5 transition hover:border-primary/50 hover:bg-primary/15"
+          >
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-white shadow-lg shadow-primary/20">
+              <RefreshCw className="h-5 w-5" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-sm font-black text-white">Recorrencia</span>
+              <span className="mt-1 block text-xs text-slate-400 group-hover:text-slate-300">
+                Ordens de servico e clientes recorrentes
+              </span>
+            </span>
+          </button>
+        </div>
+      )}
 
       <section className="overflow-hidden rounded-2xl border border-slate-700/60 bg-slate-900/55 shadow-2xl shadow-black/20">
         <div className="flex flex-wrap border-b border-slate-700/60 bg-slate-950/50">
@@ -327,28 +698,53 @@ export const CashRegisterView = ({
                   {tab.label}
                 </button>
               ))}
-              <button type="button" disabled className="rounded-xl px-4 py-2 text-xs font-bold text-slate-600">Funcionarios</button>
-              <button type="button" disabled className="rounded-xl px-4 py-2 text-xs font-bold text-slate-600">Alocacao</button>
             </div>
 
+            {editingLaunchId && (
+              <div className="flex flex-col gap-2 rounded-2xl border border-primary/30 bg-primary/10 p-3 text-xs text-slate-200 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="font-black text-white">Editando {editingOrderNumber}</p>
+                  <p className="text-slate-400">Altere itens, valores ou status e salve para atualizar este lancamento.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={resetDraft}
+                  className="rounded-xl bg-slate-900/80 px-3 py-2 font-bold text-slate-200 transition hover:bg-slate-800"
+                >
+                  Novo lancamento
+                </button>
+              </div>
+            )}
+
             {workTab === 'opening' ? (
-              <div className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
+              <div className="grid gap-4 2xl:grid-cols-[1fr_0.9fr]">
                 <div className="space-y-4">
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
                     <div className="space-y-1">
                       <label className={labelClass}>Status</label>
-                      <select value={status} onChange={(event) => setStatus(event.target.value as CashRegisterLaunch['status'])} className={fieldClass}>
+                      <select value={status} onChange={(event) => handleStatusChange(event.target.value as CashRegisterLaunch['status'])} className={fieldClass}>
                         {statusOptions.map((option) => <option key={option}>{option}</option>)}
                       </select>
                     </div>
                     <div className="space-y-1 md:col-span-2">
                       <label className={labelClass}>Cliente</label>
-                      <select value={selectedClientId} onChange={(event) => selectClient(event.target.value)} className={fieldClass}>
-                        <option value="">-- NAO INFORMADO --</option>
-                        {clients.map((client) => (
-                          <option key={client.id} value={client.id}>{client.name} {client.bikeModel ? `- ${client.bikeModel}` : ''}</option>
-                        ))}
-                      </select>
+                      <div className="flex gap-2">
+                        <select value={selectedClientId} onChange={(event) => selectClient(event.target.value)} className={cn(fieldClass, 'min-w-0 flex-1')}>
+                          <option value="">-- NAO INFORMADO --</option>
+                          {clients.map((client) => (
+                            <option key={client.id} value={client.id}>{client.name} {client.bikeModel ? `- ${client.bikeModel}` : ''}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => setIsQuickClientOpen(true)}
+                          disabled={!onQuickSaveClient}
+                          className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-primary/45 bg-primary/10 text-primary transition hover:bg-primary hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Cadastro rapido de cliente"
+                        >
+                          <Plus className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
                     <div className="space-y-1">
                       <label className={labelClass}>Abertura</label>
@@ -424,7 +820,9 @@ export const CashRegisterView = ({
                         <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-slate-900/70 p-3">
                           <div className="min-w-0">
                             <p className="truncate text-sm font-bold text-white">{item.description}</p>
-                            <p className="text-[10px] text-slate-500">Cod. {item.sourceCode} | NCM {item.ncm || '-'}</p>
+                            <p className="text-[10px] text-slate-500">
+                              Cod. {item.sourceCode} | {item.variation ? `Var. ${item.variation} | ` : ''}NCM {item.ncm || '-'}
+                            </p>
                           </div>
                           <p className="shrink-0 text-sm font-black text-primary">{compactCurrency(item.total)}</p>
                         </div>
@@ -447,17 +845,15 @@ export const CashRegisterView = ({
                 </div>
 
                 <div className="overflow-x-auto rounded-2xl border border-slate-700/50">
-                  <table className="min-w-[1180px] w-full text-left text-xs">
+                  <table className="min-w-[1140px] w-full text-left text-xs">
                     <thead className="bg-primary/90 text-white">
                       <tr>
                         <th className="px-3 py-2">Excluir</th>
                         <th className="px-3 py-2">Codigo</th>
                         <th className="px-3 py-2">Descricao</th>
+                        <th className="px-3 py-2">Variacao</th>
                         <th className="px-3 py-2">Qtd</th>
                         <th className="px-3 py-2">Unitario R$</th>
-                        <th className="px-3 py-2">Desconto R$</th>
-                        <th className="px-3 py-2">Desconto %</th>
-                        <th className="px-3 py-2">Unit. Liquido R$</th>
                         <th className="px-3 py-2">Total Liquido R$</th>
                         <th className="px-3 py-2">Data</th>
                         <th className="px-3 py-2">Observacao</th>
@@ -466,7 +862,7 @@ export const CashRegisterView = ({
                     <tbody className="divide-y divide-slate-800 bg-slate-950/40">
                       {items.length === 0 ? (
                         <tr>
-                          <td colSpan={11} className="px-3 py-10 text-center text-slate-500">Clique em Incluir para pesquisar uma mercadoria importada.</td>
+                          <td colSpan={9} className="px-3 py-10 text-center text-slate-500">Clique em Incluir para pesquisar uma mercadoria importada.</td>
                         </tr>
                       ) : (
                         items.map((item) => (
@@ -477,20 +873,35 @@ export const CashRegisterView = ({
                               </button>
                             </td>
                             <td className="px-3 py-2 font-bold text-slate-300">{item.sourceCode}</td>
-                            <td className="max-w-sm px-3 py-2 font-bold text-white">{item.description}</td>
-                            <td className="px-3 py-2">
-                              <input type="number" min="0.01" step="0.01" value={item.quantity} onChange={(event) => updateItem(item.id, { quantity: parseNumber(event.target.value) })} className="w-20 rounded-lg bg-slate-900 px-2 py-1.5 text-right outline-none focus:ring-1 focus:ring-primary" />
+                            <td className="max-w-md px-3 py-2">
+                              <input
+                                value={item.description}
+                                onChange={(event) => updateItem(item.id, { description: event.target.value })}
+                                className={editableTextCellClass}
+                                title="Editar nome/descricao do item"
+                              />
                             </td>
                             <td className="px-3 py-2">
-                              <input value={String(item.unitPrice)} onChange={(event) => updateItem(item.id, { unitPrice: parseNumber(event.target.value) })} className="w-24 rounded-lg bg-slate-900 px-2 py-1.5 text-right outline-none focus:ring-1 focus:ring-primary" />
+                              <input
+                                value={item.variation || ''}
+                                onChange={(event) => updateItem(item.id, { variation: event.target.value })}
+                                className="w-40 rounded-lg border border-slate-600/70 bg-slate-900/90 px-2 py-1.5 font-bold text-white outline-none transition focus:border-primary focus:ring-1 focus:ring-primary"
+                                placeholder="Marca/modelo"
+                              />
                             </td>
                             <td className="px-3 py-2">
-                              <input value={String(item.discountValue)} onChange={(event) => updateItem(item.id, { discountValue: parseNumber(event.target.value) })} className="w-24 rounded-lg bg-slate-900 px-2 py-1.5 text-right outline-none focus:ring-1 focus:ring-primary" />
+                              <input
+                                type="number"
+                                min="1"
+                                step="1"
+                                value={item.quantity}
+                                onChange={(event) => updateItemQuantity(item.id, event.target.value)}
+                                className={cn(editableCellClass, 'w-20')}
+                              />
                             </td>
                             <td className="px-3 py-2">
-                              <input value={String(item.discountPercent)} onChange={(event) => updateItem(item.id, { discountPercent: parseNumber(event.target.value) })} className="w-24 rounded-lg bg-slate-900 px-2 py-1.5 text-right outline-none focus:ring-1 focus:ring-primary" />
+                              <input value={String(item.unitPrice)} onChange={(event) => updateItem(item.id, { unitPrice: parseNumber(event.target.value) })} className={editableCellClass} />
                             </td>
-                            <td className="px-3 py-2 text-right font-bold text-emerald-300">{compactCurrency(item.netUnitPrice)}</td>
                             <td className="px-3 py-2 text-right font-black text-primary">{compactCurrency(item.total)}</td>
                             <td className="px-3 py-2">
                               <input type="date" value={item.date} onChange={(event) => updateItem(item.id, { date: event.target.value })} className="w-36 rounded-lg bg-slate-900 px-2 py-1.5 outline-none focus:ring-1 focus:ring-primary" />
@@ -507,7 +918,7 @@ export const CashRegisterView = ({
               </div>
             )}
 
-            <div className="grid gap-3 border-t border-slate-700/50 pt-4 lg:grid-cols-[auto_1fr_auto] lg:items-end">
+            <div className="grid gap-3 border-t border-slate-700/50 pt-4 lg:grid-cols-[auto_minmax(240px,320px)_1fr_auto] lg:items-end">
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <SummaryBox label="Mercadorias R$" value={compactCurrency(totals.merchandiseGross)} />
                 <SummaryBox label="Servicos R$" value={compactCurrency(totals.servicesTotal)} />
@@ -515,15 +926,42 @@ export const CashRegisterView = ({
                 <SummaryBox label="Total R$" value={compactCurrency(totals.total)} accent />
               </div>
 
+              <div className="rounded-xl border border-slate-700/50 bg-slate-950/40 p-3">
+                <p className={labelClass}>Desconto do lancamento</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <label className="space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Valor R$</span>
+                    <input
+                      value={orderDiscountValueInput}
+                      onChange={(event) => setOrderDiscountValueInput(event.target.value)}
+                      placeholder="0,00"
+                      className={fieldClass}
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Percentual</span>
+                    <input
+                      value={orderDiscountPercentInput}
+                      onChange={(event) => setOrderDiscountPercentInput(event.target.value)}
+                      placeholder="0%"
+                      className={fieldClass}
+                    />
+                  </label>
+                </div>
+                <p className="mt-2 text-[10px] text-slate-500">
+                  Aplicado no total dos itens: {compactCurrency(totals.orderDiscountTotal)}.
+                </p>
+              </div>
+
               <div className="hidden lg:block" />
 
               <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-                <ActionButton disabled label="Email Tecnico" />
-                <ActionButton disabled label="Imprimir Fatura" />
-                <ActionButton label="Faturar" onClick={() => void handleSave('Finalizado', true)} disabled={isSavingLaunch} />
-                <ActionButton disabled label="Imprimir" />
+                {status === 'Finalizado' && (
+                  <ActionButton label="Faturar" onClick={() => void handleSave('Finalizado', true)} disabled={isSavingLaunch} />
+                )}
+                <ActionButton label="Imprimir" icon={<Printer className="h-4 w-4" />} onClick={handlePrintOrder} />
                 <ActionButton label="Incluir" icon={<Plus className="h-4 w-4" />} onClick={() => setIsProductPickerOpen(true)} />
-                <ActionButton label={isSavingLaunch ? 'Salvando...' : 'Salvar'} icon={<Save className="h-4 w-4" />} onClick={() => void handleSave()} disabled={isSavingLaunch} primary />
+                <ActionButton label={isSavingLaunch ? 'Salvando...' : editingLaunchId ? 'Atualizar' : 'Salvar'} icon={<Save className="h-4 w-4" />} onClick={() => void handleSave()} disabled={isSavingLaunch} primary />
                 <ActionButton label="Fechar" icon={<X className="h-4 w-4" />} onClick={onBack} />
               </div>
             </div>
@@ -536,6 +974,7 @@ export const CashRegisterView = ({
               <div>
                 <p className={labelClass}>Historico</p>
                 <h3 className="text-xl font-black text-white">{filteredLaunches.length} lancamento(s)</h3>
+                <p className="text-[10px] text-slate-500">Clique em uma linha para editar, dar baixa ou finalizar.</p>
               </div>
               <div className="relative w-full lg:w-96">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
@@ -544,37 +983,59 @@ export const CashRegisterView = ({
             </div>
 
             <div className="overflow-x-auto rounded-2xl border border-slate-700/50">
-              <table className="min-w-[920px] w-full text-left text-xs">
+              <table className="min-w-[980px] w-full table-fixed text-left text-xs">
                 <thead className="bg-primary/90 text-white">
                   <tr>
-                    <th className="px-3 py-2">O.S.</th>
-                    <th className="px-3 py-2">Cliente</th>
-                    <th className="px-3 py-2">Abertura</th>
-                    <th className="px-3 py-2">Prevista</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2">Placa/Moto</th>
-                    <th className="px-3 py-2 text-right">Total R$</th>
-                    <th className="px-3 py-2 text-center">Faturado</th>
+                    <th className="w-44 px-3 py-2">O.S.</th>
+                    <th className="w-48 px-3 py-2">Cliente</th>
+                    <th className="w-28 px-3 py-2">Abertura</th>
+                    <th className="w-28 px-3 py-2">Prevista</th>
+                    <th className="w-36 px-3 py-2">Status</th>
+                    <th className="w-32 px-3 py-2">Placa/Moto</th>
+                    <th className="w-32 px-3 py-2 text-right">Total R$</th>
+                    <th className="w-24 px-3 py-2 text-center">Faturado</th>
+                    <th className="w-44 px-3 py-2 text-right">Acao</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800 bg-slate-950/40">
                   {filteredLaunches.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-3 py-10 text-center text-slate-500">Nenhum lancamento salvo ainda.</td>
+                      <td colSpan={9} className="px-3 py-10 text-center text-slate-500">Nenhum lancamento salvo ainda.</td>
                     </tr>
                   ) : (
                     filteredLaunches.map((launch) => (
-                      <tr key={launch.id} className="hover:bg-slate-900/70">
-                        <td className="px-3 py-2 font-black text-primary">{launch.orderNumber}</td>
-                        <td className="px-3 py-2 font-bold text-white">{launch.clientName}</td>
+                      <tr
+                        key={launch.id}
+                        onClick={() => loadLaunchForEdit(launch)}
+                        className="cursor-pointer hover:bg-slate-900/70"
+                        title="Clique para editar este lancamento"
+                      >
+                        <td className="truncate px-3 py-2 font-black text-primary">{launch.orderNumber}</td>
+                        <td className="truncate px-3 py-2 font-bold text-white">{launch.clientName}</td>
                         <td className="px-3 py-2 text-slate-300">{safeFormat(launch.openingDate)}</td>
                         <td className="px-3 py-2 text-slate-300">{safeFormat(launch.expectedDate)}</td>
                         <td className="px-3 py-2">
                           <span className="rounded-full bg-slate-800 px-2 py-1 text-[10px] font-bold text-slate-200">{launch.status}</span>
                         </td>
-                        <td className="px-3 py-2 text-slate-400">{launch.bikeModel || '-'}</td>
+                        <td className="truncate px-3 py-2 text-slate-400">{launch.bikeModel || '-'}</td>
                         <td className="px-3 py-2 text-right font-black text-white">{compactCurrency(launch.total)}</td>
-                        <td className="px-3 py-2 text-center">{launch.invoiced ? <Check className="mx-auto h-4 w-4 text-emerald-400" /> : '-'}</td>
+                        <td className="px-3 py-2 text-center">{launch.status === 'Finalizado' && launch.invoiced ? <Check className="mx-auto h-4 w-4 text-emerald-400" /> : '-'}</td>
+                        <td className="px-3 py-2 text-right">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              disabled={deletingLaunchId === launch.id}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onDeleteLaunchClick(launch);
+                              }}
+                              className="rounded-xl bg-red-500/10 px-3 py-1.5 text-[10px] font-black uppercase text-red-300 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {deletingLaunchId === launch.id ? 'Excluindo' : deleteConfirmId === launch.id ? 'Confirmar' : 'Excluir'}
+                            </button>
+                            <span className="rounded-xl bg-primary/10 px-3 py-1.5 text-[10px] font-black uppercase text-primary">Editar</span>
+                          </div>
+                        </td>
                       </tr>
                     ))
                   )}
@@ -585,33 +1046,149 @@ export const CashRegisterView = ({
         )}
 
         {mainTab === 'monitoring' && (
-          <div className="grid gap-4 p-4 lg:grid-cols-[0.8fr_1.2fr]">
-            <div className="rounded-2xl border border-slate-700/50 bg-slate-950/40 p-4">
-              <p className={labelClass}>Resumo</p>
-              <h3 className="mt-1 text-2xl font-black text-white">{pendingLaunches.length}</h3>
-              <p className="text-xs text-slate-500">Lancamento(s) ainda em andamento ou pendentes.</p>
+          <div className="space-y-4 p-4">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className={labelClass}>Monitoramento</p>
+                <h3 className="text-xl font-black text-white">{monitoredLaunches.length} ordem(ns)</h3>
+                <p className="text-xs text-slate-500">Filtre por status e clique em uma ordem para editar.</p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { id: 'all' as MonitoringStatusFilter, label: 'Todas' },
+                  { id: 'Em Lancamento' as MonitoringStatusFilter, label: 'Em lancamento' },
+                  { id: 'Pendente' as MonitoringStatusFilter, label: 'Pendente' },
+                  { id: 'Finalizado' as MonitoringStatusFilter, label: 'Finalizada' },
+                ].map((filter) => (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    onClick={() => setMonitoringStatusFilter(filter.id)}
+                    className={cn(
+                      'rounded-xl px-3 py-2 text-[10px] font-black uppercase transition',
+                      monitoringStatusFilter === filter.id
+                        ? 'bg-primary text-white shadow-lg shadow-primary/20'
+                        : 'bg-slate-950/60 text-slate-400 hover:bg-slate-900 hover:text-white'
+                    )}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="space-y-2">
-              {pendingLaunches.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-700/50 p-6 text-center text-xs text-slate-500">Nada pendente no momento.</div>
-              ) : (
-                pendingLaunches.map((launch) => (
-                  <div key={launch.id} className="flex flex-col gap-2 rounded-2xl border border-slate-700/50 bg-slate-950/40 p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="text-sm font-black text-white">{launch.clientName}</p>
-                      <p className="text-[10px] text-slate-500">{launch.orderNumber} | {safeFormat(launch.createdAt, 'dd/MM/yyyy HH:mm')}</p>
-                    </div>
-                    <div className="text-left sm:text-right">
-                      <p className="text-sm font-black text-primary">{compactCurrency(launch.total)}</p>
-                      <p className="text-[10px] font-bold uppercase text-slate-500">{launch.status}</p>
-                    </div>
-                  </div>
-                ))
-              )}
+
+            <div className="grid gap-4 2xl:grid-cols-[0.45fr_1fr]">
+              <div className="rounded-2xl border border-slate-700/50 bg-slate-950/40 p-4">
+                <p className={labelClass}>Resumo</p>
+                <h3 className="mt-1 text-2xl font-black text-white">{monitoredLaunches.length}</h3>
+                <p className="text-xs text-slate-500">
+                  {monitoringStatusFilter === 'all'
+                    ? 'Lancamentos em todos os status.'
+                    : `Lancamentos com status ${monitoringStatusFilter}.`}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                {monitoredLaunches.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-slate-700/50 p-6 text-center text-xs text-slate-500">Nenhuma ordem neste filtro.</div>
+                ) : (
+                  monitoredLaunches.map((launch) => (
+                    <button
+                      key={launch.id}
+                      type="button"
+                      onClick={() => loadLaunchForEdit(launch)}
+                      className="flex w-full flex-col gap-2 rounded-2xl border border-slate-700/50 bg-slate-950/40 p-4 text-left transition hover:border-primary/40 hover:bg-slate-900/70 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div>
+                        <p className="text-sm font-black text-white">{launch.clientName}</p>
+                        <p className="text-[10px] text-slate-500">{launch.orderNumber} | {safeFormat(launch.createdAt, 'dd/MM/yyyy HH:mm')}</p>
+                      </div>
+                      <div className="text-left sm:text-right">
+                        <p className="text-sm font-black text-primary">{compactCurrency(launch.total)}</p>
+                        <p className="text-[10px] font-bold uppercase text-slate-500">{launch.status}</p>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         )}
       </section>
+
+      {isQuickClientOpen && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-950 p-4 shadow-2xl shadow-black">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <p className={labelClass}>Cadastro rapido</p>
+                <h3 className="text-xl font-black text-white">Novo cliente</h3>
+                <p className="mt-1 text-xs text-slate-500">Use para lancar sem sair do caixa.</p>
+              </div>
+              <button
+                type="button"
+                onClick={resetQuickClientForm}
+                className="grid h-10 w-10 place-items-center rounded-xl bg-slate-900 text-slate-400 hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              <label className="space-y-1">
+                <span className={labelClass}>Nome do cliente</span>
+                <input
+                  autoFocus
+                  value={quickClientForm.name}
+                  onChange={(event) => updateQuickClientForm({ name: event.target.value })}
+                  className={fieldClass}
+                  placeholder="Ex: Joao Silva"
+                />
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="space-y-1">
+                  <span className={labelClass}>WhatsApp</span>
+                  <input
+                    value={quickClientForm.contact || ''}
+                    onChange={(event) => updateQuickClientForm({ contact: event.target.value })}
+                    className={fieldClass}
+                    placeholder="(69) 99999-9999"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className={labelClass}>Moto / Placa</span>
+                  <input
+                    value={quickClientForm.bikeModel || ''}
+                    onChange={(event) => updateQuickClientForm({ bikeModel: event.target.value })}
+                    className={fieldClass}
+                    placeholder="Honda CG 160"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={resetQuickClientForm}
+                className="rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-bold text-slate-200 transition hover:bg-slate-700"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleQuickClientSave()}
+                disabled={!quickClientForm.name.trim() || isSavingQuickClient}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-primary/20 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" />
+                {isSavingQuickClient ? 'Salvando...' : 'Cadastrar e usar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isProductPickerOpen && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm">
@@ -645,12 +1222,13 @@ export const CashRegisterView = ({
             </div>
 
             <div className="flex-1 overflow-auto p-4">
-              <div className="min-w-[820px] overflow-hidden rounded-2xl border border-slate-800">
+              <div className="min-w-[940px] overflow-hidden rounded-2xl border border-slate-800">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-primary/90 text-white">
                     <tr>
                       <th className="px-3 py-2">Codigo</th>
                       <th className="px-3 py-2">Descricao</th>
+                      <th className="px-3 py-2">Variacao</th>
                       <th className="px-3 py-2">NCM</th>
                       <th className="px-3 py-2 text-right">Venda R$</th>
                       <th className="px-3 py-2 text-right">Acao</th>
@@ -659,23 +1237,24 @@ export const CashRegisterView = ({
                   <tbody className="divide-y divide-slate-800 bg-slate-950/40">
                     {products.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-3 py-10 text-center text-slate-500">
-                          Importe a planilha XLSX para carregar Descricao, NCM e Venda R$.
+                        <td colSpan={6} className="px-3 py-10 text-center text-slate-500">
+                          Importe a planilha XLSX para carregar Descricao, Variacao, NCM e Venda R$.
                         </td>
                       </tr>
-                    ) : filteredProducts.length === 0 ? (
+                    ) : productPickerRows.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-3 py-10 text-center text-slate-500">Nenhuma mercadoria encontrada para esta busca.</td>
+                        <td colSpan={6} className="px-3 py-10 text-center text-slate-500">Nenhuma mercadoria encontrada para esta busca.</td>
                       </tr>
                     ) : (
-                      filteredProducts.map((product) => (
-                        <tr key={product.id} className="hover:bg-slate-900/70">
+                      productPickerRows.map(({ id, product, variation }) => (
+                        <tr key={id} className="hover:bg-slate-900/70">
                           <td className="px-3 py-2 font-bold text-slate-300">{product.sourceCode}</td>
                           <td className="px-3 py-2 font-bold text-white">{product.description}</td>
+                          <td className="px-3 py-2 text-slate-400">{variation?.name || product.variation || '-'}</td>
                           <td className="px-3 py-2 text-slate-400">{product.ncm || '-'}</td>
-                          <td className="px-3 py-2 text-right font-black text-primary">{compactCurrency(product.salePrice)}</td>
+                          <td className="px-3 py-2 text-right font-black text-primary">{compactCurrency(Number(variation?.salePrice ?? product.salePrice ?? 0))}</td>
                           <td className="px-3 py-2 text-right">
-                            <button type="button" onClick={() => addProduct(product)} className="rounded-xl bg-primary px-3 py-2 text-[10px] font-black uppercase text-white hover:bg-primary/90">
+                            <button type="button" onClick={() => addProduct(product, variation)} className="rounded-xl bg-primary px-3 py-2 text-[10px] font-black uppercase text-white hover:bg-primary/90">
                               Selecionar
                             </button>
                           </td>

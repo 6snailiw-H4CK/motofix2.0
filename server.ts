@@ -5,6 +5,16 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Stripe from "stripe";
 import admin from "firebase-admin";
+import { registerFiscalRoutes } from "./server/fiscal/fiscalRoutes";
+import {
+  apiNotFound,
+  bodyParser,
+  cors,
+  errorHandler,
+  rateLimit,
+  requestId,
+  securityHeaders,
+} from "./server/httpSecurity";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,20 +49,26 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT || 3000);
 
-  // Middleware para JSON (exceto webhook que precisa raw body)
-  app.use((req, res, next) => {
-    if (req.path === "/api/payments/webhook") {
-      express.raw({ type: "application/json" })(req, res, next);
-    } else {
-      express.json()(req, res, next);
-    }
-  });
-  
-  app.use(express.urlencoded({ extended: true }));
+  app.set("trust proxy", 1);
+  app.disable("x-powered-by");
+
+  app.use(requestId);
+  app.use(securityHeaders);
+  app.use(cors);
+  app.use("/api", rateLimit({ windowMs: 60_000, maxRequests: 180 }));
+  app.use(bodyParser);
+  app.use(express.urlencoded({ extended: false, limit: "64kb", parameterLimit: 100 }));
 
   // Health check
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
+  });
+
+  registerFiscalRoutes({
+    app,
+    admin,
+    db,
+    firebaseInitialized,
   });
 
   /**
@@ -242,6 +258,9 @@ async function startServer() {
       res.status(500).json({ error: "Webhook processing failed" });
     }
   });
+
+  app.use("/api", apiNotFound);
+  app.use(errorHandler);
 
   // Configuração do Vite para desenvolvimento ou produção
   if (process.env.NODE_ENV !== "production") {

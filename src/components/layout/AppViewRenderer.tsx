@@ -1,4 +1,4 @@
-import { lazy, Suspense, type Dispatch, type SetStateAction } from 'react';
+import { lazy, Suspense, useState, type Dispatch, type SetStateAction } from 'react';
 import type {
   AppView,
   Appointment,
@@ -6,6 +6,9 @@ import type {
   Client,
   ColorMode,
   ExpenseRecord,
+  FiscalCompany,
+  FiscalInvoice,
+  FiscalLog,
   MaintenanceRecord,
   MessageLog,
   ProductCatalogItem,
@@ -20,9 +23,11 @@ import type { useClientActions } from '../../hooks/useClientActions';
 import type { useClientFormState } from '../../hooks/useClientFormState';
 import type { useDeleteConfirmation } from '../../hooks/useDeleteConfirmation';
 import type { useExpenseActions } from '../../hooks/useExpenseActions';
+import type { useFiscalActions } from '../../hooks/useFiscalActions';
 import type { useMaintenanceActions } from '../../hooks/useMaintenanceActions';
 import type { ServiceListFilter, useMaintenanceStats } from '../../hooks/useMaintenanceStats';
 import type { useMessageLogActions } from '../../hooks/useMessageLogActions';
+import type { useProductActions } from '../../hooks/useProductActions';
 import type { useServiceTypeActions } from '../../hooks/useServiceTypeActions';
 import type { useSettingsActions } from '../../hooks/useSettingsActions';
 import type { useWarrantyActions } from '../../hooks/useWarrantyActions';
@@ -40,9 +45,13 @@ const DashboardRevenueView = lazy(() => import('../dashboard/DashboardDetailView
 const DashboardServicesView = lazy(() => import('../dashboard/DashboardDetailViews').then((module) => ({ default: module.DashboardServicesView })));
 const DashboardView = lazy(() => import('../dashboard/DashboardView').then((module) => ({ default: module.DashboardView })));
 const ExpensesView = lazy(() => import('../expenses/ExpensesView').then((module) => ({ default: module.ExpensesView })));
+const FiscalView = lazy(() => import('../fiscal/FiscalView').then((module) => ({ default: module.FiscalView })));
 const GeneralReportView = lazy(() => import('../reports/GeneralReportView').then((module) => ({ default: module.GeneralReportView })));
 const HistoryView = lazy(() => import('../history/HistoryView').then((module) => ({ default: module.HistoryView })));
+const PendenciesView = lazy(() => import('../pendencies/PendenciesView').then((module) => ({ default: module.PendenciesView })));
+const ProductsView = lazy(() => import('../products/ProductsView').then((module) => ({ default: module.ProductsView })));
 const ReportView = lazy(() => import('../dashboard/ReportView').then((module) => ({ default: module.ReportView })));
+const ReturnsView = lazy(() => import('../returns/ReturnsView').then((module) => ({ default: module.ReturnsView })));
 const SettingsView = lazy(() => import('../settings/SettingsView').then((module) => ({ default: module.SettingsView })));
 const WarrantiesView = lazy(() => import('../warranties/WarrantiesView').then((module) => ({ default: module.WarrantiesView })));
 const WarrantyForm = lazy(() => import('../Forms/WarrantyForm').then((module) => ({ default: module.WarrantyForm })));
@@ -67,9 +76,11 @@ type ClientActions = ReturnType<typeof useClientActions>;
 type ClientFormState = ReturnType<typeof useClientFormState>;
 type DeleteConfirmation = ReturnType<typeof useDeleteConfirmation>;
 type ExpenseActions = ReturnType<typeof useExpenseActions>;
+type FiscalActions = ReturnType<typeof useFiscalActions>;
 type MaintenanceActions = ReturnType<typeof useMaintenanceActions>;
 type MaintenanceStats = ReturnType<typeof useMaintenanceStats>;
 type MessageLogActions = ReturnType<typeof useMessageLogActions>;
+type ProductActions = ReturnType<typeof useProductActions>;
 type ServiceTypeActions = ReturnType<typeof useServiceTypeActions>;
 type SettingsActions = ReturnType<typeof useSettingsActions>;
 type WarrantyActions = ReturnType<typeof useWarrantyActions>;
@@ -82,8 +93,10 @@ type AppViewRendererActions = {
   client: ClientActions;
   clientForm: ClientFormState;
   expense: ExpenseActions;
+  fiscal: FiscalActions;
   maintenance: MaintenanceActions;
   messageLog: MessageLogActions;
+  product: ProductActions;
   sendWhatsApp: SendWhatsApp;
   serviceType: ServiceTypeActions;
   settings: SettingsActions;
@@ -98,6 +111,9 @@ type AppViewRendererData = {
   clients: Client[];
   dailyPendingAlerts: Client[];
   expenseEntries: ExpenseRecord[];
+  fiscalCompanies: FiscalCompany[];
+  fiscalInvoices: FiscalInvoice[];
+  fiscalLogs: FiscalLog[];
   historyServiceTypeOptions: string[];
   maintenanceStats: MaintenanceStats;
   maintenances: MaintenanceRecord[];
@@ -152,8 +168,10 @@ export const AppViewRenderer = ({
     client: clientActions,
     clientForm,
     expense: expenseActions,
+    fiscal: fiscalActions,
     maintenance: maintenanceActions,
     messageLog: messageLogActions,
+    product: productActions,
     sendWhatsApp,
     serviceType: serviceTypeActions,
     settings: settingsActions,
@@ -167,6 +185,9 @@ export const AppViewRenderer = ({
     clients,
     dailyPendingAlerts,
     expenseEntries,
+    fiscalCompanies,
+    fiscalInvoices,
+    fiscalLogs,
     historyServiceTypeOptions,
     maintenanceStats,
     maintenances,
@@ -212,15 +233,23 @@ export const AppViewRenderer = ({
     topServicesData,
   } = maintenanceStats;
   const { confirmOrRequestDelete, getDeleteConfirmId } = deleteConfirmation;
+  const pendingPaymentClients = clientsSortedByBalance.filter((client) => (clientBalanceMap.get(client.id) || 0) > 0);
+  const pendingCashLaunches = cashLaunches.filter((launch) => (
+    (Number(launch.total) || 0) > 0
+    && (launch.status === 'Pendente' || (launch.status === 'Finalizado' && !launch.invoiced))
+  ));
+  const pendingPaymentCount = pendingPaymentClients.length + pendingCashLaunches.length;
+  const [cashLaunchToOpenId, setCashLaunchToOpenId] = useState<string | null>(null);
 
   return (
     <Suspense fallback={<ViewLoadingFallback />}>
       {view === 'dashboard' && (
         <DashboardView
           cashFlowStats={cashFlowStats}
-          dashboardStats={dashboardStats}
-          activeWarrantiesCount={activeWarrantiesCount}
           dailyPendingAlerts={dailyPendingAlerts}
+          pendingPaymentCount={pendingPaymentCount}
+          warranties={warranties}
+          appointments={appointments}
           nextAppointment={nextAppointment}
           overdueClients={overdueClients}
           chartData={chartData}
@@ -231,9 +260,55 @@ export const AppViewRenderer = ({
             clientForm.startNewClient();
             setView('new-client');
           }}
+          onNewClient={() => {
+            clientForm.startScheduleClient();
+            setView('clients-schedule-add');
+          }}
+          onNewExpense={() => setView('expenses')}
+          onNewReturn={() => {
+            clientForm.startNewClient();
+            setView('new-client');
+          }}
           onSendWhatsApp={sendWhatsApp}
           onToggleTopService={(service) => setExpandedTopService(expandedTopService === service ? null : service)}
           getTopServiceSubRows={getTopServiceSubRows}
+        />
+      )}
+
+      {view === 'returns' && (
+        <ReturnsView
+          clients={clientsSortedByBalance}
+          dailyPendingAlerts={dailyPendingAlerts}
+          processingId={maintenanceActions.processingId}
+          onBack={() => setView('dashboard')}
+          onEditClient={(client) => {
+            clientForm.startEditClient(client);
+            setView('new-client');
+          }}
+          onNewClient={() => {
+            clientForm.startScheduleClient();
+            setView('clients-schedule-add');
+          }}
+          onNewReturn={() => {
+            clientForm.startNewClient();
+            setView('new-client');
+          }}
+          onRegisterReturn={maintenanceActions.addMaintenance}
+          onSendWhatsApp={sendWhatsApp}
+        />
+      )}
+
+      {view === 'pendencies' && (
+        <PendenciesView
+          cashLaunches={cashLaunches}
+          maintenances={dashboardMaintenances}
+          processingId={maintenanceActions.processingId}
+          onBack={() => setView('dashboard')}
+          onOpenCashLaunch={(launch) => {
+            setCashLaunchToOpenId(launch.id);
+            setView('cash-register');
+          }}
+          onRegisterPayment={(record) => maintenanceActions.settleDebt(record.id, record)}
         />
       )}
 
@@ -270,6 +345,11 @@ export const AppViewRenderer = ({
           serviceListFilter={serviceListFilter}
           processingId={maintenanceActions.processingId}
           deleteConfirmId={getDeleteConfirmId('maintenance')}
+          onNewClient={() => {
+            clientForm.startScheduleClient();
+            setView('clients-schedule-add');
+          }}
+          onNewProduct={() => setView('products')}
           onNewRecord={() => {
             clientForm.startNewClient();
             setView('new-client');
@@ -295,11 +375,64 @@ export const AppViewRenderer = ({
           cashLaunches={cashLaunches}
           clients={clients}
           products={productCatalog}
+          fiscalAutoIssueEnabled={fiscalCompanies.some((company) => company.autoIssueFromCashLaunch && company.nfseEnabled)}
           isImportingProducts={cashRegisterActions.isImportingProducts}
           isSavingLaunch={cashRegisterActions.isSavingLaunch}
+          deleteConfirmId={getDeleteConfirmId('cashLaunch')}
+          deletingLaunchId={cashRegisterActions.deletingLaunchId}
+          initialLaunchId={cashLaunchToOpenId}
           onBack={() => setView('clients')}
+          onOpenRecurringServices={() => setView('clients')}
           onImportProducts={cashRegisterActions.importProductsWorkbook}
+          onInitialLaunchLoaded={() => setCashLaunchToOpenId(null)}
+          onQuickSaveClient={clientActions.quickCreateClient}
           onSaveLaunch={cashRegisterActions.saveLaunch}
+          onAutoIssueFiscalFromCashLaunch={(cashLaunchId) => {
+            const cashLaunch = cashLaunches.find((launch) => launch.id === cashLaunchId);
+            if (cashLaunch) {
+              void fiscalActions.issueFromCashLaunch(cashLaunch);
+            }
+          }}
+          onDeleteLaunchClick={(launch) => {
+            confirmOrRequestDelete('cashLaunch', launch.id, () => {
+              void cashRegisterActions.deleteLaunch(launch.id);
+            });
+          }}
+        />
+      )}
+
+      {view === 'products' && (
+        <ProductsView
+          products={productCatalog}
+          isImportingProducts={productActions.isImportingProducts}
+          isSavingProduct={productActions.isSavingProduct}
+          deletingProductId={productActions.deletingProductId}
+          deleteConfirmId={getDeleteConfirmId('product')}
+          onImportProducts={productActions.importProductsWorkbook}
+          onSaveProduct={productActions.saveProduct}
+          onDeleteProductClick={(product) => {
+            confirmOrRequestDelete('product', product.id, () => {
+              void productActions.deleteProduct(product.id);
+            });
+          }}
+        />
+      )}
+
+      {view === 'fiscal' && (
+        <FiscalView
+          cashLaunches={cashLaunches}
+          fiscalCompanies={fiscalCompanies}
+          fiscalInvoices={fiscalInvoices}
+          fiscalLogs={fiscalLogs}
+          isIssuingInvoice={fiscalActions.isIssuingInvoice}
+          isSavingCompany={fiscalActions.isSavingCompany}
+          processingInvoiceId={fiscalActions.processingInvoiceId}
+          onCancelInvoice={(invoice) => fiscalActions.cancelInvoice(invoice)}
+          onDownloadDocument={fiscalActions.downloadDocument}
+          onIssueFromCashLaunch={fiscalActions.issueFromCashLaunch}
+          onIssueManualNfse={fiscalActions.issueManualNfse}
+          onSaveCompany={fiscalActions.saveCompany}
+          onSyncInvoice={fiscalActions.syncInvoice}
         />
       )}
 
@@ -410,13 +543,17 @@ export const AppViewRenderer = ({
 
       {view === 'general-report' && (
         <GeneralReportView
+          activeWarrantiesCount={activeWarrantiesCount}
+          cashFlowStats={cashFlowStats}
           clients={clients}
+          dashboardStats={dashboardStats}
           maintenances={dashboardMaintenances}
           expenses={expenseEntries}
           warranties={warranties}
           appointments={appointments}
           settings={settings}
           onBack={() => setView('history')}
+          onViewChange={setView}
         />
       )}
 

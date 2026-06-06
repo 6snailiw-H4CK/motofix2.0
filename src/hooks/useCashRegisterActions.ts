@@ -17,6 +17,7 @@ export type CashRegisterDraft = Omit<CashRegisterLaunch, 'id' | 'orderNumber' | 
 export const useCashRegisterActions = ({ user }: UseCashRegisterActionsParams) => {
   const [isImportingProducts, setIsImportingProducts] = useState(false);
   const [isSavingLaunch, setIsSavingLaunch] = useState(false);
+  const [deletingLaunchId, setDeletingLaunchId] = useState<string | null>(null);
 
   const importProductsWorkbook = useCallback(async (file: File) => {
     if (!user) return 0;
@@ -41,7 +42,7 @@ export const useCashRegisterActions = ({ user }: UseCashRegisterActionsParams) =
     }
   }, [user]);
 
-  const saveLaunch = useCallback(async (draft: CashRegisterDraft) => {
+  const saveLaunch = useCallback(async (draft: CashRegisterDraft, launchId?: string) => {
     if (!user) return false;
     if (draft.items.length === 0) {
       sonnerToast.error('Inclua ao menos uma mercadoria antes de salvar.');
@@ -51,17 +52,25 @@ export const useCashRegisterActions = ({ user }: UseCashRegisterActionsParams) =
     setIsSavingLaunch(true);
     try {
       const now = new Date().toISOString();
-      const orderNumber = `LC-${format(new Date(), 'yyyyMMdd-HHmmss')}`;
 
-      await cashRegisterRepository.create(user.uid, {
-        ...draft,
-        orderNumber,
-        userId: user.uid,
-        createdAt: now,
-        updatedAt: now,
-      });
+      if (launchId) {
+        await cashRegisterRepository.update(user.uid, launchId, {
+          ...draft,
+          updatedAt: now,
+        });
+      } else {
+        const orderNumber = `LC-${format(new Date(), 'yyyyMMdd-HHmmss')}`;
 
-      sonnerToast.success('Lancamento Caixa salvo com sucesso.');
+        await cashRegisterRepository.create(user.uid, {
+          ...draft,
+          orderNumber,
+          userId: user.uid,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      sonnerToast.success(launchId ? 'Lancamento Caixa atualizado com sucesso.' : 'Lancamento Caixa salvo com sucesso.');
       return true;
     } catch (error) {
       sonnerToast.error('Nao foi possivel salvar o Lancamento Caixa.');
@@ -72,7 +81,26 @@ export const useCashRegisterActions = ({ user }: UseCashRegisterActionsParams) =
     }
   }, [user]);
 
+  const deleteLaunch = useCallback(async (launchId: string) => {
+    if (!user) return false;
+
+    setDeletingLaunchId(launchId);
+    try {
+      await cashRegisterRepository.delete(user.uid, launchId);
+      sonnerToast.success('O.S. excluida com sucesso.');
+      return true;
+    } catch (error) {
+      sonnerToast.error('Nao foi possivel excluir a O.S.');
+      handleFirestoreError(error, OperationType.DELETE, 'cash_launches');
+      return false;
+    } finally {
+      setDeletingLaunchId(null);
+    }
+  }, [user]);
+
   return {
+    deleteLaunch,
+    deletingLaunchId,
     importProductsWorkbook,
     isImportingProducts,
     isSavingLaunch,

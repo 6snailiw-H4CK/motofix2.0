@@ -4,7 +4,13 @@ Este arquivo serve como memoria tecnica viva do aplicativo MotoFix durante a est
 
 ## 1. Objetivo do app
 
-O MotoFix e uma aplicacao web para gestao de oficinas, com foco em:
+O MotoFix e uma aplicacao web para oficinas, reposicionada como CRM de recorrencia e controle rapido operacional. O foco principal agora e:
+
+- Fazer clientes voltarem por retornos e recorrencia.
+- Lembrar cobrancas e clientes pendentes.
+- Controlar gastos rapidos com poucos toques.
+
+O app ainda preserva as funcionalidades de gestao/ERP como apoio:
 
 - Cadastro de clientes e motos.
 - Registro de servicos e manutencoes recorrentes.
@@ -77,6 +83,8 @@ Componentes ja extraidos:
 - `src/components/dashboard/DashboardDetailViews.tsx`
 - `src/components/dashboard/ReportView.tsx`
 - `src/components/reports/GeneralReportView.tsx`
+- `src/components/returns/ReturnsView.tsx`
+- `src/components/pendencies/PendenciesView.tsx`
 
 ## 4. Fluxo geral do app
 
@@ -86,10 +94,22 @@ Componentes ja extraidos:
 4. Se nao houver usuario, mostra `AuthScreen`.
 5. Se o usuario existir mas estiver inativo, mostra `BlockedAccessScreen`.
 6. Se estiver ativo, `useUserCollections` alimenta os dados principais.
-7. `AppHeader` controla tema, notificacoes, ajustes e logout.
-8. `BottomNav` troca as views principais.
+7. `AppHeader`/`TopBar` controlam tema, notificacoes, ajustes e logout conforme mobile/desktop.
+8. `BottomNav` prioriza a experiencia mobile com `Inicio`, `Oleo`, `Pendencias` e `Mais`.
 9. `App` renderiza a view selecionada.
 10. `ProfileSetupModal` aparece quando o perfil da empresa ainda nao foi concluido.
+
+Na experiencia atual, o menu principal destaca:
+
+- Inicio.
+- Trocas de Oleo.
+- Lancamentos Caixa.
+- Pendencias.
+- Relatorios.
+- Clientes.
+- Configuracoes.
+
+Modulos de apoio e recursos mais avancados ficam em `Mais ferramentas`, incluindo Retornos, Gastos, Fiscal, Mercadorias, Agenda, Garantias, Historico e Admin quando aplicavel.
 
 ## 5. Colecoes Firestore usadas
 
@@ -101,6 +121,8 @@ Estrutura principal por usuario:
 - `users/{uid}/warranties`
 - `users/{uid}/appointments`
 - `users/{uid}/expenses`
+- `users/{uid}/products`
+- `users/{uid}/cash_launches`
 - `users/{uid}/message_logs`
 - `users/{uid}/settings/config`
 
@@ -116,9 +138,22 @@ Observacao importante:
 - Menu inferior restaurado e depois extraido para `BottomNav`.
 - `.gitignore` reconstruido para proteger `.env`, `.env.*`, `firebase-service-account.json` e arquivos de credenciais.
 - Regras Firestore endurecidas para dono/admin em vez de acesso aberto.
+- Regras Firestore agora validam schema dos documentos principais antes de permitir writes do cliente: clientes, manutencoes, garantias, agenda, gastos, mercadorias, lancamentos caixa, settings e logs de mensagem.
+- Campos fiscais sensiveis em `cash_launches` continuam bloqueados para escrita direta pelo frontend; o preenchimento fiscal deve passar pelo backend/Admin SDK.
 - Calculo de despesas do dashboard ajustado para usar `expenseEntries`.
 - README atualizado para refletir melhor o estado real.
 - Verificado que `firebase-service-account.json` nao deve ser versionado nem distribuido.
+
+### Reposicionamento CRM de recorrencia
+
+- Dashboard inicial reorganizado para comecar por acoes: clientes para contatar hoje, clientes pendentes e garantias proximas do vencimento.
+- Botoes rapidos adicionados no topo do dashboard: `Novo retorno`, `Novo cliente` e `Novo gasto`.
+- Modulo `Retornos` criado como fluxo principal de recorrencia, mostrando cliente, moto, servico, data do servico, retorno previsto, observacao e status.
+- Status de retorno padronizado na tela em `Em dia`, `Proximo do vencimento` e `Atrasado`, reaproveitando a regra atual `OK`/`WARNING`/`OVERDUE`.
+- Modulo `Pendencias` criado para listar clientes com saldo devedor, valor devido, data, status e acao rapida de registrar pagamento.
+- Tela de `Gastos` simplificada para o uso operacional rapido com campos essenciais: fornecedor, valor, descricao e data.
+- Menu mobile reorganizado para priorizar `Inicio`, `Recorrentes`, `Pendencias` e `Mais`; `Retornos` e recursos avancados foram deslocados para o menu de apoio.
+- Sidebar desktop reorganizada para destacar a nova hierarquia do produto sem remover os modulos existentes.
 
 ### Auth
 
@@ -154,6 +189,8 @@ Observacao importante:
 - Subviews `dashboard-revenue`, `dashboard-recurring` e `dashboard-services` extraidas para `DashboardDetailViews`.
 - `ReportView` extraido para o relatorio mensal com grafico e rankings.
 - `GeneralReportView` criado para o relatorio geral detalhado acessado por Ajustes, com filtros de periodo, cliente, tipo de servico e status de pagamento.
+- `ReturnsView` criado para concentrar a experiencia principal de retornos/recorrencia.
+- `PendenciesView` criado para concentrar a lista de saldos a receber e pagamentos pendentes.
 - Ranking `Top Servicos` ajustado para usar apenas manutencoes pagas ligadas a clientes ainda existentes, evitando exibir valores antigos de clientes apagados.
 - `clientRepository` criado e conectado aos writes/deletes de `users/{uid}/clients`.
 - `maintenanceRepository` criado e conectado aos writes/deletes de `users/{uid}/maintenances`.
@@ -201,7 +238,7 @@ O comando `npm run build` agora passa por `scripts/build.mjs`, que aplica `GOMAX
 
 ### Criticos / altos
 
-- Revisar e testar regras Firestore antes de producao real.
+- Regras Firestore revisadas com validacao de schema e compiladas em dry-run. Antes de producao real, ainda e recomendado executar testes de fluxo autenticado no emulador ou em projeto staging.
 - Integrar Stripe de ponta a ponta ou esconder checkout real ate estar pronto.
 - Normalizar encoding dos arquivos para UTF-8. Existem textos com mojibake em varios arquivos.
 - Continuar separando `src/App.tsx` em views, hooks e services.
@@ -366,7 +403,29 @@ Importante:
 - O ranking `Top Servicos` agora ignora manutencoes orfas de clientes apagados.
 - O build agora usa `scripts/build.mjs` para aplicar `GOMAXPROCS=1` automaticamente e evitar falhas de memoria do esbuild no Windows.
 - O servidor local foi testado em `http://localhost:3001`; o usuario confirmou que funcionou no navegador.
-- Proximo bloco natural sugerido: teste manual geral do fluxo principal antes de avancar para seguranca/Stripe/testes.
+- Backup antes da blindagem de segredos/deploy criado em `backups/20260602-125230-secrets-deploy-hardening`, com manifesto contendo a solicitacao do usuario. Este backup nao inclui `.env` nem `firebase-service-account.json`.
+- Blindagem de deploy: o backend Express passou a ser gerado em `dist-server/server.js`, deixando `dist/` exclusivo para o Firebase Hosting. `firebase.json`, `.gitignore`, README e memoria tecnica foram ajustados para reduzir risco de publicar backend, certificados, service accounts ou backups por acidente.
+- Backup antes da blindagem do backend Express criado em `backups/20260602-131631-backend-express-hardening`, com manifesto contendo a solicitacao do usuario. Este backup nao inclui `.env` nem `firebase-service-account.json`.
+- Blindagem do backend Express: criado `server/httpSecurity.ts` com request id, headers de seguranca, CORS por allowlist, rate limit simples em `/api`, limites de body por rota e handler de erro generico. O modulo fiscal ganhou validacao de IDs, tamanho/formato de certificado A1, limite para overrides Focus, status HTTP mais precisos e timeout nas chamadas Focus NFe.
+- Backup antes da validacao de schema Firestore criado em `backups/20260602-145608-firestore-schema-validation`, com manifesto contendo a solicitacao do usuario. Este backup nao inclui `.env` nem `firebase-service-account.json`.
+- Validacao de schema Firestore ativada para colecoes do usuario: `clients`, `maintenances`, `warranties`, `appointments`, `expenses`, `products`, `cash_launches`, `settings/config` e `message_logs`. O dry-run `firebase deploy --only firestore:rules --dry-run` compilou com sucesso.
+- Backup antes do reposicionamento CRM/recorrencia criado em `backups/20260602-211035-crm-recorrencia-ux`, com manifesto contendo a solicitacao do usuario. Este backup nao inclui `.env` nem `firebase-service-account.json`.
+- Reposicionamento de produto iniciado: MotoFix agora deve ser tratado primeiro como CRM de recorrencia e controle rapido operacional, com foco em retornos, pendencias/cobrancas e gastos rapidos. Modulos de ERP/apoio permanecem no app, mas foram deslocados na navegacao para reduzir ruido no uso diario em celular.
+- Nova hierarquia de navegacao aplicada e depois ajustada: `Inicio`, `Recorrentes`, `Clientes`, `Pendencias`, `Gastos`, `Relatorios` e `Configuracoes` ficam no fluxo principal; Retornos, Fiscal, Mercadorias, Lancamentos Caixa, Agenda, Garantias, Historico e Admin ficam como ferramentas de apoio/avancadas.
+- Backup antes de mover os cards financeiros do Inicio para Relatorios criado em `backups/20260603-090000-dashboard-cards-para-relatorios`, com manifesto contendo a solicitacao do usuario. Este backup nao inclui `.env` nem `firebase-service-account.json`.
+- Inicio ficou mais focado em prioridades e acoes rapidas; o bloco de indicadores financeiros/operacionais do dashboard foi movido para o topo do Relatorio geral, reutilizando o mesmo componente de cards.
+- Backup antes de incluir lancamentos caixa em Pendencias e trocar `Retornos`/`Ordens de Servico` na navegacao criado em `backups/20260603-091500-pendencias-caixa-swap-retornos-ordens`, com manifesto contendo a solicitacao do usuario. Este backup nao inclui `.env` nem `firebase-service-account.json`.
+- Aba `Pendencias` agora une servicos/manutencoes com saldo e lancamentos caixa pendentes ou finalizados sem faturamento, evitando que valores a receber do caixa fiquem fora da tela de cobranca.
+- Em `Pendencias`, lancamentos vindos do caixa exibem acao `Abrir caixa`, que leva ao `Lancamentos Caixa` ja carregando a O.S. selecionada para edicao/baixa.
+- Navegacao ajustada: a antiga area `Ordens de Servico` voltou para o grupo principal no lugar de `Retornos` e depois foi renomeada visualmente para `Recorrentes`; `Retornos` foi movido para `Mais ferramentas`.
+- Backup antes de renomear `Ordens de Servico` para `Recorrentes` e adicionar atalhos rapidos criado em `backups/20260603-151300-recorrentes-atalhos-clientes-pecas`, com manifesto contendo a solicitacao do usuario. Este backup nao inclui `.env` nem `firebase-service-account.json`.
+- A view interna `clients` passou a aparecer no menu/topbar como `Recorrentes`; a tela ganhou atalhos `Novo Cliente` e `Nova Peca`, alem de manter `Novo Registro` e `Lancamentos Caixa`.
+- Backup antes de adicionar feedback visual ao `Faturar`, reduzir o visual cyan/neon e detalhar a origem da receita criado em `backups/20260604-121415-feedback-faturar-tema-receita-origem`, com manifesto contendo a solicitacao do usuario. Este backup nao inclui `.env` nem `firebase-service-account.json`.
+- Ao faturar um `Lancamento Caixa`, a tela exibe uma faixa de confirmacao com O.S. e valor faturado, alem do salvamento normal.
+- O tema global trocou o primary cyan por um vermelho/coral MotoFix mais sobrio, com brilhos de fundo e foco visual menos neon.
+- O detalhe `Receita (Este Mes)` passou a mostrar a origem dos valores por cliente, separando registros de servico/recorrentes e `Lancamentos Caixa` faturados.
+- Lembrete pedido pelo usuario: depois de finalizar os blocos criticos, voltar ao ponto de Stripe/checkout para decidir integrar de ponta a ponta ou esconder o checkout real ate estar pronto.
+- Proximo bloco natural sugerido: testar fluxo autenticado contra as regras novas e depois avancar para normalizacao de encoding ou testes criticos.
 
 ## 10. Como testar antes de continuar
 
@@ -424,8 +483,11 @@ Os demais arquivos Markdown antigos eram snapshots, guias duplicados ou diagnost
 
 ### Deploy
 
-- O build gera frontend e servidor em `dist`.
-- Firebase Hosting serve `dist` e usa rewrite para `index.html`.
+- O build gera frontend em `dist` e servidor Express em `dist-server`.
+- Firebase Hosting serve apenas `dist` e usa rewrite para `index.html`.
+- O bundle `dist-server/server.js` nao deve ser publicado no Hosting.
+- Deploy recomendado de producao: `npm run deploy:prod`, que publica Hosting e Firestore Rules juntos.
+- Se publicar separadamente, usar `npm run deploy:hosting` e depois `npm run deploy:rules` quando houver mudanca de regras.
 - Antes de publicar, validar:
   - `npm run lint`
   - `npm run build`
@@ -549,6 +611,108 @@ Os demais arquivos Markdown antigos eram snapshots, guias duplicados ou diagnost
 - O app ganhou a view `cash-register`, acessivel no desktop pela lateral e pelo botao `Lancamentos Caixa` dentro de `Servicos`.
 - A importacao de mercadorias aceita `.xlsx` e le somente as colunas selecionadas na planilha de referencia: `Descricao`, `NCM` e `Venda R$`.
 - As mercadorias importadas sao gravadas em `users/{uid}/products` e ficam disponiveis para pesquisa por codigo, descricao ou NCM.
+- Em 2026-06-01 foi adicionada a tela desktop `Mercadorias`, acessivel pelo menu lateral, para cadastrar novas mercadorias e editar/excluir as ja importadas em `users/{uid}/products`.
+- O cadastro de mercadorias usa os mesmos campos do catalogo importado: `sourceCode`/codigo, `description`, `ncm` e `salePrice`; alteracoes feitas ali passam a valer nas proximas inclusoes do `Lancamentos Caixa`.
+- A tela `Mercadorias` tambem permite importar XLSX, pesquisar por codigo/descricao/NCM e usa confirmacao em dois cliques para exclusao.
 - `Lancamentos Caixa` tem abas `Controle`, `Historico` e `Monitoramento`; em `Controle`, a subaba `Mercadorias / Servicos` permite clicar em `Incluir`, pesquisar mercadoria e adiciona-la ao lancamento.
 - Os lancamentos salvos ficam em `users/{uid}/cash_launches`, com cliente, status, datas, itens, descontos, totais e flag de faturamento.
 - Este modulo ainda e experimental e separado dos lancamentos tradicionais de manutencao; ele nao altera os totais do dashboard ate definirmos a regra de integracao com receitas/OS oficiais.
+- Backup antes de ajustar edicao/status do `Lancamentos Caixa` criado em `backups/20260529-133157-cash-register-edit-status-monitoring/manifest.txt`.
+- Na tabela de mercadorias do lancamento, `Qtd` e `Unit. Liquido R$` ficaram visualmente editaveis; alterar `Unit. Liquido R$` redefine o valor final daquele item para o cliente especifico.
+- As abas `Funcionarios` e `Alocacao` foram removidas do modulo por nao fazerem parte do fluxo atual.
+- No `Historico`, clicar em uma ordem carrega o lancamento no modo edicao para ajustar itens, status e salvar/atualizar; o botao `Finalizar` salva a ordem como `Finalizado`.
+- Em `Monitoramento`, o usuario pode filtrar as ordens por `Todas`, `Em lancamento`, `Pendente` e `Finalizada`, e tambem clicar em uma ordem para edita-la.
+- Backup antes de adicionar impressao de OS, backup do modulo e remover botoes nao usados criado em `backups/20260529-135101-cash-register-print-backup-button/manifest.txt`.
+- O arquivo `bkp sistema nootec 290526.backup` foi identificado pelo cabecalho `PGDMP`, ou seja, parece ser um dump custom do PostgreSQL 9.6; pode ser util para uma futura migracao/importacao de dados do sistema antigo.
+- O topo do `Lancamentos Caixa` agora tem botao `Backup`, exportando catalogo de mercadorias e lancamentos caixa em `.json`.
+- Os botoes `Email Tecnico` e `Imprimir Fatura` foram removidos do rodape do modulo.
+- O botao `Imprimir` agora abre a impressao de uma ordem de servico com numero do lancamento, cliente, moto/placa, datas, status, itens, quantidades e totais.
+- Backup antes de ajustar descricao editavel, regra de faturamento no historico e colunas do lancamento criado em `backups/20260529-141311-cash-register-editable-description-invoice-rules/manifest.txt`.
+- Na tabela de mercadorias, a descricao/nome do item agora e editavel diretamente no lancamento.
+- As colunas de desconto e `Unit. Liquido R$` foram removidas da tabela para simplificar a operacao; o valor especifico do cliente passa a ser ajustado em `Unitario R$`.
+- A quantidade agora usa incremento inteiro (`step=1`) e arredonda para numero inteiro, evitando saltos indevidos ao usar as setas do campo.
+- Backup antes de ajustar exclusao de O.S. e layout desktop criado em `backups/20260529-183742-cash-register-delete-sidebar-layout/manifest.txt`; o manifesto registra a solicitacao completa para facilitar rollback.
+- No `Historico`, o botao `Faturar` foi removido. A coluna de acao agora mostra `Excluir`, com confirmacao em dois cliques (`Excluir` e depois `Confirmar`), alem do acesso visual `Editar` pela propria linha.
+- A exclusao de uma O.S. remove o documento correspondente em `users/{uid}/cash_launches`; os produtos importados e demais lancamentos permanecem intactos.
+- A lateral desktop foi ampliada visualmente com itens em formato de card, icones maiores e destaque mais claro para a secao ativa, mantendo nomes e paleta do MotoFix.
+- A casca desktop passou a usar mais largura util em 100% de zoom, reduzindo padding horizontal e removendo o limite fixo de 1600px no conteudo principal.
+- Backup antes de tornar o botao `Faturar` condicional criado em `backups/20260529-200306-cash-register-conditional-invoice-button/manifest.txt`; o manifesto registra a solicitacao completa para facilitar rollback.
+- No rodape do `Lancamentos Caixa`, o botao deixou de aparecer como `Finalizar` e passou a aparecer como `Faturar` somente quando o status atual do lancamento estiver em `Finalizado`.
+- Backup antes de integrar `Lancamentos Caixa` ao dashboard criado em `backups/20260601-201804-dashboard-integra-lancamentos-caixa/manifest.txt`.
+- O dashboard passou a somar `cash_launches` de forma paralela, sem transformar O.S. de caixa em manutencao tradicional.
+- Lancamentos Caixa entram em `Total Recebido`, `Receita (Mes)` e no contador de `Servicos` somente quando estiverem com status `Finalizado` e `invoiced=true` (`Faturado`).
+- Lancamentos Caixa com status `Pendente`, ou `Finalizado` ainda sem faturamento, entram em `A Receber`; registros `Em Lancamento` ficam fora do financeiro do dashboard ate virarem pendentes, finalizados sem faturar ou finalizados faturados.
+- Backup antes de mover o acesso desktop de `Ordens de Servico` para dentro de `Lancamentos Caixa` e corrigir status/faturamento criado em `backups/20260601-210938-desktop-recorrencia-faturado-status/MANIFESTO.txt`.
+- No desktop, a antiga area `Ordens de Servico` havia sido movida para dentro de `Lancamentos Caixa`, mas voltou ao menu principal em `20260603-091500`; em `20260603-151300` ela passou a se chamar `Recorrentes`, e `Retornos` permaneceu no grupo de ferramentas de apoio.
+- Ao editar um lancamento ja faturado e mudar o status para `Pendente` ou `Em Lancamento`, a flag `invoiced` e limpa no rascunho salvo. O historico tambem so mostra o check de `Faturado` quando o status esta `Finalizado` e `invoiced=true`.
+- O `tsconfig.json` passou a excluir `backups`, `backup-current`, `dist` e `node_modules` da checagem TypeScript para que backups locais nao entrem em `npm run lint`.
+
+### Modulo fiscal NFS-e Focus NFe
+
+- Backup antes do modulo fiscal criado em `backups/20260529-212426-fiscal-nfse-focus-module/manifest.txt`; o manifesto registra a solicitacao completa para facilitar rollback.
+- O backend ganhou uma camada isolada em `server/fiscal/`, separando tipos, cliente Focus NFe, persistencia Firestore e rotas Express.
+- Rotas criadas:
+  - `GET /api/fiscal/health`
+  - `GET /api/fiscal/companies`
+  - `POST /api/fiscal/companies`
+  - `POST /api/fiscal/companies/:companyId/certificate`
+  - `POST /api/fiscal/nfse/manual`
+  - `POST /api/fiscal/nfse/from-cash-launch`
+  - `POST /api/fiscal/nfse/:invoiceId/sync`
+  - `POST /api/fiscal/nfse/:invoiceId/cancel`
+  - `GET /api/fiscal/invoices/:invoiceId/documents/:kind`
+- Todas as rotas fiscais exigem token Firebase (`Authorization: Bearer <idToken>`) e usam Firebase Admin no servidor.
+- A integracao Focus NFe usa Basic Auth com token da empresa fiscal e endpoints configuraveis por ambiente (`FOCUS_NFE_HOMOLOGATION_URL` e `FOCUS_NFE_PRODUCTION_URL`).
+- O certificado A1 e lido no frontend como base64, enviado ao Express, repassado para a Focus NFe e descartado; o app salva apenas metadados publicos como `certificateUploadedAt`.
+- Dados privados como token Focus e arquivos XML/PDF persistidos ficam em subcolecoes bloqueadas para o cliente por regra Firestore: `fiscal_private` e `fiscal_invoice_files`.
+- O frontend ganhou `src/components/fiscal/FiscalView.tsx`, com abas `Configuracoes fiscais`, `Emitir NFS-e`, `Notas` e `Logs fiscais`.
+- A tela Fiscal permite cadastrar empresas multiempresa, selecionar homologacao/producao, enviar certificado A1, emitir NFS-e manual, emitir por O.S. finalizada, sincronizar status, cancelar e baixar XML/PDF.
+- O `Lancamentos Caixa` agora pode emitir NFS-e automaticamente ao faturar uma O.S. quando existir empresa fiscal com `autoIssueFromCashLaunch` ativo.
+- Novas colecoes de usuario:
+  - `fiscal_companies`: configuracao publica/sanitizada da empresa fiscal.
+  - `fiscal_invoices`: notas emitidas e status Focus.
+  - `fiscal_logs`: eventos, erros e auditoria fiscal.
+  - `fiscal_private`: token Focus por empresa, bloqueado para cliente.
+  - `fiscal_invoice_files`: XML/PDF persistidos quando couberem no limite seguro do Firestore, bloqueado para cliente.
+- A arquitetura foi preparada com tipos `FiscalDocumentModel = nfse | nfe | nfce`, mantendo NFS-e implementada agora e espaco claro para NF-e/NFC-e futuramente.
+- Observacao importante: NFS-e varia por prefeitura. O modulo aceita `focusOverrides`/JSON opcional para complementar campos municipais especificos antes de producao.
+
+### Ajuste de navegacao desktop em 2026-06-04
+
+- Backup antes da reorganizacao criado em `backups/20260604-124522-navegacao-trocas-caixa-relatorios/MANIFEST.md`, com a solicitacao do usuario registrada para rollback.
+- No desktop, a view interna `clients` passou a aparecer como `Trocas de Oleo`.
+- `Lancamentos Caixa` foi movido para o fluxo principal logo abaixo de `Trocas de Oleo`.
+- `Clientes` foi movido para o final do fluxo principal, proximo de `Relatorios`.
+- `Gastos` saiu do fluxo principal do desktop e ficou concentrado em `Relatorios`, que agora tambem possui botao `Abrir gastos` para acessar o cadastro rapido quando necessario.
+- O menu mobile manteve a estrutura reduzida com acesso por `Mais`, recebendo apenas o novo nome curto `Oleo` para a antiga entrada de recorrentes.
+
+### Variacao de mercadoria e cadastro rapido no caixa em 2026-06-05
+
+- Backup antes da alteracao criado em `backups/20260605-variacao-mercadoria-cadastro-rapido-caixa/MANIFEST.md`, registrando a solicitacao de variacao de mercadoria e botao `+` no lancamento.
+- O catalogo de `Mercadorias` ganhou variacoes por item em `variations[]`, cada uma com nome e preco proprio. O campo so aparece quando o usuario clica em `+ Variacao`.
+- O campo legado `variation` foi mantido apenas para compatibilidade com mercadorias antigas/importadas antes desta mudanca.
+- A busca do catalogo e a busca do seletor de mercadorias no `Lancamentos Caixa` agora consideram tambem nome e preco das variacoes.
+- Ao selecionar uma mercadoria no caixa, cada variacao aparece como uma opcao separada. O item entra no lancamento com o preco especifico da variacao selecionada, aparece no resumo, na tabela editavel e na impressao da O.S.
+- O `Lancamentos Caixa` ganhou um botao `+` ao lado do seletor de cliente para cadastro rapido de cliente sem sair do lancamento; o cliente criado ja preenche o lancamento atual.
+- As regras Firestore de `products` foram atualizadas para permitir `variation` e `variations[]` sem invalidar mercadorias antigas.
+
+### Descontos no Lancamentos Caixa em 2026-06-05
+
+- Backup antes da alteracao criado em `backups/20260605-131846-descontos-lancamentos-caixa/MANIFEST.md`, registrando a solicitacao de descontos no `Lancamentos Caixa`.
+- O `Lancamentos Caixa` ganhou desconto geral do lancamento com campos `Valor R$` e `Percentual`.
+- O desconto geral nao altera a mercadoria cadastrada nem o preco base do item; ele e aplicado somente sobre o total do lancamento atual.
+- O calculo ficou: subtotal dos itens menos desconto geral, limitado para nunca deixar total negativo.
+- Os campos persistidos no documento sao `orderDiscountValue`, `orderDiscountPercent`, `discountTotal` e `total`.
+- As regras Firestore de `cash_launches` foram atualizadas para permitir e validar `orderDiscountValue` e `orderDiscountPercent`.
+
+### UX de prioridades e fluxo uau em 2026-06-05
+
+- Backup antes da alteracao criado em `backups/20260605-201256-ux-prioridades-fluxo-uau/MANIFEST.md`, registrando a solicitacao completa para rollback.
+- A barra inferior mobile foi reorganizada para `Inicio`, `Servicos/Oleo`, `Agenda`, `Pendencias` e `Mais`.
+- O menu `Mais` mobile passou a ser agrupado por `Atendimento`, `Financeiro` e `Configuracoes`, escondendo ferramentas de apoio fora do fluxo principal.
+- A tela inicial deixou de exibir graficos e rankings; agora mostra apenas as quatro prioridades do dia: clientes para contatar, clientes pendentes, agendamentos de hoje e garantias proximas.
+- A frase principal da home foi ajustada para `Prioridades de hoje` e `Faca clientes voltarem para a oficina.`
+- A home ganhou acao principal `Novo Servico`, reforcando o fluxo central: cadastrar cliente/moto/servico/valor, marcar recorrencia e calcular a proxima data.
+- O formulario vivo `ClientForm` passou a mostrar a proxima data de contato calculada quando o servico e recorrente, alem de deixar claro que o lembrete por WhatsApp fica disponivel no fluxo de contato.
+- O card `Clientes para contatar hoje` passou a considerar clientes vencidos (`overdueClients`) junto com os alertas do dia, sem duplicar cliente. Assim um retorno vencido aparece no topo para aviso rapido pelo WhatsApp.
+- Validado em 2026-06-05 com `npm run lint` e `npm run build`.

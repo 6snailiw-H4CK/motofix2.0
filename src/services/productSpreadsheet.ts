@@ -1,6 +1,6 @@
 import type { ProductCatalogItem } from '../types';
 
-export type ProductImportRow = Pick<ProductCatalogItem, 'id' | 'sourceCode' | 'description' | 'ncm' | 'salePrice'>;
+export type ProductImportRow = Pick<ProductCatalogItem, 'id' | 'sourceCode' | 'description' | 'variation' | 'variations' | 'ncm' | 'salePrice'>;
 
 const textDecoder = new TextDecoder('utf-8');
 
@@ -157,6 +157,8 @@ export const parseProductsWorkbook = async (file: File): Promise<ProductImportRo
       id: `produto-${normalizeDocId(sourceCode || description) || index + 1}`,
       sourceCode,
       description,
+      variation: '',
+      variations: [],
       ncm,
       salePrice,
     }];

@@ -102,6 +102,57 @@ export const useClientActions = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isImportingClients, setIsImportingClients] = useState(false);
 
+  const quickCreateClient = useCallback(async (clientData: Pick<Client, 'name'> & Partial<Pick<Client, 'contact' | 'bikeModel'>>) => {
+    if (!user) return null;
+
+    const name = clientData.name.trim();
+    if (!name) {
+      sonnerToast.error('Informe o nome do cliente.');
+      return null;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const nowIso = new Date().toISOString();
+      const recurrenceDays = 30;
+      const nextMaintenanceDate = addDaysIso(nowIso, recurrenceDays);
+      const data = {
+        name,
+        contact: clientData.contact?.trim() || '',
+        bikeModel: clientData.bikeModel?.trim() || '',
+        oilType: '',
+        oilPrice: 0,
+        lastMaintenanceDate: nowIso,
+        nextMaintenanceDate,
+        recurrenceDays,
+        status: getStatus(nextMaintenanceDate),
+        isRecurringRevenue: false,
+        lastServiceType: '',
+        lastServiceValue: 0,
+        lastServiceNotes: '',
+        statusPagamento: 'Pago' as const,
+        valorPago: 0,
+        saldoDevedor: 0,
+        userId: user.uid,
+        createdAt: nowIso,
+      };
+
+      const id = await clientRepository.create(user.uid, data);
+      const createdClient = { id, ...data };
+
+      sonnerToast.success('Cliente cadastrado rapidamente.');
+      onSaved();
+      return createdClient;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, 'clients');
+      sonnerToast.error('Nao foi possivel cadastrar o cliente.');
+      return null;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [getStatus, onSaved, user]);
+
   const saveClient = useCallback(async (clientData: ClientSaveData) => {
     if (!user) return;
 
@@ -255,6 +306,7 @@ export const useClientActions = ({
     importClientsBackup,
     isImportingClients,
     isSaving,
+    quickCreateClient,
     saveClient,
   };
 };

@@ -5,9 +5,9 @@ import type { ServiceListFilter } from './useMaintenanceStats';
 export type AppToastState = { message: string; type: 'success' | 'error' } | null;
 
 const getInitialColorMode = (): ColorMode => {
-  if (typeof window === 'undefined') return 'dark';
+  if (typeof window === 'undefined') return 'light';
   const saved = window.localStorage.getItem('motofix-theme');
-  return saved === 'light' ? 'light' : 'dark';
+  return saved === 'dark' ? 'dark' : 'light';
 };
 
 export const useAppShellState = () => {
@@ -49,6 +49,7 @@ export const useAppShellState = () => {
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
+    document.documentElement.classList.toggle('retro', colorMode === 'light');
     document.documentElement.classList.toggle('light', colorMode === 'light');
     try {
       window.localStorage.setItem('motofix-theme', colorMode);

@@ -7,6 +7,9 @@ import {
   CashRegisterLaunch,
   Client,
   ExpenseRecord,
+  FiscalCompany,
+  FiscalInvoice,
+  FiscalLog,
   MaintenanceRecord,
   MessageLog,
   ProductCatalogItem,
@@ -35,6 +38,9 @@ type UseUserCollectionsResult = {
   expenseEntries: ExpenseRecord[];
   productCatalog: ProductCatalogItem[];
   cashLaunches: CashRegisterLaunch[];
+  fiscalCompanies: FiscalCompany[];
+  fiscalInvoices: FiscalInvoice[];
+  fiscalLogs: FiscalLog[];
 };
 
 const buildSettings = (userId: string, data: Record<string, any>): Settings => ({
@@ -75,6 +81,9 @@ export function useUserCollections({
   const [expenseEntries, setExpenseEntries] = useState<ExpenseRecord[]>([]);
   const [productCatalog, setProductCatalog] = useState<ProductCatalogItem[]>([]);
   const [cashLaunches, setCashLaunches] = useState<CashRegisterLaunch[]>([]);
+  const [fiscalCompanies, setFiscalCompanies] = useState<FiscalCompany[]>([]);
+  const [fiscalInvoices, setFiscalInvoices] = useState<FiscalInvoice[]>([]);
+  const [fiscalLogs, setFiscalLogs] = useState<FiscalLog[]>([]);
 
   useEffect(() => {
     if (!user || !userProfile?.isActive) return;
@@ -142,6 +151,33 @@ export function useUserCollections({
       setCashLaunches([]);
     });
 
+    const fiscalCompaniesQuery = query(collection(db, 'users', user.uid, 'fiscal_companies'));
+    const unsubscribeFiscalCompanies = onSnapshot(fiscalCompaniesQuery, (snapshot) => {
+      const companiesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FiscalCompany));
+      setFiscalCompanies(companiesData.sort((a, b) => a.legalName.localeCompare(b.legalName)));
+    }, (error) => {
+      console.error('Fiscal companies listener error:', error);
+      setFiscalCompanies([]);
+    });
+
+    const fiscalInvoicesQuery = query(collection(db, 'users', user.uid, 'fiscal_invoices'));
+    const unsubscribeFiscalInvoices = onSnapshot(fiscalInvoicesQuery, (snapshot) => {
+      const invoicesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FiscalInvoice));
+      setFiscalInvoices(invoicesData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+    }, (error) => {
+      console.error('Fiscal invoices listener error:', error);
+      setFiscalInvoices([]);
+    });
+
+    const fiscalLogsQuery = query(collection(db, 'users', user.uid, 'fiscal_logs'));
+    const unsubscribeFiscalLogs = onSnapshot(fiscalLogsQuery, (snapshot) => {
+      const logsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FiscalLog));
+      setFiscalLogs(logsData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+    }, (error) => {
+      console.error('Fiscal logs listener error:', error);
+      setFiscalLogs([]);
+    });
+
     const settingsDoc = doc(db, 'users', user.uid, 'settings', 'config');
     const unsubscribeSettings = onSnapshot(settingsDoc, (snapshot) => {
       if (snapshot.exists()) {
@@ -204,6 +240,9 @@ export function useUserCollections({
       unsubscribeExpenses();
       unsubscribeProducts();
       unsubscribeCashLaunches();
+      unsubscribeFiscalCompanies();
+      unsubscribeFiscalInvoices();
+      unsubscribeFiscalLogs();
       unsubscribeSettings();
       unsubscribeUsers();
       unsubscribeMessageLogs();
@@ -222,6 +261,9 @@ export function useUserCollections({
     appointments,
     expenseEntries,
     productCatalog,
-    cashLaunches
+    cashLaunches,
+    fiscalCompanies,
+    fiscalInvoices,
+    fiscalLogs
   };
 }

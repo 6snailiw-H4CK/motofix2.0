@@ -4,18 +4,31 @@ import type { ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import { DEFAULT_SERVICE_TYPES } from '../../constants/appDefaults';
 import { getServiceTypeKey, getServiceTypeLabel, normalizeServiceTypeOptions } from '../../lib/serviceTypes';
-import type { Appointment, Client, ExpenseRecord, MaintenanceRecord, Settings, Warranty } from '../../types';
+import type { AppView, Appointment, Client, ExpenseRecord, MaintenanceRecord, Settings, Warranty } from '../../types';
+import { DashboardMetricsGrid } from '../dashboard/DashboardMetricsGrid';
 
 type PaymentStatusFilter = 'all' | 'Pago' | 'Pendente' | 'Parcial';
 
 type GeneralReportViewProps = {
+  activeWarrantiesCount: number;
+  cashFlowStats: {
+    totalRecebidoMes: number;
+    aReceber: number;
+    parcialAReceber: number;
+  };
   clients: Client[];
+  dashboardStats: {
+    revenue: number;
+    recurringRevenue: number;
+    servicesCount: number;
+  };
   maintenances: MaintenanceRecord[];
   expenses: ExpenseRecord[];
   warranties: Warranty[];
   appointments: Appointment[];
   settings: Settings;
   onBack: () => void;
+  onViewChange: (view: AppView) => void;
 };
 
 const currencyFormatter = new Intl.NumberFormat('pt-BR', {
@@ -81,13 +94,17 @@ const reportControlClass =
   'w-full min-w-0 rounded-xl border-slate-700 bg-slate-900/70 p-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-1 focus:ring-primary';
 
 export const GeneralReportView = ({
+  activeWarrantiesCount,
+  cashFlowStats,
   clients,
+  dashboardStats,
   maintenances,
   expenses,
   warranties,
   appointments,
   settings,
   onBack,
+  onViewChange,
 }: GeneralReportViewProps) => {
   const [startDate, setStartDate] = useState(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
@@ -286,15 +303,42 @@ export const GeneralReportView = ({
             <h2 className="text-xl font-bold">{settings.businessName || 'MotoFix'}</h2>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => window.print()}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800/70 px-4 py-2 text-xs font-bold text-slate-200 hover:bg-slate-700"
-        >
-          <Download className="h-4 w-4" />
-          Imprimir / PDF
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => onViewChange('expenses')}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800/70 px-4 py-2 text-xs font-bold text-slate-200 hover:border-primary/50 hover:bg-slate-700"
+          >
+            <WalletCards className="h-4 w-4" />
+            Abrir gastos
+          </button>
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800/70 px-4 py-2 text-xs font-bold text-slate-200 hover:bg-slate-700"
+          >
+            <Download className="h-4 w-4" />
+            Imprimir / PDF
+          </button>
+        </div>
       </div>
+
+      <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-700/70 bg-slate-800/40 p-4">
+        <div className="mb-3">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Resumo do dashboard</p>
+          <h3 className="text-lg font-black text-white">Indicadores operacionais</h3>
+          <p className="text-xs text-slate-400">Visao financeira e operacional completa, agora concentrada em Relatorios.</p>
+        </div>
+        <DashboardMetricsGrid
+          activeWarrantiesCount={activeWarrantiesCount}
+          cashFlowStats={cashFlowStats}
+          dashboardStats={dashboardStats}
+          onRevenueClick={() => onViewChange('dashboard-revenue')}
+          onRecurringClick={() => onViewChange('dashboard-recurring')}
+          onServicesClick={() => onViewChange('dashboard-services')}
+          onWarrantiesClick={() => onViewChange('warranties')}
+        />
+      </section>
 
       <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-700/70 bg-slate-800/40 p-4">
         <div className="mb-3 flex items-center gap-2">

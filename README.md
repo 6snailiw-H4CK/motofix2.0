@@ -55,6 +55,11 @@ FIREBASE_SERVICE_ACCOUNT_PATH=./firebase-service-account.json
 NODE_ENV=development
 PORT=3001
 VITE_STRIPE_API_URL=http://localhost:3001
+CORS_ORIGINS=http://localhost:3001,http://127.0.0.1:3001
+JSON_BODY_LIMIT=512kb
+FISCAL_BODY_LIMIT=6mb
+WEBHOOK_BODY_LIMIT=2mb
+FOCUS_NFE_TIMEOUT_MS=20000
 ```
 
 ## Comandos
@@ -78,11 +83,13 @@ users/{uid}/maintenances
 users/{uid}/warranties
 users/{uid}/appointments
 users/{uid}/expenses
+users/{uid}/products
+users/{uid}/cash_launches
 users/{uid}/message_logs
 users/{uid}/settings/config
 ```
 
-Admins podem listar e gerenciar usuarios quando autenticados por custom claim `admin` ou pelos e-mails admin configurados nas regras atuais.
+Admins podem listar e gerenciar usuarios quando autenticados por custom claim `admin`.
 
 ## Firestore Rules
 
@@ -92,10 +99,12 @@ As regras atuais foram endurecidas para:
 - permitir que usuarios ativos acessem apenas as proprias subcolecoes;
 - permitir que usuarios leiam o proprio perfil;
 - permitir auto-bloqueio do proprio usuario quando a assinatura expira;
-- permitir acesso admin via custom claim `admin` ou e-mail admin verificado;
+- permitir acesso admin via custom claim `admin`;
+- validar schema/tipos basicos das colecoes principais do usuario antes de writes do frontend;
+- bloquear escrita direta do frontend em campos fiscais sensiveis e colecoes privadas de XML/PDF/certificados;
 - negar qualquer outro documento fora de `users/{uid}`.
 
-Antes de producao, prefira migrar definitivamente para custom claims e remover validacao de admin por e-mail.
+Antes de producao, aplique as regras no Firebase e renove o token dos admins apos configurar a custom claim. As regras devem ser publicadas junto com Hosting quando houver mudanca de schema ou permissao.
 
 ## Stripe
 
@@ -122,9 +131,18 @@ Nunca versione arquivos sensiveis:
 
 O arquivo `firebase-service-account.json` deve ficar fora do Git e, em producao, idealmente deve ser substituido por secrets do ambiente de deploy.
 
+## Backend Express
+
+O servidor aplica headers basicos de seguranca, CORS por allowlist, limite de payload, rate limit simples em `/api` e timeout nas chamadas Focus NFe.
+
+Em producao, configure `APP_URL`, `FRONTEND_URL` ou `CORS_ORIGINS` com os dominios reais do frontend quando ele estiver em origem diferente do backend.
+
 ## Build e deploy
 
-O build gera frontend e servidor em `dist`:
+O build gera dois artefatos separados:
+
+- `dist/`: frontend que pode ser publicado no Firebase Hosting.
+- `dist-server/`: bundle do servidor Express, fora da pasta publica do Hosting.
 
 ```bash
 npm run build
@@ -132,4 +150,19 @@ npm run build
 
 No Windows, esse comando aplica uma configuracao de memoria para reduzir falhas ocasionais do esbuild durante o build.
 
-O Firebase Hosting esta configurado para servir `dist` com rewrite para `index.html`.
+O Firebase Hosting esta configurado para servir apenas `dist` com rewrite para `index.html`.
+
+Deploy recomendado:
+
+```bash
+npm run deploy:prod
+```
+
+Esse comando roda o build e publica Hosting junto com Firestore Rules. Para publicar separadamente:
+
+```bash
+npm run deploy:hosting
+npm run deploy:rules
+```
+
+Evite rodar somente `firebase deploy --only hosting` em producao se as regras Firestore tambem tiverem mudado.

@@ -108,7 +108,7 @@ export const ExpensesView = ({
             <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Registro rapido</p>
             <h3 className="text-sm font-bold text-white">Novo gasto</h3>
             <p className="text-[10px] text-slate-500">
-              {isExpenseFormOpen ? 'Preencha os campos para salvar o gasto.' : 'Clique em registrar para abrir os campos.'}
+              {isExpenseFormOpen ? 'Fornecedor, valor, descricao e data. Sem friccao.' : 'Clique em registrar para abrir o lancamento rapido.'}
             </p>
           </div>
           <button
@@ -131,20 +131,11 @@ export const ExpensesView = ({
           >
             <div className="grid grid-cols-2 gap-2 lg:grid-cols-12">
               <div className="col-span-2 space-y-1 lg:col-span-3">
-                <label className="px-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Descricao</label>
-                <input
-                  value={description}
-                  onChange={(event) => onDescriptionChange(event.target.value)}
-                  placeholder="Compra, fornecedor, parcela..."
-                  className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-              <div className="col-span-2 space-y-1 lg:col-span-3">
                 <label className="px-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Fornecedor</label>
                 <input
                   value={supplier}
                   onChange={(event) => onSupplierChange(event.target.value)}
-                  placeholder="Loja, distribuidor, peca..."
+                  placeholder="Loja ou distribuidor"
                   className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
                 />
               </div>
@@ -157,35 +148,21 @@ export const ExpensesView = ({
                   className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
                 />
               </div>
-              <div className="space-y-1 lg:col-span-2">
-                <label className="px-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Pagamento</label>
-                <select
-                  value={paymentMethod}
-                  onChange={(event) => onPaymentMethodChange(event.target.value)}
+              <div className="col-span-2 space-y-1 lg:col-span-4">
+                <label className="px-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Descricao</label>
+                <input
+                  value={description}
+                  onChange={(event) => onDescriptionChange(event.target.value)}
+                  placeholder="Ex: pastilha, oleo, aluguel, compra..."
                   className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
-                >
-                  <option>Cartao de Credito</option>
-                  <option>PIX</option>
-                  <option>Dinheiro</option>
-                  <option>Debito</option>
-                  <option>Boleto</option>
-                </select>
+                />
               </div>
-              <div className="space-y-1 lg:col-span-2">
+              <div className="space-y-1 lg:col-span-3">
                 <label className="px-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Data</label>
                 <input
                   type="date"
                   value={date}
                   onChange={(event) => onDateChange(event.target.value)}
-                  className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-              <div className="col-span-2 space-y-1 lg:col-span-12">
-                <label className="px-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Obs.</label>
-                <input
-                  value={note}
-                  onChange={(event) => onNoteChange(event.target.value)}
-                  placeholder="Opcional"
                   className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
                 />
               </div>
