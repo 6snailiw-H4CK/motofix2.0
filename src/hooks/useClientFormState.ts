@@ -10,7 +10,13 @@ type UseClientFormStateParams = {
   maintenances: MaintenanceRecord[];
 };
 
-const normalizeClientName = (name: string): string => name.toLowerCase().trim();
+const normalizeClientName = (name: string): string =>
+  name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
 
 export const useClientFormState = ({
   clients,
@@ -56,9 +62,23 @@ export const useClientFormState = ({
   const handleClientNameChange = useCallback((value: string) => {
     setClientNameInput(value);
 
-    if (value.length > 0) {
+    if (value.trim().length > 1) {
       const normalizedInput = normalizeClientName(value);
-      setClientSuggestions(clients.filter((client) => normalizeClientName(client.name).includes(normalizedInput)));
+      setClientSuggestions(
+        clients
+          .filter((client) => {
+            const normalizedName = normalizeClientName(client.name);
+            return normalizedName.includes(normalizedInput) && normalizedName !== normalizedInput;
+          })
+          .sort((a, b) => {
+            const aName = normalizeClientName(a.name);
+            const bName = normalizeClientName(b.name);
+            const aStarts = aName.startsWith(normalizedInput) ? 1 : 0;
+            const bStarts = bName.startsWith(normalizedInput) ? 1 : 0;
+            return bStarts - aStarts;
+          })
+          .slice(0, 6),
+      );
       return;
     }
 

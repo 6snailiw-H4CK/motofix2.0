@@ -4,24 +4,13 @@ import type { ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import { DEFAULT_SERVICE_TYPES } from '../../constants/appDefaults';
 import { getServiceTypeKey, getServiceTypeLabel, normalizeServiceTypeOptions } from '../../lib/serviceTypes';
-import type { AppView, Appointment, Client, ExpenseRecord, MaintenanceRecord, Settings, Warranty } from '../../types';
-import { DashboardMetricsGrid } from '../dashboard/DashboardMetricsGrid';
+import type { AppView, Appointment, CashRegisterLaunch, Client, ExpenseRecord, MaintenanceRecord, Settings, Warranty } from '../../types';
 
 type PaymentStatusFilter = 'all' | 'Pago' | 'Pendente' | 'Parcial';
 
 type GeneralReportViewProps = {
-  activeWarrantiesCount: number;
-  cashFlowStats: {
-    totalRecebidoMes: number;
-    aReceber: number;
-    parcialAReceber: number;
-  };
+  cashLaunches: CashRegisterLaunch[];
   clients: Client[];
-  dashboardStats: {
-    revenue: number;
-    recurringRevenue: number;
-    servicesCount: number;
-  };
   maintenances: MaintenanceRecord[];
   expenses: ExpenseRecord[];
   warranties: Warranty[];
@@ -88,16 +77,24 @@ const getReceivableAmount = (maintenance: MaintenanceRecord) => {
   return explicitBalance > 0 ? explicitBalance : Math.max(0, total - paid);
 };
 
+const isCashLaunchPaid = (launch: CashRegisterLaunch) => launch.status === 'Finalizado' && Boolean(launch.invoiced);
+
+const isCashLaunchReceivable = (launch: CashRegisterLaunch) => (
+  launch.status === 'Pendente' ||
+  launch.status === 'Em Lancamento' ||
+  (launch.status === 'Finalizado' && !launch.invoiced)
+);
+
+const getCashLaunchDate = (launch: CashRegisterLaunch) => launch.openingDate || launch.createdAt;
+
 const getClientSearchText = (client?: Client) => `${client?.name || ''} ${client?.bikeModel || ''} ${client?.contact || ''}`.toLowerCase();
 
 const reportControlClass =
   'w-full min-w-0 rounded-xl border-slate-700 bg-slate-900/70 p-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:ring-1 focus:ring-primary';
 
 export const GeneralReportView = ({
-  activeWarrantiesCount,
-  cashFlowStats,
+  cashLaunches,
   clients,
-  dashboardStats,
   maintenances,
   expenses,
   warranties,
@@ -168,10 +165,33 @@ export const GeneralReportView = ({
     });
   }, [appointments, endDate, normalizedClientQuery, startDate]);
 
+  const filteredCashLaunches = useMemo(() => {
+    return cashLaunches.filter((launch) => {
+      if (!isDateInRange(getCashLaunchDate(launch), startDate, endDate)) return false;
+      if (serviceTypeFilter !== 'all') return false;
+      if (paymentStatus === 'Pago' && !isCashLaunchPaid(launch)) return false;
+      if (paymentStatus === 'Pendente' && !isCashLaunchReceivable(launch)) return false;
+      if (paymentStatus === 'Parcial') return false;
+
+      if (!normalizedClientQuery) return true;
+      return `${launch.orderNumber} ${launch.clientName} ${launch.bikeModel || ''} ${launch.status}`.toLowerCase().includes(normalizedClientQuery);
+    });
+  }, [cashLaunches, endDate, normalizedClientQuery, paymentStatus, serviceTypeFilter, startDate]);
+
   const summary = useMemo(() => {
-    const grossRevenue = filteredMaintenances.reduce((sum, maintenance) => sum + toNumber(maintenance.serviceValue), 0);
-    const received = filteredMaintenances.reduce((sum, maintenance) => sum + getPaidAmount(maintenance), 0);
-    const receivable = filteredMaintenances.reduce((sum, maintenance) => sum + getReceivableAmount(maintenance), 0);
+    const serviceGrossRevenue = filteredMaintenances.reduce((sum, maintenance) => sum + toNumber(maintenance.serviceValue), 0);
+    const serviceReceived = filteredMaintenances.reduce((sum, maintenance) => sum + getPaidAmount(maintenance), 0);
+    const serviceReceivable = filteredMaintenances.reduce((sum, maintenance) => sum + getReceivableAmount(maintenance), 0);
+    const cashGrossRevenue = filteredCashLaunches.reduce((sum, launch) => sum + toNumber(launch.total), 0);
+    const cashReceived = filteredCashLaunches
+      .filter(isCashLaunchPaid)
+      .reduce((sum, launch) => sum + toNumber(launch.total), 0);
+    const cashReceivable = filteredCashLaunches
+      .filter(isCashLaunchReceivable)
+      .reduce((sum, launch) => sum + toNumber(launch.total), 0);
+    const grossRevenue = serviceGrossRevenue + cashGrossRevenue;
+    const received = serviceReceived + cashReceived;
+    const receivable = serviceReceivable + cashReceivable;
     const recurringRevenue = filteredMaintenances
       .filter(maintenance => maintenance.isRecurringRevenue)
       .reduce((sum, maintenance) => sum + toNumber(maintenance.serviceValue), 0);
@@ -183,18 +203,29 @@ export const GeneralReportView = ({
     }).length;
 
     return {
+      cashGrossRevenue,
+      cashReceived,
+      cashReceivable,
       grossRevenue,
       received,
       receivable,
       recurringRevenue,
       expenseTotal,
       netResult: received - expenseTotal,
+      projectedResult: grossRevenue - expenseTotal,
+      serviceGrossRevenue,
+      serviceReceived,
+      serviceReceivable,
       servicesCount: filteredMaintenances.length,
-      averageTicket: filteredMaintenances.length ? grossRevenue / filteredMaintenances.length : 0,
+      cashLaunchesCount: filteredCashLaunches.length,
+      operationsCount: filteredMaintenances.length + filteredCashLaunches.length,
+      averageTicket: (filteredMaintenances.length + filteredCashLaunches.length)
+        ? grossRevenue / (filteredMaintenances.length + filteredCashLaunches.length)
+        : 0,
       appointmentValue,
       activeWarrantyCount,
     };
-  }, [filteredAppointments, filteredExpenses, filteredMaintenances, filteredWarranties]);
+  }, [filteredAppointments, filteredCashLaunches, filteredExpenses, filteredMaintenances, filteredWarranties]);
 
   const receivableRows = useMemo(() => {
     return filteredMaintenances
@@ -206,6 +237,17 @@ export const GeneralReportView = ({
       .filter(row => row.receivable > 0)
       .sort((a, b) => b.receivable - a.receivable);
   }, [filteredMaintenances]);
+
+  const cashReceivableRows = useMemo(() => {
+    return filteredCashLaunches
+      .filter(isCashLaunchReceivable)
+      .map(launch => ({
+        launch,
+        receivable: toNumber(launch.total),
+      }))
+      .filter(row => row.receivable > 0)
+      .sort((a, b) => b.receivable - a.receivable);
+  }, [filteredCashLaunches]);
 
   const serviceBreakdown = useMemo(() => {
     const map = new Map<string, { count: number; gross: number; received: number; receivable: number }>();
@@ -228,20 +270,48 @@ export const GeneralReportView = ({
   const clientBreakdown = useMemo(() => {
     const map = new Map<string, { count: number; gross: number; received: number; receivable: number; bikeModel: string }>();
 
-    filteredMaintenances.forEach((maintenance) => {
-      const key = maintenance.clientId || maintenance.clientName || 'Sem cliente';
+    const addClientMovement = (
+      key: string,
+      values: {
+        bikeModel?: string;
+        gross: number;
+        received: number;
+        receivable: number;
+      },
+    ) => {
       const current = map.get(key) || {
         count: 0,
         gross: 0,
         received: 0,
         receivable: 0,
-        bikeModel: maintenance.bikeModel || '-',
+        bikeModel: values.bikeModel || '-',
       };
       current.count += 1;
-      current.gross += toNumber(maintenance.serviceValue);
-      current.received += getPaidAmount(maintenance);
-      current.receivable += getReceivableAmount(maintenance);
+      current.gross += values.gross;
+      current.received += values.received;
+      current.receivable += values.receivable;
+      if (current.bikeModel === '-' && values.bikeModel) current.bikeModel = values.bikeModel;
       map.set(key, current);
+    };
+
+    filteredMaintenances.forEach((maintenance) => {
+      const key = maintenance.clientId || maintenance.clientName || 'Sem cliente';
+      addClientMovement(key, {
+        bikeModel: maintenance.bikeModel || '-',
+        gross: toNumber(maintenance.serviceValue),
+        received: getPaidAmount(maintenance),
+        receivable: getReceivableAmount(maintenance),
+      });
+    });
+
+    filteredCashLaunches.forEach((launch) => {
+      const key = launch.clientId || launch.clientName || 'Consumidor final';
+      addClientMovement(key, {
+        bikeModel: launch.bikeModel || '-',
+        gross: toNumber(launch.total),
+        received: isCashLaunchPaid(launch) ? toNumber(launch.total) : 0,
+        receivable: isCashLaunchReceivable(launch) ? toNumber(launch.total) : 0,
+      });
     });
 
     return Array.from(map.entries())
@@ -251,7 +321,7 @@ export const GeneralReportView = ({
       }))
       .sort((a, b) => b.gross - a.gross)
       .slice(0, 12);
-  }, [clientsById, filteredMaintenances]);
+  }, [clientsById, filteredCashLaunches, filteredMaintenances]);
 
   const supplierBreakdown = useMemo(() => {
     const map = new Map<string, { count: number; total: number }>();
@@ -324,20 +394,71 @@ export const GeneralReportView = ({
       </div>
 
       <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-700/70 bg-slate-800/40 p-4">
-        <div className="mb-3">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Resumo do dashboard</p>
-          <h3 className="text-lg font-black text-white">Indicadores operacionais</h3>
-          <p className="text-xs text-slate-400">Visao financeira e operacional completa, agora concentrada em Relatorios.</p>
+        <div className="mb-4">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Resumo financeiro</p>
+          <h3 className="text-lg font-black text-white">Leitura simples do periodo</h3>
+          <p className="text-xs text-slate-400">
+            Siga a ordem: vendido, recebido, falta receber e gastos. O resultado aparece logo abaixo.
+          </p>
         </div>
-        <DashboardMetricsGrid
-          activeWarrantiesCount={activeWarrantiesCount}
-          cashFlowStats={cashFlowStats}
-          dashboardStats={dashboardStats}
-          onRevenueClick={() => onViewChange('dashboard-revenue')}
-          onRecurringClick={() => onViewChange('dashboard-recurring')}
-          onServicesClick={() => onViewChange('dashboard-services')}
-          onWarrantiesClick={() => onViewChange('warranties')}
-        />
+        <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <OperationCard
+            label="1. Total vendido"
+            value={toCurrency(summary.grossRevenue)}
+            detail="Tudo que foi lancado no periodo."
+            explanation={`Servicos/Oleo: ${toCurrency(summary.serviceGrossRevenue)} | Caixa: ${toCurrency(summary.cashGrossRevenue)}`}
+            tone="sky"
+            onClick={() => scrollToSection('report-services-detail')}
+          />
+          <OperationCard
+            label="2. Ja recebido"
+            value={toCurrency(summary.received)}
+            detail="Dinheiro que ja entrou no caixa."
+            explanation="Considera servicos pagos e OS faturadas."
+            onClick={() => scrollToSection('report-cash-detail')}
+            tone="green"
+          />
+          <OperationCard
+            label="3. Falta receber"
+            value={toCurrency(summary.receivable)}
+            detail="Clientes e ordens ainda em aberto."
+            explanation={`${receivableRows.length + cashReceivableRows.length} pendencia(s) encontradas no filtro.`}
+            tone="amber"
+            onClick={() => scrollToSection('report-receivables')}
+          />
+          <OperationCard
+            label="4. Gastos"
+            value={toCurrency(summary.expenseTotal)}
+            detail="Saidas registradas no periodo."
+            explanation={`${filteredExpenses.length} lancamento(s) de despesa no filtro atual.`}
+            tone="red"
+            onClick={() => scrollToSection('report-expenses')}
+          />
+        </div>
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => scrollToSection('report-raw-result')}
+            className={`rounded-2xl border p-4 text-left transition-all hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-primary/40 ${summary.netResult >= 0 ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-red-500/30 bg-red-500/10'}`}
+          >
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Resultado do caixa</p>
+            <p className={`mt-1 text-2xl font-black ${summary.netResult >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+              {toCurrency(summary.netResult)}
+            </p>
+            <p className="mt-1 text-xs text-slate-400">Recebido - gastos. Mostra o dinheiro que sobrou agora.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => scrollToSection('report-raw-result')}
+            className={`rounded-2xl border p-4 text-left transition-all hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-primary/40 ${summary.projectedResult >= 0 ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-red-500/30 bg-red-500/10'}`}
+          >
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Resultado previsto</p>
+            <p className={`mt-1 text-2xl font-black ${summary.projectedResult >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+              {toCurrency(summary.projectedResult)}
+            </p>
+            <p className="mt-1 text-xs text-slate-400">Total vendido - gastos. Mostra o cenario se tudo for recebido.</p>
+          </button>
+        </div>
       </section>
 
       <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-700/70 bg-slate-800/40 p-4">
@@ -413,15 +534,17 @@ export const GeneralReportView = ({
         </div>
       </section>
 
-      <section className="grid min-w-0 gap-3 md:grid-cols-4">
-        <Metric title="Faturamento bruto" value={toCurrency(summary.grossRevenue)} tone="text-white" onClick={() => scrollToSection('report-services-detail')} />
-        <Metric title="Recebido" value={toCurrency(summary.received)} tone="text-emerald-400" onClick={() => scrollToSection('report-services-detail')} />
-        <Metric title="A receber" value={toCurrency(summary.receivable)} tone="text-amber-400" onClick={() => scrollToSection('report-receivables')} />
-        <Metric title="Resultado liquido" value={toCurrency(summary.netResult)} tone={summary.netResult >= 0 ? 'text-emerald-400' : 'text-red-400'} onClick={() => scrollToSection('report-expenses')} />
-        <Metric title="Gastos" value={toCurrency(summary.expenseTotal)} tone="text-red-400" onClick={() => scrollToSection('report-expenses')} />
-        <Metric title="Receita recorrente" value={toCurrency(summary.recurringRevenue)} tone="text-sky-400" onClick={() => scrollToSection('report-services-summary')} />
-        <Metric title="Servicos" value={String(summary.servicesCount)} tone="text-white" onClick={() => scrollToSection('report-services-detail')} />
-        <Metric title="Ticket medio" value={toCurrency(summary.averageTicket)} tone="text-white" onClick={() => scrollToSection('report-clients')} />
+      <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-700/70 bg-slate-800/40 p-4">
+        <div className="mb-3">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Complementos</p>
+          <h3 className="text-sm font-black text-white">Dados de apoio para entender o movimento</h3>
+        </div>
+        <div className="grid min-w-0 gap-3 md:grid-cols-4">
+          <Metric title="Ticket medio" value={toCurrency(summary.averageTicket)} tone="text-white" compact onClick={() => scrollToSection('report-clients')} />
+          <Metric title="Atendimentos" value={String(summary.operationsCount)} tone="text-white" compact onClick={() => scrollToSection('report-services-detail')} />
+          <Metric title="Receita recorrente" value={toCurrency(summary.recurringRevenue)} tone="text-sky-400" compact onClick={() => scrollToSection('report-services-summary')} />
+          <Metric title="Agenda / garantias" value={`${filteredAppointments.length} / ${filteredWarranties.length}`} tone="text-white" compact onClick={() => scrollToSection('report-appointments')} />
+        </div>
       </section>
 
       <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
@@ -451,7 +574,18 @@ export const GeneralReportView = ({
                     <td className="text-right font-bold text-amber-400">{toCurrency(receivable)}</td>
                   </tr>
                 ))}
-                {receivableRows.length === 0 && (
+                {cashReceivableRows.map(({ launch, receivable }) => (
+                  <tr key={launch.id} className="text-slate-300">
+                    <td className="py-2 font-semibold text-white">{launch.clientName || 'Consumidor final'}</td>
+                    <td>{launch.orderNumber || 'Lancamento caixa'}</td>
+                    <td>{formatDate(getCashLaunchDate(launch))}</td>
+                    <td>{launch.status}</td>
+                    <td className="text-right">{toCurrency(toNumber(launch.total))}</td>
+                    <td className="text-right">{toCurrency(0)}</td>
+                    <td className="text-right font-bold text-amber-400">{toCurrency(receivable)}</td>
+                  </tr>
+                ))}
+                {receivableRows.length === 0 && cashReceivableRows.length === 0 && (
                   <tr>
                     <td colSpan={7} className="py-6 text-center text-slate-500">Nenhuma conta a receber no filtro atual.</td>
                   </tr>
@@ -611,6 +745,69 @@ export const GeneralReportView = ({
           </table>
         </div>
       </Panel>
+
+      <Panel id="report-cash-detail" title="Lancamentos caixa detalhados" icon={WalletCards}>
+        <div className="max-w-full overflow-x-auto">
+          <table className="w-full min-w-[700px] text-left text-xs">
+            <thead className="text-[10px] uppercase tracking-widest text-slate-500">
+              <tr>
+                <th className="py-2">O.S.</th>
+                <th>Cliente</th>
+                <th>Moto</th>
+                <th>Abertura</th>
+                <th>Status</th>
+                <th>Faturado</th>
+                <th className="text-right">Total</th>
+                <th className="text-right">Recebido</th>
+                <th className="text-right">Aberto</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {filteredCashLaunches.map((launch) => {
+                const total = toNumber(launch.total);
+                const received = isCashLaunchPaid(launch) ? total : 0;
+                const receivable = isCashLaunchReceivable(launch) ? total : 0;
+
+                return (
+                  <tr key={launch.id} className="text-slate-300">
+                    <td className="py-2 font-semibold text-primary">{launch.orderNumber || '-'}</td>
+                    <td className="font-semibold text-white">{launch.clientName || 'Consumidor final'}</td>
+                    <td>{launch.bikeModel || '-'}</td>
+                    <td>{formatDate(getCashLaunchDate(launch))}</td>
+                    <td>{launch.status}</td>
+                    <td>{launch.invoiced ? 'Sim' : 'Nao'}</td>
+                    <td className="text-right">{toCurrency(total)}</td>
+                    <td className="text-right text-emerald-400">{toCurrency(received)}</td>
+                    <td className="text-right text-amber-400">{toCurrency(receivable)}</td>
+                  </tr>
+                );
+              })}
+              {filteredCashLaunches.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="py-6 text-center text-slate-500">Nenhum lancamento caixa no filtro atual.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+
+      <Panel id="report-raw-result" title="Demonstrativo bruto da operacao" icon={WalletCards}>
+        <div className="grid gap-3 md:grid-cols-2">
+          <ResultLine label="Servicos / oleo lancados" value={summary.serviceGrossRevenue} tone="text-slate-100" />
+          <ResultLine label="Lancamentos caixa lancados" value={summary.cashGrossRevenue} tone="text-slate-100" />
+          <ResultLine label="Faturamento bruto" value={summary.grossRevenue} tone="text-white" strong />
+          <ResultLine label="Total recebido" value={summary.received} tone="text-emerald-400" strong />
+          <ResultLine label="A receber" value={summary.receivable} tone="text-amber-400" />
+          <ResultLine label="Gastos / custos registrados" value={summary.expenseTotal} tone="text-red-400" />
+          <ResultLine label="Resultado de caixa" value={summary.netResult} tone={summary.netResult >= 0 ? 'text-emerald-400' : 'text-red-400'} strong />
+          <ResultLine label="Resultado projetado" value={summary.projectedResult} tone={summary.projectedResult >= 0 ? 'text-emerald-400' : 'text-red-400'} strong />
+        </div>
+        <p className="mt-4 rounded-xl border border-slate-700/60 bg-slate-900/50 p-3 text-xs text-slate-400">
+          Base simples do periodo filtrado: resultado de caixa = recebido menos gastos. Resultado projetado = faturamento bruto menos gastos.
+          Impostos, taxas de cartao e custos de mercadoria sem cadastro de custo ainda nao entram nesta conta.
+        </p>
+      </Panel>
     </div>
   );
 };
@@ -622,6 +819,39 @@ type MetricProps = {
   compact?: boolean;
   onClick?: () => void;
 };
+
+type OperationCardProps = {
+  label: string;
+  value: string;
+  detail: string;
+  explanation?: string;
+  tone: 'primary' | 'sky' | 'amber' | 'red' | 'violet' | 'slate' | 'green';
+  onClick: () => void;
+};
+
+const operationToneClasses: Record<OperationCardProps['tone'], string> = {
+  primary: 'border-primary/30 bg-primary/10 text-primary',
+  sky: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
+  amber: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+  red: 'border-red-500/30 bg-red-500/10 text-red-300',
+  violet: 'border-violet-500/30 bg-violet-500/10 text-violet-300',
+  slate: 'border-slate-600 bg-slate-900/60 text-slate-200',
+  green: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+};
+
+const OperationCard = ({ label, value, detail, explanation, tone, onClick }: OperationCardProps) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={`min-w-0 rounded-2xl border p-4 text-left transition-all hover:-translate-y-0.5 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-primary/40 ${operationToneClasses[tone]}`}
+  >
+    <p className="text-[10px] font-black uppercase tracking-widest opacity-90">{label}</p>
+    <p className="mt-2 break-words text-2xl font-black text-white">{value}</p>
+    <p className="mt-1 text-xs font-semibold text-slate-300">{detail}</p>
+    {explanation && <p className="mt-2 text-[11px] leading-relaxed text-slate-400">{explanation}</p>}
+    <p className="mt-3 text-[10px] font-bold uppercase tracking-widest">Abrir origem</p>
+  </button>
+);
 
 const Metric = ({ title, value, tone, compact = false, onClick }: MetricProps) => {
   const content = (
@@ -647,6 +877,20 @@ const Metric = ({ title, value, tone, compact = false, onClick }: MetricProps) =
 
   return <div className={className}>{content}</div>;
 };
+
+type ResultLineProps = {
+  label: string;
+  value: number;
+  tone: string;
+  strong?: boolean;
+};
+
+const ResultLine = ({ label, value, tone, strong = false }: ResultLineProps) => (
+  <div className={`rounded-xl border border-slate-700/60 bg-slate-900/50 p-3 ${strong ? 'ring-1 ring-slate-600/70' : ''}`}>
+    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{label}</p>
+    <p className={`mt-1 text-xl font-black ${tone}`}>{toCurrency(value)}</p>
+  </div>
+);
 
 type PanelProps = {
   id?: string;

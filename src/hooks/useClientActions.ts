@@ -19,7 +19,14 @@ type UseClientActionsParams = {
   user: User | null;
 };
 
-const normalizeText = (value?: string) => (value || '').toLowerCase().trim();
+const normalizeText = (value?: string) => (
+  (value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+);
 
 const parseNumber = (value?: string) => {
   if (!value) return undefined;
@@ -157,15 +164,26 @@ export const useClientActions = ({
     if (!user) return;
 
     setIsSaving(true);
+    let saveOperation = editingClient ? OperationType.UPDATE : OperationType.CREATE;
 
     try {
+      const selectedClientName = normalizeText(editingClient?.name);
+      const typedClientName = normalizeText(clientData.name);
+      const isDifferentClientAfterAutocomplete =
+        isCreatingService &&
+        Boolean(editingClient) &&
+        Boolean(typedClientName) &&
+        typedClientName !== selectedClientName;
+      const effectiveEditingClient = isDifferentClientAfterAutocomplete ? null : editingClient;
+      saveOperation = effectiveEditingClient ? OperationType.UPDATE : OperationType.CREATE;
+
       const result = await saveClientWithMaintenance({
         userId: user.uid,
         clientData: {
           ...clientData,
-          _createNewMaintenance: isCreatingService && Boolean(editingClient),
+          _createNewMaintenance: isCreatingService && Boolean(effectiveEditingClient),
         },
-        editingClient,
+        editingClient: effectiveEditingClient,
         clients,
         maintenances,
         getStatus,
@@ -174,7 +192,7 @@ export const useClientActions = ({
       sonnerToast.success(result.message);
       onSaved();
     } catch (error) {
-      handleFirestoreError(error, editingClient ? OperationType.UPDATE : OperationType.CREATE, 'clients');
+      handleFirestoreError(error, saveOperation, 'clients');
       sonnerToast.error('Erro ao salvar dados.');
     } finally {
       setIsSaving(false);

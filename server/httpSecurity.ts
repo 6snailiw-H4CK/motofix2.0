@@ -4,6 +4,9 @@ import crypto from "node:crypto";
 type RateLimitOptions = {
   windowMs: number;
   maxRequests: number;
+  name?: string;
+  keyGenerator?: (req: Request) => string;
+  skip?: (req: Request) => boolean;
 };
 
 const DEFAULT_DEV_ORIGINS = [
@@ -41,6 +44,13 @@ const getRequestOrigins = (req: Request) => {
     `https://${host}`,
   ]);
 };
+
+const normalizePathForRateLimit = (path: string) => path
+  .replace(/[0-9a-f]{16,}/gi, ":id")
+  .replace(/[A-Za-z0-9_-]{24,}/g, ":id")
+  .replace(/\/+/g, "/");
+
+const getClientIp = (req: Request) => String(req.ip || req.socket.remoteAddress || "unknown").trim();
 
 const isOriginAllowed = (req: Request, origin?: string) => {
   if (!origin) return true;
@@ -121,23 +131,77 @@ export const rateLimit = ({ windowMs, maxRequests }: RateLimitOptions) => (req: 
     return next();
   }
 
-  const forwardedFor = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
-  const key = `${forwardedFor || req.ip || "unknown"}:${req.path}`;
+  const key = `${getClientIp(req)}:${normalizePathForRateLimit(req.path)}`;
   const now = Date.now();
   const bucket = rateLimitBuckets.get(key);
 
+  if (rateLimitBuckets.size > 10_000) {
+    for (const [bucketKey, value] of rateLimitBuckets.entries()) {
+      if (value.resetAt <= now) {
+        rateLimitBuckets.delete(bucketKey);
+      }
+    }
+  }
+
   if (!bucket || bucket.resetAt <= now) {
     rateLimitBuckets.set(key, { count: 1, resetAt: now + windowMs });
+    res.setHeader("X-RateLimit-Limit", String(maxRequests));
+    res.setHeader("X-RateLimit-Remaining", String(maxRequests - 1));
+    res.setHeader("X-RateLimit-Reset", String(Math.ceil((now + windowMs) / 1000)));
     return next();
   }
 
   bucket.count += 1;
+  res.setHeader("X-RateLimit-Limit", String(maxRequests));
+  res.setHeader("X-RateLimit-Remaining", String(Math.max(maxRequests - bucket.count, 0)));
+  res.setHeader("X-RateLimit-Reset", String(Math.ceil(bucket.resetAt / 1000)));
+
   if (bucket.count > maxRequests) {
     res.setHeader("Retry-After", Math.ceil((bucket.resetAt - now) / 1000));
     return res.status(429).json({ error: "Muitas requisicoes. Tente novamente em instantes." });
   }
 
   return next();
+};
+
+export const scopedRateLimit = (options: RateLimitOptions) => {
+  const limiter = ({ windowMs, maxRequests, name, keyGenerator, skip }: RateLimitOptions) => (
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ) => {
+    if (req.method === "OPTIONS" || skip?.(req)) {
+      return next();
+    }
+
+    const scope = name || normalizePathForRateLimit(req.baseUrl || req.path || "api");
+    const keyPart = keyGenerator?.(req) || getClientIp(req);
+    const key = `${scope}:${keyPart}`;
+    const now = Date.now();
+    const bucket = rateLimitBuckets.get(key);
+
+    if (!bucket || bucket.resetAt <= now) {
+      rateLimitBuckets.set(key, { count: 1, resetAt: now + windowMs });
+      res.setHeader("X-RateLimit-Limit", String(maxRequests));
+      res.setHeader("X-RateLimit-Remaining", String(maxRequests - 1));
+      res.setHeader("X-RateLimit-Reset", String(Math.ceil((now + windowMs) / 1000)));
+      return next();
+    }
+
+    bucket.count += 1;
+    res.setHeader("X-RateLimit-Limit", String(maxRequests));
+    res.setHeader("X-RateLimit-Remaining", String(Math.max(maxRequests - bucket.count, 0)));
+    res.setHeader("X-RateLimit-Reset", String(Math.ceil(bucket.resetAt / 1000)));
+
+    if (bucket.count > maxRequests) {
+      res.setHeader("Retry-After", Math.ceil((bucket.resetAt - now) / 1000));
+      return res.status(429).json({ error: "Muitas requisicoes. Tente novamente em instantes." });
+    }
+
+    return next();
+  };
+
+  return limiter(options);
 };
 
 export const apiNotFound = (req: Request, res: Response) => {

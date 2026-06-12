@@ -24,6 +24,7 @@ export type AppView =
   | 'general-report'
   | 'cash-register'
   | 'products'
+  | 'whatsapp'
   | 'fiscal'
   | 'checkout'
   | 'subscription-expired'

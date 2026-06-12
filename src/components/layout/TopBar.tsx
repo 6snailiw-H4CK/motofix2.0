@@ -27,6 +27,10 @@ const viewTitles: Partial<Record<AppView, { title: string; subtitle: string }>> 
     title: 'Mercadorias',
     subtitle: 'Cadastro e edicao do catalogo importado',
   },
+  whatsapp: {
+    title: 'WhatsApp IA',
+    subtitle: 'Conexao, QR Code, mensagens e automacoes',
+  },
   fiscal: {
     title: 'Fiscal',
     subtitle: 'NFS-e, XML, PDF e logs fiscais',
@@ -90,15 +94,15 @@ export const TopBar = ({
 
   return (
     <header className="app-topbar sticky top-0 z-40 border-b border-slate-800/70 bg-[#0b0c10]/92 backdrop-blur-xl">
-      <div className="flex min-h-16 items-center justify-between gap-4 px-4 py-3 lg:px-8">
+      <div className="flex min-h-14 items-center justify-between gap-3 px-4 py-2 lg:px-6">
         <div className="min-w-0">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{businessName || 'MotoFix Oficina'}</p>
-          <h1 className="mt-0.5 truncate text-xl font-black tracking-tight text-white">{meta?.title}</h1>
+          <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-500">{businessName || 'MotoFix Oficina'}</p>
+          <h1 className="mt-0.5 truncate text-lg font-black tracking-tight text-white">{meta?.title}</h1>
           <p className="hidden text-xs text-slate-500 sm:block">{meta?.subtitle}</p>
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="hidden min-w-56 items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2 text-slate-500 xl:flex">
+          <div className="hidden min-w-52 items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-1.5 text-slate-500 xl:flex">
             <Search className="h-4 w-4" />
             <span className="text-xs">Buscar no modulo atual</span>
           </div>
@@ -108,7 +112,7 @@ export const TopBar = ({
             onClick={() => onColorModeChange(colorMode === 'dark' ? 'light' : 'dark')}
             aria-label="Alternar tema"
             title="Alternar tema"
-            className="grid h-10 w-10 place-items-center rounded-lg border border-slate-800 bg-slate-950/60 text-slate-400 transition-colors hover:border-primary/40 hover:text-white"
+            className="grid h-9 w-9 place-items-center rounded-lg border border-slate-800 bg-slate-950/60 text-slate-400 transition-colors hover:border-primary/40 hover:text-white"
           >
             {colorMode === 'dark' ? <Moon className="h-4.5 w-4.5" /> : <Sun className="h-4.5 w-4.5" />}
           </button>
@@ -118,7 +122,7 @@ export const TopBar = ({
             onClick={onRequestNotifications}
             aria-label="Notificacoes"
             title="Notificacoes"
-            className="relative grid h-10 w-10 place-items-center rounded-lg border border-slate-800 bg-slate-950/60 text-slate-400 transition-colors hover:border-primary/40 hover:text-white"
+            className="relative grid h-9 w-9 place-items-center rounded-lg border border-slate-800 bg-slate-950/60 text-slate-400 transition-colors hover:border-primary/40 hover:text-white"
           >
             <Bell className="h-4.5 w-4.5" />
             {alertCount > 0 && (
@@ -134,7 +138,7 @@ export const TopBar = ({
             aria-label="Configuracoes"
             title="Configuracoes"
             className={cn(
-              'grid h-10 w-10 place-items-center rounded-lg border border-slate-800 bg-slate-950/60 text-slate-400 transition-colors hover:border-primary/40 hover:text-white',
+              'grid h-9 w-9 place-items-center rounded-lg border border-slate-800 bg-slate-950/60 text-slate-400 transition-colors hover:border-primary/40 hover:text-white',
               view === 'settings' && 'border-primary/40 text-primary'
             )}
           >
@@ -146,7 +150,7 @@ export const TopBar = ({
             onClick={onSignOut}
             aria-label="Sair"
             title="Sair"
-            className="grid h-10 w-10 place-items-center rounded-lg border border-slate-800 bg-slate-950/60 text-red-400 transition-colors hover:border-red-500/40 hover:bg-red-500/10"
+            className="grid h-9 w-9 place-items-center rounded-lg border border-slate-800 bg-slate-950/60 text-red-400 transition-colors hover:border-red-500/40 hover:bg-red-500/10"
           >
             <LogOut className="h-4.5 w-4.5" />
           </button>

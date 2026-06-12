@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AppView, ColorMode } from '../types';
 import type { ServiceListFilter } from './useMaintenanceStats';
 
@@ -11,7 +11,7 @@ const getInitialColorMode = (): ColorMode => {
 };
 
 export const useAppShellState = () => {
-  const [view, setView] = useState<AppView>('dashboard');
+  const [view, setRawView] = useState<AppView>('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
   const [toast, setToast] = useState<AppToastState>(null);
   const [isNewService, setIsNewService] = useState(false);
@@ -19,6 +19,20 @@ export const useAppShellState = () => {
   const [expandedTopService, setExpandedTopService] = useState<string | null>(null);
   const [colorMode, setColorMode] = useState<ColorMode>(getInitialColorMode);
   const scrollRaf = useRef<number | null>(null);
+
+  const setView = useCallback((nextView: AppView | ((current: AppView) => AppView)) => {
+    setRawView((currentView) => {
+      const resolvedView = typeof nextView === 'function' ? nextView(currentView) : nextView;
+
+      if (resolvedView !== currentView && typeof window !== 'undefined') {
+        window.requestAnimationFrame(() => {
+          window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+        });
+      }
+
+      return resolvedView;
+    });
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;

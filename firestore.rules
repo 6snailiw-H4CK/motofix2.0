@@ -340,6 +340,24 @@ service cloud.firestore {
         && optionalText('error', 1000);
     }
 
+    function whatsappAutomationShape(userId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'enabled',
+          'aiEnabled',
+          'autoReplyEnabled',
+          'appointmentEnabled',
+          'createdAt',
+          'updatedAt'
+        ], whatsappAutomationKeys())
+        && request.resource.data.enabled is bool
+        && request.resource.data.aiEnabled is bool
+        && request.resource.data.autoReplyEnabled is bool
+        && request.resource.data.appointmentEnabled is bool
+        && isText('createdAt', 40)
+        && isText('updatedAt', 40);
+    }
+
     function settingsShape(userId) {
       return request.resource.data.keys().hasOnly([
           'userId',
@@ -588,6 +606,18 @@ service cloud.firestore {
       ];
     }
 
+    function whatsappAutomationKeys() {
+      return [
+        'userId',
+        'enabled',
+        'aiEnabled',
+        'autoReplyEnabled',
+        'appointmentEnabled',
+        'createdAt',
+        'updatedAt'
+      ];
+    }
+
     match /users/{userId} {
       allow get: if isOwner(userId) || isAdmin();
       allow list: if isAdmin();
@@ -674,6 +704,28 @@ service cloud.firestore {
       allow read: if canReadUserData(userId);
       allow create: if isAdmin() || (validOwnerCreate(userId, messageLogKeys()) && messageLogShape(userId));
       allow update: if isAdmin() || (validOwnerUpdate(userId, messageLogKeys()) && messageLogShape(userId));
+      allow delete: if isActiveOwner(userId) || isAdmin();
+    }
+
+    match /users/{userId}/whatsapp_sessions/{sessionId} {
+      allow read: if canReadUserData(userId);
+      allow write: if false;
+    }
+
+    match /users/{userId}/whatsapp_messages/{messageId} {
+      allow read: if canReadUserData(userId);
+      allow write: if false;
+    }
+
+    match /users/{userId}/whatsapp_contacts/{contactId} {
+      allow read: if canReadUserData(userId);
+      allow write: if false;
+    }
+
+    match /users/{userId}/whatsapp_automations/{automationId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isAdmin() || (validOwnerCreate(userId, whatsappAutomationKeys()) && whatsappAutomationShape(userId));
+      allow update: if isAdmin() || (validOwnerUpdate(userId, whatsappAutomationKeys()) && whatsappAutomationShape(userId));
       allow delete: if isActiveOwner(userId) || isAdmin();
     }
 

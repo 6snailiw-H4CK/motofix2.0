@@ -6,6 +6,7 @@ import {
   FileText,
   History,
   LayoutDashboard,
+  MessageCircle,
   MoreHorizontal,
   Package,
   ReceiptText,
@@ -78,6 +79,7 @@ export const BottomNav = ({ view, isAdmin, onViewChange }: BottomNavProps) => {
       title: 'Atendimento',
       items: [
         { id: 'clients-schedule', icon: Users, label: 'Clientes', match: ['clients-schedule', 'clients-schedule-add'], shortLabel: 'Clientes' },
+        { id: 'whatsapp', icon: MessageCircle, label: 'WhatsApp IA', match: ['whatsapp'], shortLabel: 'WhatsApp' },
         { id: 'returns', icon: RefreshCw, label: 'Retornos', match: ['returns'], shortLabel: 'Retornos' },
         { id: 'warranties', icon: ShieldCheck, label: 'Garantias', match: ['warranties', 'new-warranty'], shortLabel: 'Garantias' },
         { id: 'history', icon: History, label: 'Historico', match: ['history'], shortLabel: 'Historico' },

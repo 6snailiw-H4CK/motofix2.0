@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, MessageSquare, Plus, RefreshCw } from 'lucide-react';
-import { addDays, format, parseISO } from 'date-fns';
+import { useEffect, useState } from 'react';
+import { ArrowLeft, Plus, RefreshCw } from 'lucide-react';
+import { format, parseISO } from 'date-fns';
 import type { Client } from '../../types';
 import { isOilChangeService } from '../../lib/serviceTypes';
 
@@ -72,21 +72,13 @@ export const ClientForm = ({
   const [serviceDate, setServiceDate] = useState(initialServiceDate);
   const [recurrenceDays, setRecurrenceDays] = useState(editingClient?.recurrenceDays || 29);
   const [isRecurringRevenue, setIsRecurringRevenue] = useState(editingClient?.isRecurringRevenue ?? true);
+  const [isSuggestionOpen, setIsSuggestionOpen] = useState(false);
 
   useEffect(() => {
     setServiceDate(initialServiceDate);
     setRecurrenceDays(editingClient?.recurrenceDays || 29);
     setIsRecurringRevenue(editingClient?.isRecurringRevenue ?? true);
   }, [editingClient?.id, initialServiceDate, isNewService]);
-
-  const nextReturnDate = useMemo(() => {
-    if (!isRecurringRevenue || !serviceDate) return '';
-
-    const parsedDate = parseISO(`${serviceDate}T12:00:00Z`);
-    if (!Number.isFinite(parsedDate.getTime())) return '';
-
-    return format(addDays(parsedDate, Math.max(1, recurrenceDays || 29)), 'dd/MM/yyyy');
-  }, [isRecurringRevenue, recurrenceDays, serviceDate]);
 
   return (
     <div className="mx-auto max-w-xl space-y-4 lg:max-w-4xl xl:max-w-5xl">
@@ -133,18 +125,29 @@ export const ClientForm = ({
             <input
               name="name"
               value={clientNameInput || editingClient?.name || ''}
-              onChange={(event) => onClientNameChange(event.target.value)}
+              onChange={(event) => {
+                setIsSuggestionOpen(true);
+                onClientNameChange(event.target.value);
+              }}
+              onFocus={() => setIsSuggestionOpen(true)}
+              onBlur={() => {
+                window.setTimeout(() => setIsSuggestionOpen(false), 120);
+              }}
               required
               placeholder="Ex: Joao Silva (digitar para sugestoes)"
               className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
             />
-            {clientSuggestions.length > 0 && (
+            {isSuggestionOpen && clientSuggestions.length > 0 && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-10 max-h-48 overflow-y-auto">
                 {clientSuggestions.map((suggestion) => (
                   <button
                     key={suggestion.id}
                     type="button"
-                    onClick={() => onSelectClientSuggestion(suggestion)}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      setIsSuggestionOpen(false);
+                      onSelectClientSuggestion(suggestion);
+                    }}
                     className="w-full px-3 py-2 text-left hover:bg-slate-700/50 border-b border-slate-700/30 last:border-b-0 text-xs transition-colors"
                   >
                     <div className="font-semibold text-white">{suggestion.name}</div>
@@ -299,24 +302,6 @@ export const ClientForm = ({
             <label className="text-xs font-bold text-slate-400">Recorrente</label>
           </div>
         </div>
-
-        {isRecurringRevenue && (
-          <div className="rounded-2xl border border-primary/25 bg-primary/5 p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-primary">Proximo contato calculado</p>
-                <p className="mt-1 text-xl font-black text-white">{nextReturnDate || 'Informe a data do servico'}</p>
-                <p className="text-xs text-slate-400">
-                  Depois de salvar, o cliente entra na fila de contato quando esse alerta chegar.
-                </p>
-              </div>
-              <div className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-emerald-500/15 px-4 text-sm font-black text-emerald-300">
-                <MessageSquare className="h-4 w-4" />
-                Enviar lembrete no WhatsApp
-              </div>
-            </div>
-          </div>
-        )}
 
         <div className="space-y-1.5">
           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Observacoes</label>

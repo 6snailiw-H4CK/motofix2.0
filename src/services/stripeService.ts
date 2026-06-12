@@ -1,6 +1,19 @@
 import axios from 'axios';
+import { auth } from '../firebase';
 
 const STRIPE_API_URL = import.meta.env.VITE_STRIPE_API_URL || 'http://localhost:3001';
+
+const getAuthHeaders = async () => {
+  const token = await auth.currentUser?.getIdToken();
+  if (!token) {
+    throw new Error('Usuario precisa estar autenticado para acessar pagamentos.');
+  }
+
+  return {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`,
+  };
+};
 
 interface CreateCheckoutSessionParams {
   userId: string;
@@ -31,9 +44,7 @@ export const createCheckoutSession = async ({
         priceId,
       },
       {
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: await getAuthHeaders(),
       }
     );
 
@@ -52,7 +63,10 @@ export const checkPaymentStatus = async (
 ): Promise<{ status: string; paid: boolean }> => {
   try {
     const response = await axios.get(
-      `${STRIPE_API_URL}/api/payments/session/${sessionId}`
+      `${STRIPE_API_URL}/api/payments/session/${sessionId}`,
+      {
+        headers: await getAuthHeaders(),
+      }
     );
 
     return response.data;

@@ -1,11 +1,12 @@
 import "dotenv/config";
 import fs from "node:fs";
-import express, { Request, Response } from "express";
+import express, { NextFunction, Request, Response } from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Stripe from "stripe";
 import admin from "firebase-admin";
 import { registerFiscalRoutes } from "./server/fiscal/fiscalRoutes";
+import { registerWhatsAppRoutes } from "./server/whatsapp/whatsappRoutes";
 import {
   apiNotFound,
   bodyParser,
@@ -14,6 +15,7 @@ import {
   rateLimit,
   requestId,
   securityHeaders,
+  scopedRateLimit,
 } from "./server/httpSecurity";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -36,6 +38,7 @@ try {
     credential: admin.credential.cert(serviceAccount),
   });
   db = admin.firestore();
+  db.settings({ ignoreUndefinedProperties: true });
   firebaseInitialized = true;
 } catch (error) {
   console.warn("⚠️ Firebase initialization failed. Webhook functionality may be limited.");
@@ -44,6 +47,41 @@ try {
 
 const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID || "price_monthly_49_90"; // Preço mensal R$ 49,90
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
+
+const intEnv = (name: string, fallback: number) => {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.trunc(value) : fallback;
+};
+
+type PaymentRequest = Request & {
+  paymentAuth?: {
+    uid: string;
+    email?: string;
+  };
+};
+
+const requirePaymentAuth = async (req: PaymentRequest, res: Response, next: NextFunction) => {
+  if (!firebaseInitialized) {
+    return res.status(503).json({ error: "Firebase Admin nao inicializado." });
+  }
+
+  const authHeader = req.headers.authorization || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice("Bearer ".length) : "";
+  if (!token) {
+    return res.status(401).json({ error: "Token Firebase ausente." });
+  }
+
+  try {
+    const decoded = await admin.auth().verifyIdToken(token);
+    req.paymentAuth = {
+      uid: decoded.uid,
+      email: decoded.email,
+    };
+    return next();
+  } catch {
+    return res.status(401).json({ error: "Token Firebase invalido." });
+  }
+};
 
 async function startServer() {
   const app = express();
@@ -55,7 +93,22 @@ async function startServer() {
   app.use(requestId);
   app.use(securityHeaders);
   app.use(cors);
-  app.use("/api", rateLimit({ windowMs: 60_000, maxRequests: 180 }));
+  app.use("/api", scopedRateLimit({ name: "api-global", windowMs: 60_000, maxRequests: intEnv("API_RATE_LIMIT_GLOBAL_PER_MINUTE", 300) }));
+  app.use("/api", rateLimit({ windowMs: 60_000, maxRequests: intEnv("API_RATE_LIMIT_ROUTE_PER_MINUTE", 120) }));
+  app.use("/api/whatsapp/connect", scopedRateLimit({ name: "whatsapp-connect", windowMs: 10 * 60_000, maxRequests: intEnv("WHATSAPP_CONNECT_RATE_LIMIT_PER_10_MINUTES", 5) }));
+  app.use("/api/whatsapp/reconnect", scopedRateLimit({ name: "whatsapp-reconnect", windowMs: 10 * 60_000, maxRequests: intEnv("WHATSAPP_CONNECT_RATE_LIMIT_PER_10_MINUTES", 5) }));
+  app.use("/api/whatsapp/reconnectentado", scopedRateLimit({ name: "whatsapp-reconnect-legacy", windowMs: 10 * 60_000, maxRequests: intEnv("WHATSAPP_CONNECT_RATE_LIMIT_PER_10_MINUTES", 5) }));
+  app.use("/api/whatsapp/send", scopedRateLimit({ name: "whatsapp-send", windowMs: 60_000, maxRequests: intEnv("WHATSAPP_SEND_RATE_LIMIT_PER_MINUTE", 30) }));
+  app.use("/api/fiscal/companies", scopedRateLimit({
+    name: "fiscal-company-write",
+    windowMs: 10 * 60_000,
+    maxRequests: intEnv("FISCAL_COMPANY_WRITE_RATE_LIMIT_PER_10_MINUTES", 20),
+    skip: (req) => req.method === "GET",
+  }));
+  app.use("/api/fiscal/companies/:companyId/certificate", scopedRateLimit({ name: "fiscal-certificate", windowMs: 15 * 60_000, maxRequests: intEnv("FISCAL_CERTIFICATE_RATE_LIMIT_PER_15_MINUTES", 3) }));
+  app.use("/api/fiscal/nfse", scopedRateLimit({ name: "fiscal-nfse", windowMs: 5 * 60_000, maxRequests: intEnv("FISCAL_NFSE_RATE_LIMIT_PER_5_MINUTES", 12) }));
+  app.use("/api/payments/create-checkout", scopedRateLimit({ name: "payments-checkout", windowMs: 15 * 60_000, maxRequests: intEnv("PAYMENTS_CHECKOUT_RATE_LIMIT_PER_15_MINUTES", 10) }));
+  app.use("/api/payments/session", scopedRateLimit({ name: "payments-session", windowMs: 60_000, maxRequests: intEnv("PAYMENTS_SESSION_RATE_LIMIT_PER_MINUTE", 60) }));
   app.use(bodyParser);
   app.use(express.urlencoded({ extended: false, limit: "64kb", parameterLimit: 100 }));
 
@@ -65,6 +118,13 @@ async function startServer() {
   });
 
   registerFiscalRoutes({
+    app,
+    admin,
+    db,
+    firebaseInitialized,
+  });
+
+  registerWhatsAppRoutes({
     app,
     admin,
     db,
@@ -92,15 +152,21 @@ async function startServer() {
    * POST /api/payments/create-checkout
    * Cria uma sessão de checkout no Stripe
    */
-  app.post("/api/payments/create-checkout", async (req: Request, res: Response) => {
+  app.post("/api/payments/create-checkout", requirePaymentAuth, async (req: PaymentRequest, res: Response) => {
     try {
-      const { userId, userEmail, priceId } = req.body;
+      const userId = req.paymentAuth?.uid;
+      const userEmail = req.paymentAuth?.email || String(req.body?.userEmail || "").trim();
+      const priceId = String(req.body?.priceId || STRIPE_PRICE_ID);
 
       if (!userId || !userEmail) {
         return res.status(400).json({ error: "userId e userEmail são obrigatórios" });
       }
 
       // Criar ou recuperar customer do Stripe
+      if (priceId !== STRIPE_PRICE_ID) {
+        return res.status(400).json({ error: "Plano de pagamento invalido." });
+      }
+
       const customers = await stripe.customers.list({ email: userEmail });
       let customerId: string;
 
@@ -144,11 +210,14 @@ async function startServer() {
    * GET /api/payments/session/:sessionId
    * Verifica o status de um pagamento
    */
-  app.get("/api/payments/session/:sessionId", async (req: Request, res: Response) => {
+  app.get("/api/payments/session/:sessionId", requirePaymentAuth, async (req: PaymentRequest, res: Response) => {
     try {
       const { sessionId } = req.params;
 
       const intent = await stripe.paymentIntents.retrieve(sessionId);
+      if (intent.metadata?.firebaseUid !== req.paymentAuth?.uid) {
+        return res.status(403).json({ error: "Pagamento nao pertence ao usuario autenticado." });
+      }
 
       res.json({
         status: intent.status,

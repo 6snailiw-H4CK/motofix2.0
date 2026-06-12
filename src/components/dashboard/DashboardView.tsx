@@ -9,6 +9,7 @@ import {
   DollarSign,
   MessageSquare,
   Plus,
+  RefreshCw,
   ShieldCheck,
   UserPlus,
   WalletCards,
@@ -57,7 +58,6 @@ type DashboardViewProps = {
   onNewClient: () => void;
   onNewExpense: () => void;
   onNewReturn: () => void;
-  onQuickServiceRegister: () => void;
   onSendWhatsApp: (client: Client) => void;
   onToggleTopService: (service: string) => void;
   getTopServiceSubRows: (serviceType: string) => TopServiceSubRow[];
@@ -134,7 +134,7 @@ export const DashboardView = ({
   onViewChange,
   onNewClient,
   onNewExpense,
-  onQuickServiceRegister,
+  onNewReturn,
   onSendWhatsApp,
 }: DashboardViewProps) => {
   const todayKey = format(new Date(), 'yyyy-MM-dd');
@@ -157,20 +157,28 @@ export const DashboardView = ({
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-2xl">
             <p className="text-[10px] font-black uppercase tracking-[0.28em] text-primary">Prioridades de hoje</p>
-            <h2 className="mt-1 text-2xl font-black text-white lg:text-3xl">Faca clientes voltarem para a oficina.</h2>
+            <h2 className="mt-1 text-2xl font-black text-white lg:text-3xl">Faça clientes voltarem para a oficina.</h2>
             <p className="mt-2 text-sm text-slate-400">
               Abra o dia vendo quem precisa voltar, quem deve e o que esta agendado.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:min-w-[34rem]">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4 lg:min-w-[46rem]">
             <button
               type="button"
-              onClick={onQuickServiceRegister}
+              onClick={() => onViewChange('cash-register')}
               className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-primary px-4 text-sm font-black text-white shadow-lg shadow-primary/20 transition hover:bg-primary/90"
             >
               <Plus className="h-4 w-4" />
-              Novo Servico
+              Novo Serviço
+            </button>
+            <button
+              type="button"
+              onClick={onNewReturn}
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-primary/30 bg-primary/10 px-4 text-sm font-black text-primary transition hover:bg-primary/15"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Nova Troca de Óleo
             </button>
             <button
               type="button"

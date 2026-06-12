@@ -1,11 +1,9 @@
 import { format } from 'date-fns';
-import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Activity,
   ArrowLeft,
   Check,
-  Download,
-  FileSpreadsheet,
   History,
   PackageSearch,
   Plus,
@@ -15,12 +13,11 @@ import {
   Save,
   Search,
   Trash2,
-  Upload,
   X,
 } from 'lucide-react';
 import { cn, safeFormat } from '../../lib/utils';
 import type { CashRegisterDraft } from '../../hooks/useCashRegisterActions';
-import type { CashRegisterItem, CashRegisterLaunch, Client, ProductCatalogItem, ProductCatalogVariation } from '../../types';
+import type { CashRegisterItem, CashRegisterLaunch, Client, ProductCatalogItem, ProductCatalogVariation, Settings } from '../../types';
 
 type QuickClientInput = Pick<Client, 'name'> & Partial<Pick<Client, 'contact' | 'bikeModel'>>;
 
@@ -28,8 +25,8 @@ type CashRegisterViewProps = {
   cashLaunches: CashRegisterLaunch[];
   clients: Client[];
   products: ProductCatalogItem[];
+  settings?: Settings | null;
   fiscalAutoIssueEnabled?: boolean;
-  isImportingProducts: boolean;
   isSavingLaunch: boolean;
   deleteConfirmId?: string | null;
   deletingLaunchId?: string | null;
@@ -37,7 +34,6 @@ type CashRegisterViewProps = {
   onBack: () => void;
   onAutoIssueFiscalFromCashLaunch?: (cashLaunchId: string) => Promise<void> | void;
   onDeleteLaunchClick: (launch: CashRegisterLaunch) => void;
-  onImportProducts: (file: File) => Promise<number> | number;
   onInitialLaunchLoaded?: () => void;
   onOpenRecurringServices?: () => void;
   onQuickSaveClient?: (client: QuickClientInput) => Promise<Client | null> | Client | null;
@@ -86,6 +82,17 @@ const normalizeSearch = (value: string) =>
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
 
+const formatShortOrderNumber = (orderNumber?: string) => {
+  const raw = String(orderNumber || '').trim();
+  if (!raw) return 'OS';
+
+  const numericSuffix = raw.match(/(\d{6})$/)?.[1];
+  if (numericSuffix) return `OS ${numericSuffix}`;
+
+  const compact = raw.replace(/^LC[-_]?/i, '').replace(/[^a-z0-9]/gi, '');
+  return compact ? `OS ${compact.slice(-6)}` : 'OS';
+};
+
 const calculateItem = (item: CashRegisterItem): CashRegisterItem => {
   const quantity = Math.max(1, Number(item.quantity) || 1);
   const unitPrice = Math.max(0, Number(item.unitPrice) || 0);
@@ -107,17 +114,17 @@ const calculateItem = (item: CashRegisterItem): CashRegisterItem => {
   };
 };
 
-const fieldClass = 'w-full rounded-xl border border-slate-700/60 bg-slate-950/50 px-3 py-2 text-xs text-slate-100 outline-none transition focus:border-primary/60 focus:ring-1 focus:ring-primary/50';
-const editableCellClass = 'w-24 rounded-lg border border-slate-600/70 bg-slate-900/90 px-2 py-1.5 text-right font-bold text-white outline-none transition focus:border-primary focus:ring-1 focus:ring-primary';
-const editableTextCellClass = 'w-full min-w-72 rounded-lg border border-slate-600/70 bg-slate-900/90 px-2 py-1.5 font-bold text-white outline-none transition focus:border-primary focus:ring-1 focus:ring-primary';
-const labelClass = 'text-[10px] font-bold uppercase tracking-widest text-slate-500';
+const fieldClass = 'w-full rounded-lg border border-slate-700/60 bg-slate-950/50 px-2.5 py-1.5 text-[13px] text-slate-100 outline-none transition focus:border-primary/60 focus:ring-1 focus:ring-primary/50';
+const editableCellClass = 'w-20 rounded-md border border-slate-600/70 bg-slate-900/90 px-2 py-1.5 text-right text-[13px] font-bold text-white outline-none transition focus:border-primary focus:ring-1 focus:ring-primary';
+const editableTextCellClass = 'w-full min-w-56 rounded-md border border-slate-600/70 bg-slate-900/90 px-2 py-1.5 text-[13px] font-bold text-white outline-none transition focus:border-primary focus:ring-1 focus:ring-primary';
+const labelClass = 'text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400';
 
 export const CashRegisterView = ({
   cashLaunches,
   clients,
   products,
+  settings,
   fiscalAutoIssueEnabled = false,
-  isImportingProducts,
   isSavingLaunch,
   deleteConfirmId,
   deletingLaunchId,
@@ -125,7 +132,6 @@ export const CashRegisterView = ({
   onBack,
   onAutoIssueFiscalFromCashLaunch,
   onDeleteLaunchClick,
-  onImportProducts,
   onInitialLaunchLoaded,
   onOpenRecurringServices,
   onQuickSaveClient,
@@ -267,37 +273,22 @@ export const CashRegisterView = ({
     }
   };
 
-  const handleImport = async (event: ChangeEvent<HTMLInputElement>) => {
-    const input = event.currentTarget;
-    const file = input.files?.[0];
-    if (!file) return;
-
-    await Promise.resolve(onImportProducts(file));
-    input.value = '';
-  };
-
-  const handleBackup = () => {
-    const backup = {
-      exportedAt: new Date().toISOString(),
-      module: 'Lancamentos Caixa',
-      version: 1,
-      products,
-      cashLaunches,
-    };
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `motofix-caixa-backup-${today()}.json`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
-  };
-
   const handlePrintOrder = () => {
     const draft = buildDraft();
     const orderNumber = editingOrderNumber || 'Lancamento nao salvo';
+    const businessName = settings?.businessName?.trim();
+    const businessPhone = (settings?.businessPhone || settings?.businessWhatsapp || '').trim();
+    const businessInstagram = settings?.businessInstagram?.trim();
+    const businessAddress = settings?.businessAddress?.trim();
+    const companyLines = [
+      businessName,
+      businessPhone ? `WhatsApp: ${businessPhone}` : '',
+      businessInstagram ? `Instagram: ${businessInstagram}` : '',
+      businessAddress ? `Endereco: ${businessAddress}` : '',
+    ].filter(Boolean);
+    const companyInfo = companyLines.length
+      ? companyLines.map((line) => `<div>${escapeHtml(line)}</div>`).join('')
+      : '<div>Ordem de servico para conferencia do cliente</div>';
     const itemRows = draft.items.map((item, index) => `
       <tr>
         <td>${index + 1}</td>
@@ -324,6 +315,7 @@ export const CashRegisterView = ({
             body { font-family: Arial, sans-serif; color: #111827; margin: 32px; }
             .top { display: flex; justify-content: space-between; gap: 24px; border-bottom: 2px solid #ef4444; padding-bottom: 16px; margin-bottom: 20px; }
             .brand { font-size: 24px; font-weight: 800; color: #ef4444; }
+            .company { margin-top: 4px; line-height: 1.45; }
             .muted { color: #64748b; font-size: 12px; }
             h1 { font-size: 22px; margin: 0 0 4px; }
             .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 24px; margin: 18px 0; }
@@ -346,7 +338,7 @@ export const CashRegisterView = ({
           <div class="top">
             <div>
               <div class="brand">MotoFix</div>
-              <div class="muted">Ordem de servico para conferencia do cliente</div>
+              <div class="muted company">${companyInfo}</div>
             </div>
             <div style="text-align:right">
               <h1>${escapeHtml(orderNumber)}</h1>
@@ -393,7 +385,7 @@ export const CashRegisterView = ({
 
           <div class="sign">
             <div class="line">Assinatura do cliente</div>
-            <div class="line">Responsavel MotoFix</div>
+            <div class="line">Responsavel ${escapeHtml(businessName || 'MotoFix')}</div>
           </div>
           <script>
             window.onload = () => {
@@ -507,6 +499,14 @@ export const CashRegisterView = ({
     setWorkTab('opening');
   };
 
+  const startNewOrder = () => {
+    resetDraft();
+    setMainTab('control');
+    setWorkTab('opening');
+    setIsProductPickerOpen(false);
+    setInvoiceSuccess(null);
+  };
+
   const handleStatusChange = (nextStatus: CashRegisterLaunch['status']) => {
     setStatus(nextStatus);
     if (nextStatus !== 'Finalizado') {
@@ -560,59 +560,36 @@ export const CashRegisterView = ({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-center gap-3">
+    <div className="cash-register-view space-y-3 text-[13px]">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center gap-2.5">
           <button
             type="button"
             onClick={onBack}
-            className="grid h-10 w-10 place-items-center rounded-xl border border-slate-700/70 bg-slate-900/70 text-slate-300 transition-colors hover:border-primary/50 hover:text-white"
+            className="grid h-9 w-9 place-items-center rounded-lg border border-slate-700/70 bg-slate-900/70 text-slate-300 transition-colors hover:border-primary/50 hover:text-white"
             aria-label="Voltar"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-primary">Modulo teste</p>
-            <h2 className="text-2xl font-black tracking-tight text-white">Lancamentos Caixa</h2>
+            <h2 className="text-xl font-black tracking-tight text-white">Lancamentos Caixa</h2>
             <p className="text-xs text-slate-500">Venda rapida com cliente, mercadorias importadas e historico.</p>
           </div>
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <button
-            type="button"
-            onClick={handleBackup}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-4 py-2.5 text-xs font-bold text-slate-200 transition hover:border-primary/50 hover:text-white"
-          >
-            <Download className="h-4 w-4" />
-            Backup
-          </button>
-
-          <label className={cn(
-            'inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-2.5 text-xs font-bold text-primary transition hover:border-primary/60 hover:bg-primary/15',
-            isImportingProducts && 'pointer-events-none opacity-60'
-          )}>
-            <Upload className="h-4 w-4" />
-            {isImportingProducts ? 'Importando...' : 'Importar XLSX'}
-            <input
-              type="file"
-              accept=".xlsx"
-              className="hidden"
-              onChange={handleImport}
-              disabled={isImportingProducts}
-            />
-          </label>
-          <div className="rounded-xl border border-slate-700/60 bg-slate-900/70 px-3 py-2 text-xs text-slate-400">
+          <div className="rounded-lg border border-slate-700/60 bg-slate-900/70 px-3 py-2 text-xs text-slate-400">
             <span className="font-bold text-white">{products.length}</span> mercadoria(s)
           </div>
         </div>
       </div>
 
       {invoiceSuccess && (
-        <div className="flex flex-col gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-50 shadow-lg shadow-emerald-950/20 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-50 shadow-lg shadow-emerald-950/20 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start gap-3">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-500/20 text-emerald-300">
-              <Check className="h-5 w-5" />
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-emerald-500/20 text-emerald-300">
+              <Check className="h-4 w-4" />
             </span>
             <div>
               <p className="font-black text-white">Faturamento confirmado</p>
@@ -624,7 +601,7 @@ export const CashRegisterView = ({
           <button
             type="button"
             onClick={() => setInvoiceSuccess(null)}
-            className="rounded-xl bg-emerald-500/15 px-3 py-2 text-xs font-black uppercase tracking-wide text-emerald-100 transition hover:bg-emerald-500/25"
+            className="rounded-lg bg-emerald-500/15 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-emerald-100 transition hover:bg-emerald-500/25"
           >
             Ok
           </button>
@@ -632,18 +609,18 @@ export const CashRegisterView = ({
       )}
 
       {onOpenRecurringServices && (
-        <div className="hidden lg:grid lg:grid-cols-[minmax(0,360px)]">
+        <div className="hidden lg:grid lg:grid-cols-[minmax(0,300px)]">
           <button
             type="button"
             onClick={onOpenRecurringServices}
-            className="group flex items-center gap-3 rounded-2xl border border-primary/25 bg-primary/10 p-4 text-left shadow-lg shadow-primary/5 transition hover:border-primary/50 hover:bg-primary/15"
+            className="group flex items-center gap-3 rounded-xl border border-primary/25 bg-primary/10 p-3 text-left shadow-lg shadow-primary/5 transition hover:border-primary/50 hover:bg-primary/15"
           >
-            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-white shadow-lg shadow-primary/20">
-              <RefreshCw className="h-5 w-5" />
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary text-white shadow-lg shadow-primary/20">
+              <RefreshCw className="h-4 w-4" />
             </span>
             <span className="min-w-0">
               <span className="block text-sm font-black text-white">Recorrencia</span>
-              <span className="mt-1 block text-xs text-slate-400 group-hover:text-slate-300">
+              <span className="mt-0.5 block text-xs text-slate-400 group-hover:text-slate-300">
                 Ordens de servico e clientes recorrentes
               </span>
             </span>
@@ -651,7 +628,7 @@ export const CashRegisterView = ({
         </div>
       )}
 
-      <section className="overflow-hidden rounded-2xl border border-slate-700/60 bg-slate-900/55 shadow-2xl shadow-black/20">
+      <section className="overflow-hidden rounded-xl border border-slate-700/60 bg-slate-900/55 shadow-xl shadow-black/15">
         <div className="flex flex-wrap border-b border-slate-700/60 bg-slate-950/50">
           {[
             { id: 'control' as MainTab, label: 'Controle', icon: ReceiptText },
@@ -666,7 +643,7 @@ export const CashRegisterView = ({
                 type="button"
                 onClick={() => setMainTab(tab.id)}
                 className={cn(
-                  'inline-flex min-h-12 items-center gap-2 border-b-2 px-5 text-xs font-bold uppercase tracking-wide transition-colors',
+                  'inline-flex min-h-10 items-center gap-2 border-b-2 px-4 text-xs font-bold uppercase tracking-wide transition-colors',
                   isActive
                     ? 'border-primary bg-primary/10 text-white'
                     : 'border-transparent text-slate-400 hover:bg-slate-900 hover:text-white'
@@ -680,8 +657,8 @@ export const CashRegisterView = ({
         </div>
 
         {mainTab === 'control' && (
-          <div className="space-y-4 p-4">
-            <div className="flex flex-wrap gap-2 border-b border-slate-700/50 pb-3">
+          <div className="space-y-3 p-3">
+            <div className="flex flex-wrap gap-2 border-b border-slate-700/50 pb-2.5">
               {[
                 { id: 'opening' as WorkTab, label: 'Abertura' },
                 { id: 'items' as WorkTab, label: 'Mercadorias / Servicos' },
@@ -691,7 +668,7 @@ export const CashRegisterView = ({
                   type="button"
                   onClick={() => setWorkTab(tab.id)}
                   className={cn(
-                    'rounded-xl px-4 py-2 text-xs font-bold transition',
+                    'rounded-lg px-3 py-1.5 text-xs font-bold transition',
                     workTab === tab.id ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-slate-950/60 text-slate-400 hover:text-white'
                   )}
                 >
@@ -701,15 +678,11 @@ export const CashRegisterView = ({
             </div>
 
             {editingLaunchId && (
-              <div className="flex flex-col gap-2 rounded-2xl border border-primary/30 bg-primary/10 p-3 text-xs text-slate-200 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <p className="font-black text-white">Editando {editingOrderNumber}</p>
-                  <p className="text-slate-400">Altere itens, valores ou status e salve para atualizar este lancamento.</p>
-                </div>
+              <div className="flex justify-end">
                 <button
                   type="button"
-                  onClick={resetDraft}
-                  className="rounded-xl bg-slate-900/80 px-3 py-2 font-bold text-slate-200 transition hover:bg-slate-800"
+                  onClick={startNewOrder}
+                  className="rounded-lg bg-slate-900/80 px-3 py-1.5 text-xs font-bold text-slate-200 transition hover:bg-slate-800"
                 >
                   Novo lancamento
                 </button>
@@ -717,9 +690,9 @@ export const CashRegisterView = ({
             )}
 
             {workTab === 'opening' ? (
-              <div className="grid gap-4 2xl:grid-cols-[1fr_0.9fr]">
-                <div className="space-y-4">
-                  <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+              <div className="grid gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)] 2xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+                <div className="space-y-3">
+                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                     <div className="space-y-1">
                       <label className={labelClass}>Status</label>
                       <select value={status} onChange={(event) => handleStatusChange(event.target.value as CashRegisterLaunch['status'])} className={fieldClass}>
@@ -739,7 +712,7 @@ export const CashRegisterView = ({
                           type="button"
                           onClick={() => setIsQuickClientOpen(true)}
                           disabled={!onQuickSaveClient}
-                          className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-primary/45 bg-primary/10 text-primary transition hover:bg-primary hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-primary/45 bg-primary/10 text-primary transition hover:bg-primary hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                           title="Cadastro rapido de cliente"
                         >
                           <Plus className="h-4 w-4" />
@@ -764,18 +737,18 @@ export const CashRegisterView = ({
                     </div>
                   </div>
 
-                  <div className="grid gap-3 lg:grid-cols-[1fr_1fr]">
+                  <div className="grid gap-2 lg:grid-cols-[1fr_1fr]">
                     <div className="space-y-1">
                       <label className={labelClass}>Observacao</label>
                       <textarea
                         value={observation}
                         onChange={(event) => setObservation(event.target.value)}
-                        rows={5}
+                        rows={3}
                         placeholder="Observacoes gerais do lancamento..."
                         className={cn(fieldClass, 'resize-none')}
                       />
                     </div>
-                    <div className="grid gap-3">
+                    <div className="grid gap-2">
                       <div className="space-y-1">
                         <label className={labelClass}>Solicitacao</label>
                         <input value={request} onChange={(event) => setRequest(event.target.value)} placeholder="Pedido do cliente" className={fieldClass} />
@@ -793,38 +766,38 @@ export const CashRegisterView = ({
                       setWorkTab('items');
                       setIsProductPickerOpen(true);
                     }}
-                    className="flex min-h-28 w-full items-center justify-center gap-3 rounded-2xl border border-dashed border-primary/40 bg-primary/5 text-sm font-bold text-primary transition hover:bg-primary/10"
+                    className="flex min-h-20 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-primary/40 bg-primary/5 text-xs font-bold text-primary transition hover:bg-primary/10"
                   >
                     <PackageSearch className="h-5 w-5" />
                     Abrir mercadorias / servicos
                   </button>
                 </div>
 
-                <div className="rounded-2xl border border-slate-700/50 bg-slate-950/40 p-4">
-                  <div className="flex items-center justify-between gap-3 border-b border-slate-700/50 pb-3">
+                <div className="rounded-xl border border-slate-700/50 bg-slate-950/40 p-3">
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-700/50 pb-2">
                     <div>
                       <p className={labelClass}>Itens selecionados</p>
-                      <h3 className="text-lg font-black text-white">{items.length} item(ns)</h3>
+                      <h3 className="text-base font-black text-white">{items.length} item(ns)</h3>
                     </div>
-                    <button type="button" onClick={() => setIsProductPickerOpen(true)} className="inline-flex items-center gap-2 rounded-xl bg-primary px-3 py-2 text-xs font-bold text-white">
+                    <button type="button" onClick={() => setIsProductPickerOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-white">
                       <Plus className="h-4 w-4" />
                       Incluir
                     </button>
                   </div>
 
-                  <div className="mt-3 space-y-2">
+                  <div className="mt-2 max-h-72 space-y-2 overflow-y-auto pr-1">
                     {items.length === 0 ? (
-                      <p className="rounded-xl bg-slate-900/70 p-4 text-xs text-slate-500">Nenhuma mercadoria incluida ainda.</p>
+                      <p className="rounded-lg bg-slate-900/70 p-3 text-xs text-slate-500">Nenhuma mercadoria incluida ainda.</p>
                     ) : (
                       items.slice(0, 5).map((item) => (
-                        <div key={item.id} className="flex items-center justify-between gap-3 rounded-xl bg-slate-900/70 p-3">
+                        <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg bg-slate-900/70 p-2">
                           <div className="min-w-0">
-                            <p className="truncate text-sm font-bold text-white">{item.description}</p>
-                            <p className="text-[10px] text-slate-500">
+                            <p className="truncate text-[13px] font-bold text-white">{item.description}</p>
+                            <p className="text-xs text-slate-500">
                               Cod. {item.sourceCode} | {item.variation ? `Var. ${item.variation} | ` : ''}NCM {item.ncm || '-'}
                             </p>
                           </div>
-                          <p className="shrink-0 text-sm font-black text-primary">{compactCurrency(item.total)}</p>
+                          <p className="shrink-0 text-[13px] font-black text-primary">{compactCurrency(item.total)}</p>
                         </div>
                       ))
                     )}
@@ -832,48 +805,48 @@ export const CashRegisterView = ({
                 </div>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className={labelClass}>Mercadorias / Servicos</p>
-                    <h3 className="text-lg font-black text-white">{items.length} item(ns) no lancamento</h3>
+                    <h3 className="text-base font-black text-white">{items.length} item(ns) no lancamento</h3>
                   </div>
-                  <button type="button" onClick={() => setIsProductPickerOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-primary/20">
+                  <button type="button" onClick={() => setIsProductPickerOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-bold text-white shadow-lg shadow-primary/20">
                     <Plus className="h-4 w-4" />
                     Incluir
                   </button>
                 </div>
 
-                <div className="overflow-x-auto rounded-2xl border border-slate-700/50">
-                  <table className="min-w-[1140px] w-full text-left text-xs">
+                <div className="overflow-x-auto rounded-xl border border-slate-700/50">
+                  <table className="min-w-[1080px] w-full text-left text-[13px]">
                     <thead className="bg-primary/90 text-white">
                       <tr>
-                        <th className="px-3 py-2">Excluir</th>
-                        <th className="px-3 py-2">Codigo</th>
-                        <th className="px-3 py-2">Descricao</th>
-                        <th className="px-3 py-2">Variacao</th>
-                        <th className="px-3 py-2">Qtd</th>
-                        <th className="px-3 py-2">Unitario R$</th>
-                        <th className="px-3 py-2">Total Liquido R$</th>
-                        <th className="px-3 py-2">Data</th>
-                        <th className="px-3 py-2">Observacao</th>
+                        <th className="px-2.5 py-1.5">Excluir</th>
+                        <th className="px-2.5 py-1.5">Codigo</th>
+                        <th className="px-2.5 py-1.5">Descricao</th>
+                        <th className="px-2.5 py-1.5">Variacao</th>
+                        <th className="px-2.5 py-1.5">Qtd</th>
+                        <th className="px-2.5 py-1.5">Unitario R$</th>
+                        <th className="px-2.5 py-1.5">Total Liquido R$</th>
+                        <th className="px-2.5 py-1.5">Data</th>
+                        <th className="px-2.5 py-1.5">Observacao</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800 bg-slate-950/40">
                       {items.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="px-3 py-10 text-center text-slate-500">Clique em Incluir para pesquisar uma mercadoria importada.</td>
+                          <td colSpan={9} className="px-3 py-8 text-center text-slate-500">Clique em Incluir para pesquisar uma mercadoria importada.</td>
                         </tr>
                       ) : (
                         items.map((item) => (
                           <tr key={item.id} className="hover:bg-slate-900/70">
-                            <td className="px-3 py-2">
-                              <button type="button" onClick={() => setItems((current) => current.filter((row) => row.id !== item.id))} className="rounded-lg bg-red-500/10 p-2 text-red-400 hover:bg-red-500/20">
+                            <td className="px-2.5 py-1.5">
+                              <button type="button" onClick={() => setItems((current) => current.filter((row) => row.id !== item.id))} className="rounded-md bg-red-500/10 p-1.5 text-red-400 hover:bg-red-500/20">
                                 <Trash2 className="h-4 w-4" />
                               </button>
                             </td>
-                            <td className="px-3 py-2 font-bold text-slate-300">{item.sourceCode}</td>
-                            <td className="max-w-md px-3 py-2">
+                            <td className="px-2.5 py-1.5 font-bold text-slate-300">{item.sourceCode}</td>
+                            <td className="min-w-[16rem] max-w-sm px-2.5 py-1.5">
                               <input
                                 value={item.description}
                                 onChange={(event) => updateItem(item.id, { description: event.target.value })}
@@ -881,33 +854,33 @@ export const CashRegisterView = ({
                                 title="Editar nome/descricao do item"
                               />
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="px-2.5 py-1.5">
                               <input
                                 value={item.variation || ''}
                                 onChange={(event) => updateItem(item.id, { variation: event.target.value })}
-                                className="w-40 rounded-lg border border-slate-600/70 bg-slate-900/90 px-2 py-1.5 font-bold text-white outline-none transition focus:border-primary focus:ring-1 focus:ring-primary"
+                                className="w-36 rounded-md border border-slate-600/70 bg-slate-900/90 px-2 py-1.5 text-[13px] font-bold text-white outline-none transition focus:border-primary focus:ring-1 focus:ring-primary"
                                 placeholder="Marca/modelo"
                               />
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="px-2.5 py-1.5">
                               <input
                                 type="number"
                                 min="1"
                                 step="1"
                                 value={item.quantity}
                                 onChange={(event) => updateItemQuantity(item.id, event.target.value)}
-                                className={cn(editableCellClass, 'w-20')}
+                                className={editableCellClass}
                               />
                             </td>
-                            <td className="px-3 py-2">
+                            <td className="px-2.5 py-1.5">
                               <input value={String(item.unitPrice)} onChange={(event) => updateItem(item.id, { unitPrice: parseNumber(event.target.value) })} className={editableCellClass} />
                             </td>
-                            <td className="px-3 py-2 text-right font-black text-primary">{compactCurrency(item.total)}</td>
-                            <td className="px-3 py-2">
-                              <input type="date" value={item.date} onChange={(event) => updateItem(item.id, { date: event.target.value })} className="w-36 rounded-lg bg-slate-900 px-2 py-1.5 outline-none focus:ring-1 focus:ring-primary" />
+                            <td className="px-2.5 py-1.5 text-right font-black text-primary">{compactCurrency(item.total)}</td>
+                            <td className="px-2.5 py-1.5">
+                              <input type="date" value={item.date} onChange={(event) => updateItem(item.id, { date: event.target.value })} className="w-36 rounded-md bg-slate-900 px-2 py-1.5 text-[13px] outline-none focus:ring-1 focus:ring-primary" />
                             </td>
-                            <td className="px-3 py-2">
-                              <input value={item.note || ''} onChange={(event) => updateItem(item.id, { note: event.target.value })} placeholder="Obs." className="w-44 rounded-lg bg-slate-900 px-2 py-1.5 outline-none focus:ring-1 focus:ring-primary" />
+                            <td className="px-2.5 py-1.5">
+                              <input value={item.note || ''} onChange={(event) => updateItem(item.id, { note: event.target.value })} placeholder="Obs." className="w-40 rounded-md bg-slate-900 px-2 py-1.5 text-[13px] outline-none focus:ring-1 focus:ring-primary" />
                             </td>
                           </tr>
                         ))
@@ -918,7 +891,7 @@ export const CashRegisterView = ({
               </div>
             )}
 
-            <div className="grid gap-3 border-t border-slate-700/50 pt-4 lg:grid-cols-[auto_minmax(240px,320px)_1fr_auto] lg:items-end">
+            <div className="grid gap-3 border-t border-slate-700/50 pt-3 xl:grid-cols-[auto_minmax(220px,300px)_1fr_auto] xl:items-end">
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <SummaryBox label="Mercadorias R$" value={compactCurrency(totals.merchandiseGross)} />
                 <SummaryBox label="Servicos R$" value={compactCurrency(totals.servicesTotal)} />
@@ -926,11 +899,11 @@ export const CashRegisterView = ({
                 <SummaryBox label="Total R$" value={compactCurrency(totals.total)} accent />
               </div>
 
-              <div className="rounded-xl border border-slate-700/50 bg-slate-950/40 p-3">
+              <div className="rounded-lg border border-slate-700/50 bg-slate-950/40 p-2.5">
                 <p className={labelClass}>Desconto do lancamento</p>
-                <div className="mt-2 grid grid-cols-2 gap-2">
+                <div className="mt-1.5 grid grid-cols-2 gap-2">
                   <label className="space-y-1">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Valor R$</span>
+                    <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Valor R$</span>
                     <input
                       value={orderDiscountValueInput}
                       onChange={(event) => setOrderDiscountValueInput(event.target.value)}
@@ -939,7 +912,7 @@ export const CashRegisterView = ({
                     />
                   </label>
                   <label className="space-y-1">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Percentual</span>
+                    <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Percentual</span>
                     <input
                       value={orderDiscountPercentInput}
                       onChange={(event) => setOrderDiscountPercentInput(event.target.value)}
@@ -948,33 +921,33 @@ export const CashRegisterView = ({
                     />
                   </label>
                 </div>
-                <p className="mt-2 text-[10px] text-slate-500">
+                <p className="mt-1.5 text-[11px] text-slate-500">
                   Aplicado no total dos itens: {compactCurrency(totals.orderDiscountTotal)}.
                 </p>
               </div>
 
-              <div className="hidden lg:block" />
+              <div className="hidden xl:block" />
 
               <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
                 {status === 'Finalizado' && (
                   <ActionButton label="Faturar" onClick={() => void handleSave('Finalizado', true)} disabled={isSavingLaunch} />
                 )}
                 <ActionButton label="Imprimir" icon={<Printer className="h-4 w-4" />} onClick={handlePrintOrder} />
-                <ActionButton label="Incluir" icon={<Plus className="h-4 w-4" />} onClick={() => setIsProductPickerOpen(true)} />
+                <ActionButton label="Nova O.S" icon={<Plus className="h-4 w-4" />} onClick={startNewOrder} />
                 <ActionButton label={isSavingLaunch ? 'Salvando...' : editingLaunchId ? 'Atualizar' : 'Salvar'} icon={<Save className="h-4 w-4" />} onClick={() => void handleSave()} disabled={isSavingLaunch} primary />
-                <ActionButton label="Fechar" icon={<X className="h-4 w-4" />} onClick={onBack} />
+                <ActionButton label="Fechar" icon={<X className="h-4 w-4" />} onClick={startNewOrder} />
               </div>
             </div>
           </div>
         )}
 
         {mainTab === 'history' && (
-          <div className="space-y-4 p-4">
+          <div className="space-y-3 p-3">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p className={labelClass}>Historico</p>
-                <h3 className="text-xl font-black text-white">{filteredLaunches.length} lancamento(s)</h3>
-                <p className="text-[10px] text-slate-500">Clique em uma linha para editar, dar baixa ou finalizar.</p>
+                <h3 className="text-lg font-black text-white">{filteredLaunches.length} lancamento(s)</h3>
+                <p className="text-xs text-slate-500">Clique em uma linha para editar, dar baixa ou finalizar.</p>
               </div>
               <div className="relative w-full lg:w-96">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
@@ -982,25 +955,25 @@ export const CashRegisterView = ({
               </div>
             </div>
 
-            <div className="overflow-x-auto rounded-2xl border border-slate-700/50">
-              <table className="min-w-[980px] w-full table-fixed text-left text-xs">
+            <div className="overflow-x-auto rounded-xl border border-slate-700/50">
+              <table className="min-w-[1000px] w-full table-fixed text-left text-[13px]">
                 <thead className="bg-primary/90 text-white">
                   <tr>
-                    <th className="w-44 px-3 py-2">O.S.</th>
-                    <th className="w-48 px-3 py-2">Cliente</th>
-                    <th className="w-28 px-3 py-2">Abertura</th>
-                    <th className="w-28 px-3 py-2">Prevista</th>
-                    <th className="w-36 px-3 py-2">Status</th>
-                    <th className="w-32 px-3 py-2">Placa/Moto</th>
-                    <th className="w-32 px-3 py-2 text-right">Total R$</th>
-                    <th className="w-24 px-3 py-2 text-center">Faturado</th>
-                    <th className="w-44 px-3 py-2 text-right">Acao</th>
+                    <th className="w-24 px-2.5 py-1.5">O.S.</th>
+                    <th className="w-44 px-2.5 py-1.5">Cliente</th>
+                    <th className="w-24 px-2.5 py-1.5">Abertura</th>
+                    <th className="w-24 px-2.5 py-1.5">Prevista</th>
+                    <th className="w-32 px-2.5 py-1.5">Status</th>
+                    <th className="w-28 px-2.5 py-1.5">Placa/Moto</th>
+                    <th className="w-28 px-2.5 py-1.5 text-right">Total R$</th>
+                    <th className="w-20 px-2.5 py-1.5 text-center">Faturado</th>
+                    <th className="w-40 px-2.5 py-1.5 text-right">Acao</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800 bg-slate-950/40">
                   {filteredLaunches.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-3 py-10 text-center text-slate-500">Nenhum lancamento salvo ainda.</td>
+                      <td colSpan={9} className="px-3 py-8 text-center text-slate-500">Nenhum lancamento salvo ainda.</td>
                     </tr>
                   ) : (
                     filteredLaunches.map((launch) => (
@@ -1010,17 +983,19 @@ export const CashRegisterView = ({
                         className="cursor-pointer hover:bg-slate-900/70"
                         title="Clique para editar este lancamento"
                       >
-                        <td className="truncate px-3 py-2 font-black text-primary">{launch.orderNumber}</td>
-                        <td className="truncate px-3 py-2 font-bold text-white">{launch.clientName}</td>
-                        <td className="px-3 py-2 text-slate-300">{safeFormat(launch.openingDate)}</td>
-                        <td className="px-3 py-2 text-slate-300">{safeFormat(launch.expectedDate)}</td>
-                        <td className="px-3 py-2">
-                          <span className="rounded-full bg-slate-800 px-2 py-1 text-[10px] font-bold text-slate-200">{launch.status}</span>
+                        <td className="truncate px-2.5 py-1.5 font-black text-primary" title={launch.orderNumber}>
+                          {formatShortOrderNumber(launch.orderNumber)}
                         </td>
-                        <td className="truncate px-3 py-2 text-slate-400">{launch.bikeModel || '-'}</td>
-                        <td className="px-3 py-2 text-right font-black text-white">{compactCurrency(launch.total)}</td>
-                        <td className="px-3 py-2 text-center">{launch.status === 'Finalizado' && launch.invoiced ? <Check className="mx-auto h-4 w-4 text-emerald-400" /> : '-'}</td>
-                        <td className="px-3 py-2 text-right">
+                        <td className="truncate px-2.5 py-1.5 font-bold text-white">{launch.clientName}</td>
+                        <td className="px-2.5 py-1.5 text-slate-300">{safeFormat(launch.openingDate)}</td>
+                        <td className="px-2.5 py-1.5 text-slate-300">{safeFormat(launch.expectedDate)}</td>
+                        <td className="px-2.5 py-1.5">
+                          <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-bold text-slate-200">{launch.status}</span>
+                        </td>
+                        <td className="truncate px-2.5 py-1.5 text-slate-400">{launch.bikeModel || '-'}</td>
+                        <td className="px-2.5 py-1.5 text-right font-black text-white">{compactCurrency(launch.total)}</td>
+                        <td className="px-2.5 py-1.5 text-center">{launch.status === 'Finalizado' && launch.invoiced ? <Check className="mx-auto h-4 w-4 text-emerald-400" /> : '-'}</td>
+                        <td className="px-2.5 py-1.5 text-right">
                           <div className="flex justify-end gap-2">
                             <button
                               type="button"
@@ -1029,11 +1004,11 @@ export const CashRegisterView = ({
                                 event.stopPropagation();
                                 onDeleteLaunchClick(launch);
                               }}
-                              className="rounded-xl bg-red-500/10 px-3 py-1.5 text-[10px] font-black uppercase text-red-300 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="rounded-lg bg-red-500/10 px-2.5 py-1 text-[11px] font-black uppercase text-red-300 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               {deletingLaunchId === launch.id ? 'Excluindo' : deleteConfirmId === launch.id ? 'Confirmar' : 'Excluir'}
                             </button>
-                            <span className="rounded-xl bg-primary/10 px-3 py-1.5 text-[10px] font-black uppercase text-primary">Editar</span>
+                            <span className="rounded-lg bg-primary/10 px-2.5 py-1 text-[11px] font-black uppercase text-primary">Editar</span>
                           </div>
                         </td>
                       </tr>
@@ -1046,11 +1021,11 @@ export const CashRegisterView = ({
         )}
 
         {mainTab === 'monitoring' && (
-          <div className="space-y-4 p-4">
+          <div className="space-y-3 p-3">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p className={labelClass}>Monitoramento</p>
-                <h3 className="text-xl font-black text-white">{monitoredLaunches.length} ordem(ns)</h3>
+                <h3 className="text-lg font-black text-white">{monitoredLaunches.length} ordem(ns)</h3>
                 <p className="text-xs text-slate-500">Filtre por status e clique em uma ordem para editar.</p>
               </div>
 
@@ -1066,7 +1041,7 @@ export const CashRegisterView = ({
                     type="button"
                     onClick={() => setMonitoringStatusFilter(filter.id)}
                     className={cn(
-                      'rounded-xl px-3 py-2 text-[10px] font-black uppercase transition',
+                      'rounded-lg px-3 py-1.5 text-[11px] font-black uppercase transition',
                       monitoringStatusFilter === filter.id
                         ? 'bg-primary text-white shadow-lg shadow-primary/20'
                         : 'bg-slate-950/60 text-slate-400 hover:bg-slate-900 hover:text-white'
@@ -1078,10 +1053,10 @@ export const CashRegisterView = ({
               </div>
             </div>
 
-            <div className="grid gap-4 2xl:grid-cols-[0.45fr_1fr]">
-              <div className="rounded-2xl border border-slate-700/50 bg-slate-950/40 p-4">
+            <div className="grid gap-3 xl:grid-cols-[minmax(220px,0.35fr)_minmax(0,1fr)]">
+              <div className="rounded-xl border border-slate-700/50 bg-slate-950/40 p-3">
                 <p className={labelClass}>Resumo</p>
-                <h3 className="mt-1 text-2xl font-black text-white">{monitoredLaunches.length}</h3>
+                <h3 className="mt-1 text-xl font-black text-white">{monitoredLaunches.length}</h3>
                 <p className="text-xs text-slate-500">
                   {monitoringStatusFilter === 'all'
                     ? 'Lancamentos em todos os status.'
@@ -1091,22 +1066,24 @@ export const CashRegisterView = ({
 
               <div className="space-y-2">
                 {monitoredLaunches.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-slate-700/50 p-6 text-center text-xs text-slate-500">Nenhuma ordem neste filtro.</div>
+                  <div className="rounded-xl border border-dashed border-slate-700/50 p-5 text-center text-xs text-slate-500">Nenhuma ordem neste filtro.</div>
                 ) : (
                   monitoredLaunches.map((launch) => (
                     <button
                       key={launch.id}
                       type="button"
                       onClick={() => loadLaunchForEdit(launch)}
-                      className="flex w-full flex-col gap-2 rounded-2xl border border-slate-700/50 bg-slate-950/40 p-4 text-left transition hover:border-primary/40 hover:bg-slate-900/70 sm:flex-row sm:items-center sm:justify-between"
+                      className="flex w-full flex-col gap-2 rounded-xl border border-slate-700/50 bg-slate-950/40 p-3 text-left transition hover:border-primary/40 hover:bg-slate-900/70 sm:flex-row sm:items-center sm:justify-between"
                     >
                       <div>
                         <p className="text-sm font-black text-white">{launch.clientName}</p>
-                        <p className="text-[10px] text-slate-500">{launch.orderNumber} | {safeFormat(launch.createdAt, 'dd/MM/yyyy HH:mm')}</p>
+                        <p className="text-xs text-slate-500">
+                          <span title={launch.orderNumber}>{formatShortOrderNumber(launch.orderNumber)}</span> | {safeFormat(launch.createdAt, 'dd/MM/yyyy HH:mm')}
+                        </p>
                       </div>
                       <div className="text-left sm:text-right">
                         <p className="text-sm font-black text-primary">{compactCurrency(launch.total)}</p>
-                        <p className="text-[10px] font-bold uppercase text-slate-500">{launch.status}</p>
+                        <p className="text-xs font-bold uppercase text-slate-500">{launch.status}</p>
                       </div>
                     </button>
                   ))
@@ -1119,23 +1096,23 @@ export const CashRegisterView = ({
 
       {isQuickClientOpen && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-700 bg-slate-950 p-4 shadow-2xl shadow-black">
-            <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3">
+          <div className="w-full max-w-lg rounded-xl border border-slate-700 bg-slate-950 p-3 shadow-2xl shadow-black">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-2.5">
               <div>
                 <p className={labelClass}>Cadastro rapido</p>
-                <h3 className="text-xl font-black text-white">Novo cliente</h3>
+                <h3 className="text-lg font-black text-white">Novo cliente</h3>
                 <p className="mt-1 text-xs text-slate-500">Use para lancar sem sair do caixa.</p>
               </div>
               <button
                 type="button"
                 onClick={resetQuickClientForm}
-                className="grid h-10 w-10 place-items-center rounded-xl bg-slate-900 text-slate-400 hover:text-white"
+                className="grid h-8 w-8 place-items-center rounded-lg bg-slate-900 text-slate-400 hover:text-white"
               >
-                <X className="h-5 w-5" />
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="mt-4 grid gap-3">
+            <div className="mt-3 grid gap-2.5">
               <label className="space-y-1">
                 <span className={labelClass}>Nome do cliente</span>
                 <input
@@ -1146,7 +1123,7 @@ export const CashRegisterView = ({
                   placeholder="Ex: Joao Silva"
                 />
               </label>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-2.5 sm:grid-cols-2">
                 <label className="space-y-1">
                   <span className={labelClass}>WhatsApp</span>
                   <input
@@ -1168,11 +1145,11 @@ export const CashRegisterView = ({
               </div>
             </div>
 
-            <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
               <button
                 type="button"
                 onClick={resetQuickClientForm}
-                className="rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-bold text-slate-200 transition hover:bg-slate-700"
+                className="rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-slate-200 transition hover:bg-slate-700"
               >
                 Cancelar
               </button>
@@ -1180,7 +1157,7 @@ export const CashRegisterView = ({
                 type="button"
                 onClick={() => void handleQuickClientSave()}
                 disabled={!quickClientForm.name.trim() || isSavingQuickClient}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-primary/20 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-bold text-white shadow-lg shadow-primary/20 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Plus className="h-4 w-4" />
                 {isSavingQuickClient ? 'Salvando...' : 'Cadastrar e usar'}
@@ -1192,18 +1169,18 @@ export const CashRegisterView = ({
 
       {isProductPickerOpen && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm">
-          <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl shadow-black">
-            <div className="flex flex-col gap-3 border-b border-slate-800 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-950 shadow-2xl shadow-black">
+            <div className="flex flex-col gap-3 border-b border-slate-800 p-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className={labelClass}>Pesquisa de Mercadoria</p>
-                <h3 className="text-xl font-black text-white">Selecionar variacao</h3>
+                <h3 className="text-lg font-black text-white">Selecionar variacao</h3>
               </div>
-              <button type="button" onClick={() => setIsProductPickerOpen(false)} className="grid h-10 w-10 place-items-center rounded-xl bg-slate-900 text-slate-400 hover:text-white">
-                <X className="h-5 w-5" />
+              <button type="button" onClick={() => setIsProductPickerOpen(false)} className="grid h-8 w-8 place-items-center rounded-lg bg-slate-900 text-slate-400 hover:text-white">
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="grid gap-3 border-b border-slate-800 p-4 lg:grid-cols-[1fr_auto_auto] lg:items-end">
+            <div className="grid gap-2.5 border-b border-slate-800 p-3 lg:grid-cols-[1fr_auto] lg:items-end">
               <div className="space-y-1">
                 <label className={labelClass}>Pesquisa</label>
                 <div className="relative">
@@ -1211,50 +1188,45 @@ export const CashRegisterView = ({
                   <input autoFocus value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="Ex: PATIN, filtro, oleo..." className={cn(fieldClass, 'pl-9')} />
                 </div>
               </div>
-              <label className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-xs font-bold text-slate-200 hover:border-primary/50">
-                <FileSpreadsheet className="h-4 w-4" />
-                Trocar XLSX
-                <input type="file" accept=".xlsx" className="hidden" onChange={handleImport} disabled={isImportingProducts} />
-              </label>
-              <button type="button" onClick={() => setProductSearch('')} className="rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-bold text-slate-300 hover:bg-slate-800">
+              <button type="button" onClick={() => setProductSearch('')} className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-slate-300 hover:bg-slate-800">
                 Limpar
               </button>
             </div>
 
-            <div className="flex-1 overflow-auto p-4">
-              <div className="min-w-[940px] overflow-hidden rounded-2xl border border-slate-800">
-                <table className="w-full text-left text-xs">
+            <div className="flex-1 overflow-auto p-3">
+              <div className="min-w-[920px] overflow-hidden rounded-xl border border-slate-800">
+                <table className="w-full text-left text-[13px]">
                   <thead className="bg-primary/90 text-white">
                     <tr>
-                      <th className="px-3 py-2">Codigo</th>
-                      <th className="px-3 py-2">Descricao</th>
-                      <th className="px-3 py-2">Variacao</th>
-                      <th className="px-3 py-2">NCM</th>
-                      <th className="px-3 py-2 text-right">Venda R$</th>
-                      <th className="px-3 py-2 text-right">Acao</th>
+                      <th className="px-2.5 py-1.5">Codigo</th>
+                      <th className="px-2.5 py-1.5">Descricao</th>
+                      <th className="px-2.5 py-1.5">Variacao</th>
+                      <th className="px-2.5 py-1.5">NCM</th>
+                      <th className="px-2.5 py-1.5 text-right">Venda R$</th>
+                      <th className="px-2.5 py-1.5 text-right">Acao</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800 bg-slate-950/40">
                     {products.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-3 py-10 text-center text-slate-500">
+                        <td colSpan={6} className="px-3 py-8 text-center text-slate-500">
                           Importe a planilha XLSX para carregar Descricao, Variacao, NCM e Venda R$.
                         </td>
                       </tr>
                     ) : productPickerRows.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-3 py-10 text-center text-slate-500">Nenhuma mercadoria encontrada para esta busca.</td>
+                        <td colSpan={6} className="px-3 py-8 text-center text-slate-500">Nenhuma mercadoria encontrada para esta busca.</td>
                       </tr>
                     ) : (
                       productPickerRows.map(({ id, product, variation }) => (
                         <tr key={id} className="hover:bg-slate-900/70">
-                          <td className="px-3 py-2 font-bold text-slate-300">{product.sourceCode}</td>
-                          <td className="px-3 py-2 font-bold text-white">{product.description}</td>
-                          <td className="px-3 py-2 text-slate-400">{variation?.name || product.variation || '-'}</td>
-                          <td className="px-3 py-2 text-slate-400">{product.ncm || '-'}</td>
-                          <td className="px-3 py-2 text-right font-black text-primary">{compactCurrency(Number(variation?.salePrice ?? product.salePrice ?? 0))}</td>
-                          <td className="px-3 py-2 text-right">
-                            <button type="button" onClick={() => addProduct(product, variation)} className="rounded-xl bg-primary px-3 py-2 text-[10px] font-black uppercase text-white hover:bg-primary/90">
+                          <td className="px-2.5 py-1.5 font-bold text-slate-300">{product.sourceCode}</td>
+                          <td className="px-2.5 py-1.5 font-bold text-white">{product.description}</td>
+                          <td className="px-2.5 py-1.5 text-slate-400">{variation?.name || product.variation || '-'}</td>
+                          <td className="px-2.5 py-1.5 text-slate-400">{product.ncm || '-'}</td>
+                          <td className="px-2.5 py-1.5 text-right font-black text-primary">{compactCurrency(Number(variation?.salePrice ?? product.salePrice ?? 0))}</td>
+                          <td className="px-2.5 py-1.5 text-right">
+                            <button type="button" onClick={() => addProduct(product, variation)} className="rounded-lg bg-primary px-3 py-1.5 text-[11px] font-black uppercase text-white hover:bg-primary/90">
                               Selecionar
                             </button>
                           </td>
@@ -1265,7 +1237,7 @@ export const CashRegisterView = ({
                 </table>
               </div>
               {products.length > 80 && (
-                <p className="mt-3 text-[10px] text-slate-500">Mostrando ate 80 resultados. Use a pesquisa para filtrar mais rapido.</p>
+                <p className="mt-3 text-xs text-slate-500">Mostrando ate 80 resultados. Use a pesquisa para filtrar mais rapido.</p>
               )}
             </div>
           </div>
@@ -1276,7 +1248,7 @@ export const CashRegisterView = ({
 };
 
 const SummaryBox = ({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) => (
-  <div className={cn('rounded-xl border border-slate-700/50 bg-slate-950/50 px-3 py-2', accent && 'border-primary/40 bg-primary/10')}>
+  <div className={cn('rounded-lg border border-slate-700/50 bg-slate-950/50 px-2.5 py-1.5', accent && 'border-primary/40 bg-primary/10')}>
     <p className="text-[10px] font-bold text-slate-500">{label}</p>
     <p className={cn('text-sm font-black', accent ? 'text-primary' : 'text-white')}>{value}</p>
   </div>
@@ -1300,7 +1272,7 @@ const ActionButton = ({
     disabled={disabled}
     onClick={onClick}
     className={cn(
-      'inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-bold transition',
+      'inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition',
       primary ? 'bg-primary text-white hover:bg-primary/90' : 'bg-slate-800 text-slate-200 hover:bg-slate-700',
       disabled && 'cursor-not-allowed opacity-45 hover:bg-slate-800'
     )}

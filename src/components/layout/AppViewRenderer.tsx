@@ -32,6 +32,7 @@ import type { useServiceTypeActions } from '../../hooks/useServiceTypeActions';
 import type { useSettingsActions } from '../../hooks/useSettingsActions';
 import type { useWarrantyActions } from '../../hooks/useWarrantyActions';
 import type { useWhatsAppReminderActions } from '../../hooks/useWhatsAppReminderActions';
+import { downloadProductsWorkbook } from '../../services/productSpreadsheet';
 
 const AdminView = lazy(() => import('../admin/AdminView').then((module) => ({ default: module.AdminView })));
 const AppointmentsView = lazy(() => import('../appointments/AppointmentsView').then((module) => ({ default: module.AppointmentsView })));
@@ -53,6 +54,7 @@ const ProductsView = lazy(() => import('../products/ProductsView').then((module)
 const ReportView = lazy(() => import('../dashboard/ReportView').then((module) => ({ default: module.ReportView })));
 const ReturnsView = lazy(() => import('../returns/ReturnsView').then((module) => ({ default: module.ReturnsView })));
 const SettingsView = lazy(() => import('../settings/SettingsView').then((module) => ({ default: module.SettingsView })));
+const WhatsAppView = lazy(() => import('../whatsapp/WhatsAppView').then((module) => ({ default: module.WhatsAppView })));
 const WarrantiesView = lazy(() => import('../warranties/WarrantiesView').then((module) => ({ default: module.WarrantiesView })));
 const WarrantyForm = lazy(() => import('../Forms/WarrantyForm').then((module) => ({ default: module.WarrantyForm })));
 
@@ -256,10 +258,6 @@ export const AppViewRenderer = ({
           topServicesData={topServicesData}
           expandedTopService={expandedTopService}
           onViewChange={setView}
-          onQuickServiceRegister={() => {
-            clientForm.startNewClient();
-            setView('new-client');
-          }}
           onNewClient={() => {
             clientForm.startScheduleClient();
             setView('clients-schedule-add');
@@ -375,15 +373,14 @@ export const AppViewRenderer = ({
           cashLaunches={cashLaunches}
           clients={clients}
           products={productCatalog}
+          settings={settings}
           fiscalAutoIssueEnabled={fiscalCompanies.some((company) => company.autoIssueFromCashLaunch && company.nfseEnabled)}
-          isImportingProducts={cashRegisterActions.isImportingProducts}
           isSavingLaunch={cashRegisterActions.isSavingLaunch}
           deleteConfirmId={getDeleteConfirmId('cashLaunch')}
           deletingLaunchId={cashRegisterActions.deletingLaunchId}
           initialLaunchId={cashLaunchToOpenId}
           onBack={() => setView('clients')}
           onOpenRecurringServices={() => setView('clients')}
-          onImportProducts={cashRegisterActions.importProductsWorkbook}
           onInitialLaunchLoaded={() => setCashLaunchToOpenId(null)}
           onQuickSaveClient={clientActions.quickCreateClient}
           onSaveLaunch={cashRegisterActions.saveLaunch}
@@ -404,11 +401,9 @@ export const AppViewRenderer = ({
       {view === 'products' && (
         <ProductsView
           products={productCatalog}
-          isImportingProducts={productActions.isImportingProducts}
           isSavingProduct={productActions.isSavingProduct}
           deletingProductId={productActions.deletingProductId}
           deleteConfirmId={getDeleteConfirmId('product')}
-          onImportProducts={productActions.importProductsWorkbook}
           onSaveProduct={productActions.saveProduct}
           onDeleteProductClick={(product) => {
             confirmOrRequestDelete('product', product.id, () => {
@@ -434,6 +429,10 @@ export const AppViewRenderer = ({
           onSaveCompany={fiscalActions.saveCompany}
           onSyncInvoice={fiscalActions.syncInvoice}
         />
+      )}
+
+      {view === 'whatsapp' && (
+        <WhatsAppView />
       )}
 
       {view === 'appointments' && (
@@ -543,10 +542,8 @@ export const AppViewRenderer = ({
 
       {view === 'general-report' && (
         <GeneralReportView
-          activeWarrantiesCount={activeWarrantiesCount}
-          cashFlowStats={cashFlowStats}
+          cashLaunches={cashLaunches}
           clients={clients}
-          dashboardStats={dashboardStats}
           maintenances={dashboardMaintenances}
           expenses={expenseEntries}
           warranties={warranties}
@@ -584,6 +581,7 @@ export const AppViewRenderer = ({
       {view === 'settings' && (
         <SettingsView
           clientsCount={clients.length}
+          productsCount={productCatalog.length}
           userEmail={userEmail}
           userProfile={userProfile}
           settings={settings}
@@ -596,6 +594,9 @@ export const AppViewRenderer = ({
           onExportClientsBackup={clientActions.exportClientsBackup}
           onImportClientsBackup={clientActions.importClientsBackup}
           isImportingClients={clientActions.isImportingClients}
+          onExportProductsBackup={() => downloadProductsWorkbook(productCatalog)}
+          onImportProductsBackup={productActions.importProductsWorkbook}
+          isImportingProducts={productActions.isImportingProducts}
         />
       )}
 

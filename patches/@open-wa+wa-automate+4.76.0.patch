@@ -1,0 +1,38 @@
+diff --git a/node_modules/@open-wa/wa-automate/dist/controllers/initializer.js b/node_modules/@open-wa/wa-automate/dist/controllers/initializer.js
+index 86c6d3a..e9a5085 100644
+--- a/node_modules/@open-wa/wa-automate/dist/controllers/initializer.js
++++ b/node_modules/@open-wa/wa-automate/dist/controllers/initializer.js
+@@ -132,6 +132,7 @@ function create(config = {}) {
+             config.chromiumArgs = (config === null || config === void 0 ? void 0 : config.chromiumArgs) || [];
+             customUserAgent = config.customUserAgent;
+         }
++        customUserAgent = (config === null || config === void 0 ? void 0 : config.customUserAgent) || customUserAgent;
+         if (sessionId === '' || (config === null || config === void 0 ? void 0 : config.sessionId))
+             sessionId = (config === null || config === void 0 ? void 0 : config.sessionId) || 'session';
+         const prettyFont = cfonts_1.default.render(('@OPEN-WA|WHATSAPP|AUTOMATOR'), {
+@@ -205,7 +206,24 @@ function create(config = {}) {
+                         yield (0, exports.screenshot)(waPage);
+                 }));
+             const WA_AUTOMATE_VERSION = `${exports.pkg.version}${(notifier === null || notifier === void 0 ? void 0 : notifier.update) && ((notifier === null || notifier === void 0 ? void 0 : notifier.update.latest) !== exports.pkg.version) ? ` UPDATE AVAILABLE: ${notifier === null || notifier === void 0 ? void 0 : notifier.update.latest}` : ''}`;
+-            yield waPage.waitForFunction('window.Debug!=undefined && window.Debug.VERSION!=undefined && require');
++            yield waPage.waitForFunction(`(() => {
++                if (window.Debug && window.Debug.VERSION && typeof require !== "undefined")
++                    return true;
++                if (typeof require === "undefined")
++                    return false;
++                try {
++                    const debugModule = require("__debug");
++                    const version = (debugModule && (debugModule.VERSION || debugModule.Debug && debugModule.Debug.VERSION)) || "unknown";
++                    window.Debug = window.Debug || {};
++                    window.Debug.VERSION = window.Debug.VERSION || version;
++                    return true;
++                }
++                catch (error) {
++                    window.Debug = window.Debug || {};
++                    window.Debug.VERSION = window.Debug.VERSION || "unknown";
++                    return true;
++                }
++            })()`);
+             //@ts-ignore
+             const WA_VERSION = yield waPage.evaluate(() => window.Debug ? window.Debug.VERSION : 'I think you have been TOS_BLOCKed');
+             const canInjectEarly = yield (0, patch_manager_1.earlyInjectionCheck)(waPage);

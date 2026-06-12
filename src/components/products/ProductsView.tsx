@@ -1,15 +1,13 @@
-import { useMemo, useRef, useState } from 'react';
-import { PackagePlus, Pencil, Plus, Save, Search, Trash2, Upload, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { PackagePlus, Pencil, Plus, Save, Search, Trash2, X } from 'lucide-react';
 import { cn, safeFormat } from '../../lib/utils';
 import type { ProductCatalogFormInput, ProductCatalogItem, ProductCatalogVariation } from '../../types';
 
 type ProductsViewProps = {
   products: ProductCatalogItem[];
-  isImportingProducts: boolean;
   isSavingProduct: boolean;
   deletingProductId?: string | null;
   deleteConfirmId?: string | null;
-  onImportProducts: (file: File) => Promise<number> | number;
   onSaveProduct: (input: ProductCatalogFormInput, productId?: string) => Promise<boolean> | boolean;
   onDeleteProductClick: (product: ProductCatalogItem) => void;
 };
@@ -43,15 +41,12 @@ const makeVariationId = (name: string) => (
 
 export const ProductsView = ({
   products,
-  isImportingProducts,
   isSavingProduct,
   deletingProductId,
   deleteConfirmId,
-  onImportProducts,
   onSaveProduct,
   onDeleteProductClick,
 }: ProductsViewProps) => {
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [search, setSearch] = useState('');
   const [editingProductId, setEditingProductId] = useState<string | undefined>();
   const [form, setForm] = useState<ProductCatalogFormInput>(emptyForm);
@@ -140,14 +135,6 @@ export const ProductsView = ({
     updateForm({ variations: (form.variations || []).filter((variation) => variation.id !== variationId) });
   };
 
-  const handleImportFile = async (file?: File) => {
-    if (!file) return;
-    await onImportProducts(file);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
   const handleSave = async () => {
     const saved = await onSaveProduct({
       ...form,
@@ -160,7 +147,7 @@ export const ProductsView = ({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="light-readable-view space-y-5">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.28em] text-primary">Catalogo</p>
@@ -169,22 +156,6 @@ export const ProductsView = ({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx"
-            className="hidden"
-            onChange={(event) => void handleImportFile(event.target.files?.[0])}
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isImportingProducts}
-            className="inline-flex items-center gap-2 rounded-xl border border-primary/50 bg-primary/10 px-4 py-2.5 text-sm font-black text-primary transition hover:bg-primary/15 disabled:opacity-60"
-          >
-            <Upload className="h-4 w-4" />
-            {isImportingProducts ? 'Importando...' : 'Importar XLSX'}
-          </button>
           <button
             type="button"
             onClick={startNewProduct}
@@ -395,8 +366,17 @@ export const ProductsView = ({
                     return (
                       <tr
                         key={product.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => startEditProduct(product)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            startEditProduct(product);
+                          }
+                        }}
                         className={cn(
-                          'transition-colors',
+                          'cursor-pointer transition-colors',
                           isEditing ? 'bg-primary/10' : 'hover:bg-slate-900/80'
                         )}
                       >
@@ -427,7 +407,10 @@ export const ProductsView = ({
                           <div className="flex justify-end gap-2">
                             <button
                               type="button"
-                              onClick={() => startEditProduct(product)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                startEditProduct(product);
+                              }}
                               className="inline-flex items-center gap-1 rounded-lg bg-slate-800 px-2.5 py-2 text-[10px] font-black uppercase text-slate-200 transition hover:bg-slate-700"
                             >
                               <Pencil className="h-3.5 w-3.5" />
@@ -435,7 +418,10 @@ export const ProductsView = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => onDeleteProductClick(product)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onDeleteProductClick(product);
+                              }}
                               disabled={isDeleting}
                               className={cn(
                                 'inline-flex items-center gap-1 rounded-lg px-2.5 py-2 text-[10px] font-black uppercase transition disabled:opacity-60',

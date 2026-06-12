@@ -4,6 +4,7 @@ import {
   DollarSign,
   FileText,
   LayoutDashboard,
+  MessageCircle,
   Package,
   ReceiptText,
   RefreshCw,
@@ -118,6 +119,13 @@ export const getPrimaryNavItems = (isAdmin: boolean): SidebarNavItem[] => [
     group: 'tools',
   },
   {
+    id: 'whatsapp',
+    icon: MessageCircle,
+    label: 'WhatsApp IA',
+    match: ['whatsapp'],
+    group: 'tools',
+  },
+  {
     id: 'fiscal',
     icon: FileText,
     label: 'Fiscal',
@@ -153,15 +161,15 @@ export const SidebarNav = ({
   const items = getPrimaryNavItems(isAdmin);
 
   return (
-    <aside className="app-sidebar hidden min-h-screen w-72 shrink-0 border-r border-slate-800/80 bg-[#08090d] lg:flex lg:flex-col 2xl:w-80">
+    <aside className="app-sidebar hidden min-h-screen w-56 shrink-0 border-r border-slate-800/80 bg-[#08090d] lg:flex lg:flex-col 2xl:w-60">
       <div className="flex h-full flex-col">
-        <div className="border-b border-slate-800/80 px-6 py-6">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-white shadow-lg shadow-primary/20">
+        <div className="border-b border-slate-800/80 px-4 py-4">
+          <div className="flex items-center gap-2.5">
+            <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary text-white shadow-lg shadow-primary/20">
               <span className="text-sm font-black">M</span>
             </div>
             <div className="min-w-0">
-              <p className="text-base font-black leading-none text-white">MotoFix</p>
+              <p className="text-sm font-black leading-none text-white">MotoFix</p>
               <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.2em] text-primary">Oficina SaaS</p>
             </div>
           </div>
@@ -169,10 +177,10 @@ export const SidebarNav = ({
           <button
             type="button"
             onClick={() => onViewChange('settings')}
-            className="mt-6 flex w-full items-center justify-between gap-3 rounded-lg border border-slate-700/70 bg-slate-900/60 px-3 py-3 text-left transition-colors hover:border-primary/40 hover:bg-slate-900"
+            className="mt-4 flex w-full items-center justify-between gap-2 rounded-lg border border-slate-700/70 bg-slate-900/60 px-3 py-2.5 text-left transition-colors hover:border-primary/40 hover:bg-slate-900"
           >
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
+            <div className="flex min-w-0 items-center gap-2.5">
+              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-primary/10 text-primary">
                 <UserRound className="h-4 w-4" />
               </div>
               <div className="min-w-0">
@@ -184,7 +192,7 @@ export const SidebarNav = ({
           </button>
         </div>
 
-        <nav className="flex-1 space-y-3 px-4 py-6">
+        <nav className="flex-1 space-y-1.5 overflow-y-auto px-2.5 py-4">
           {items.map((item, index) => {
             const Icon = item.icon;
             const isActive = item.match.includes(view);
@@ -193,7 +201,7 @@ export const SidebarNav = ({
             return (
               <div key={item.id}>
                 {showToolsHeading && (
-                  <p className="px-2 pb-2 pt-3 text-[10px] font-black uppercase tracking-[0.24em] text-slate-600">
+                  <p className="px-2 pb-1.5 pt-2.5 text-[9px] font-black uppercase tracking-[0.24em] text-slate-600">
                     Mais ferramentas
                   </p>
                 )}
@@ -201,7 +209,7 @@ export const SidebarNav = ({
                   type="button"
                   onClick={() => onViewChange(item.id)}
                   className={cn(
-                    'flex w-full items-center gap-4 rounded-2xl border px-4 py-4 text-left text-base font-black transition-all',
+                    'flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-sm font-black transition-all',
                     isActive
                       ? 'border-primary/60 bg-primary/15 text-white shadow-lg shadow-primary/15'
                       : 'border-transparent bg-slate-950/20 text-slate-400 hover:border-slate-700 hover:bg-slate-900/80 hover:text-slate-100'
@@ -209,13 +217,13 @@ export const SidebarNav = ({
                 >
                   <span
                     className={cn(
-                      'grid h-11 w-11 shrink-0 place-items-center rounded-xl transition-colors',
+                      'grid h-9 w-9 shrink-0 place-items-center rounded-lg transition-colors',
                       isActive
                         ? 'bg-primary text-white shadow-lg shadow-primary/20'
                         : 'bg-slate-900 text-slate-500'
                     )}
                   >
-                    <Icon className="h-6 w-6" />
+                    <Icon className="h-4 w-4" />
                   </span>
                   <span className="truncate">{item.label}</span>
                 </button>
@@ -224,9 +232,9 @@ export const SidebarNav = ({
           })}
         </nav>
 
-        <div className="border-t border-slate-800/80 p-4">
-          <div className="flex items-center gap-3 rounded-lg px-2 py-2">
-            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full border border-slate-700 bg-slate-900 text-xs font-black text-white">
+        <div className="border-t border-slate-800/80 p-3">
+          <div className="flex items-center gap-2.5 rounded-lg px-2 py-2">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-slate-700 bg-slate-900 text-[11px] font-black text-white">
               {(currentUserName || businessName || 'M').slice(0, 2).toUpperCase()}
             </div>
             <div className="min-w-0">

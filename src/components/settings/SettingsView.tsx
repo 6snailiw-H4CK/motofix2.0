@@ -21,6 +21,7 @@ import type { ColorMode, Settings, UserProfile } from '../../types';
 
 type SettingsViewProps = {
   clientsCount: number;
+  productsCount: number;
   userEmail?: string | null;
   userProfile: UserProfile | null;
   settings: Settings;
@@ -33,10 +34,14 @@ type SettingsViewProps = {
   onExportClientsBackup: () => void;
   onImportClientsBackup: (file: File) => Promise<void> | void;
   isImportingClients: boolean;
+  onExportProductsBackup: () => void;
+  onImportProductsBackup: (file: File) => Promise<number> | number;
+  isImportingProducts: boolean;
 };
 
 export const SettingsView = ({
   clientsCount,
+  productsCount,
   userEmail,
   userProfile,
   settings,
@@ -49,11 +54,15 @@ export const SettingsView = ({
   onExportClientsBackup,
   onImportClientsBackup,
   isImportingClients,
+  onExportProductsBackup,
+  onImportProductsBackup,
+  isImportingProducts,
 }: SettingsViewProps) => {
   const [newServiceType, setNewServiceType] = useState('');
   const [newOilType, setNewOilType] = useState('');
   const [newWarrantyCategory, setNewWarrantyCategory] = useState('');
   const clientImportInputRef = useRef<HTMLInputElement | null>(null);
+  const productImportInputRef = useRef<HTMLInputElement | null>(null);
 
   const updateSettings = (patch: Partial<Settings>) => {
     setSettings((current) => ({ ...current, ...patch }));
@@ -142,8 +151,16 @@ export const SettingsView = ({
     }
   };
 
+  const handleProductImportFile = (file?: File) => {
+    if (!file) return;
+    void onImportProductsBackup(file);
+    if (productImportInputRef.current) {
+      productImportInputRef.current.value = '';
+    }
+  };
+
   return (
-    <div className="space-y-4 max-w-2xl mx-auto">
+    <div className="light-readable-view mx-auto w-full max-w-7xl space-y-5 px-1 sm:px-2">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <h2 className="text-xl font-bold">Configuracoes</h2>
         <div className="flex flex-col gap-2 sm:items-end">
@@ -189,42 +206,91 @@ export const SettingsView = ({
         </div>
       )}
 
-      <div className="hidden rounded-2xl border border-slate-700/50 bg-slate-800/40 p-4 lg:block">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex min-w-0 items-start gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400">
+      <div className="rounded-2xl border border-slate-700/50 bg-slate-800/35 p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400">
               <FileSpreadsheet className="h-5 w-5" />
             </span>
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Backup de clientes</p>
-              <h3 className="text-sm font-bold text-white">Importar e exportar em XLSX</h3>
-              <p className="mt-1 max-w-xl text-xs text-slate-400">
-                Use no desktop para salvar uma copia dos clientes ou restaurar uma planilha exportada pelo MotoFix.
-              </p>
-              <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-                Clientes no app: {clientsCount}
-              </p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Backups</p>
+              <h3 className="text-base font-bold text-white">Backups e restauracao</h3>
+            </div>
+          </div>
+          <p className="max-w-2xl text-xs leading-relaxed text-slate-400">
+            Salve copias em XLSX ou restaure dados de clientes e mercadorias sem sair das configuracoes.
+          </p>
+        </div>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 px-4 py-3">
+            <div className="grid gap-3 2xl:grid-cols-[1fr_auto] 2xl:items-center">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-sm font-bold text-white">Clientes</h4>
+                  <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-emerald-400">
+                    {clientsCount} registro(s)
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  Contatos, motos, agenda, recorrencias e dados de relacionamento.
+                </p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 2xl:w-[22rem]">
+                <button
+                  type="button"
+                  onClick={onExportClientsBackup}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 text-xs font-bold text-emerald-400 transition-all hover:bg-emerald-500/15"
+                >
+                  <Download className="h-4 w-4" />
+                  Exportar
+                </button>
+                <button
+                  type="button"
+                  disabled={isImportingClients}
+                  onClick={() => clientImportInputRef.current?.click()}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-3 text-xs font-bold text-primary transition-all hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Upload className="h-4 w-4" />
+                  {isImportingClients ? 'Importando...' : 'Importar'}
+                </button>
+              </div>
             </div>
           </div>
 
-          <div className="grid gap-2 sm:grid-cols-2 xl:w-[24rem]">
-            <button
-              type="button"
-              onClick={onExportClientsBackup}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-xs font-bold text-emerald-400 transition-all hover:bg-emerald-500/15"
-            >
-              <Download className="h-4 w-4" />
-              Exportar clientes
-            </button>
-            <button
-              type="button"
-              disabled={isImportingClients}
-              onClick={() => clientImportInputRef.current?.click()}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-4 py-3 text-xs font-bold text-primary transition-all hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <Upload className="h-4 w-4" />
-              {isImportingClients ? 'Importando...' : 'Importar planilha'}
-            </button>
+          <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 px-4 py-3">
+            <div className="grid gap-3 2xl:grid-cols-[1fr_auto] 2xl:items-center">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-sm font-bold text-white">Mercadorias</h4>
+                  <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-primary">
+                    {productsCount} item(ns)
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  Codigos, descricoes, NCM, valores de venda e variacoes cadastradas.
+                </p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 2xl:w-[22rem]">
+                <button
+                  type="button"
+                  onClick={onExportProductsBackup}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 text-xs font-bold text-emerald-400 transition-all hover:bg-emerald-500/15"
+                >
+                  <Download className="h-4 w-4" />
+                  Exportar
+                </button>
+                <button
+                  type="button"
+                  disabled={isImportingProducts}
+                  onClick={() => productImportInputRef.current?.click()}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-3 text-xs font-bold text-primary transition-all hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Upload className="h-4 w-4" />
+                  {isImportingProducts ? 'Importando...' : 'Importar'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -234,6 +300,13 @@ export const SettingsView = ({
           accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           className="hidden"
           onChange={(event) => handleClientImportFile(event.target.files?.[0])}
+        />
+        <input
+          ref={productImportInputRef}
+          type="file"
+          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          className="hidden"
+          onChange={(event) => handleProductImportFile(event.target.files?.[0])}
         />
       </div>
 

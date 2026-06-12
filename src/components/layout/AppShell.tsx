@@ -70,8 +70,8 @@ export const AppShell = ({
             />
           </div>
 
-          <main className="min-w-0 flex-1 px-3 pb-24 pt-4 sm:px-5 lg:px-5 lg:pb-8 xl:px-6">
-            <div className="mx-auto w-full max-w-5xl space-y-5 lg:max-w-none">
+          <main className="min-w-0 flex-1 overflow-x-hidden px-3 pb-24 pt-4 sm:px-5 lg:px-3 lg:pb-6 lg:pt-3 xl:px-4">
+            <div className="mx-auto w-full max-w-5xl space-y-4 lg:max-w-none">
               {children}
             </div>
           </main>
