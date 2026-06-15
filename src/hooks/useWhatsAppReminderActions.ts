@@ -29,7 +29,10 @@ export const useWhatsAppReminderActions = ({
       const message = AlertService.buildReminderMessage(template, client);
       const url = AlertService.createWhatsAppUrl(client, message);
 
-      window.open(url, '_blank');
+      const openedWindow = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!openedWindow) {
+        window.location.href = url;
+      }
 
       AlertService.registerManualReminderAttempt(db, user.uid, client, message)
         .then((result) => {

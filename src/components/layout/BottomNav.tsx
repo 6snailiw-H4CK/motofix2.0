@@ -82,7 +82,6 @@ export const BottomNav = ({ view, isAdmin, onViewChange }: BottomNavProps) => {
         { id: 'whatsapp', icon: MessageCircle, label: 'WhatsApp IA', match: ['whatsapp'], shortLabel: 'WhatsApp' },
         { id: 'returns', icon: RefreshCw, label: 'Retornos', match: ['returns'], shortLabel: 'Retornos' },
         { id: 'warranties', icon: ShieldCheck, label: 'Garantias', match: ['warranties', 'new-warranty'], shortLabel: 'Garantias' },
-        { id: 'history', icon: History, label: 'Historico', match: ['history'], shortLabel: 'Historico' },
       ],
     },
     {

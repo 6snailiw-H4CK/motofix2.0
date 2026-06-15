@@ -56,10 +56,10 @@ export const getPrimaryNavItems = (isAdmin: boolean): SidebarNavItem[] => [
     group: 'primary',
   },
   {
-    id: 'general-report',
-    icon: BarChart3,
-    label: 'Relatorios',
-    match: ['general-report', 'report'],
+    id: 'cash-register',
+    icon: ReceiptText,
+    label: 'Lancamentos Caixa',
+    match: ['cash-register'],
     group: 'primary',
   },
   {
@@ -77,10 +77,17 @@ export const getPrimaryNavItems = (isAdmin: boolean): SidebarNavItem[] => [
     group: 'primary',
   },
   {
-    id: 'cash-register',
-    icon: ReceiptText,
-    label: 'Lancamentos Caixa',
-    match: ['cash-register'],
+    id: 'general-report',
+    icon: BarChart3,
+    label: 'Relatorios',
+    match: ['general-report', 'report'],
+    group: 'tools',
+  },
+  {
+    id: 'history',
+    icon: BarChart3,
+    label: 'Historico',
+    match: ['history'],
     group: 'tools',
   },
   {
@@ -102,13 +109,6 @@ export const getPrimaryNavItems = (isAdmin: boolean): SidebarNavItem[] => [
     icon: ShieldCheck,
     label: 'Garantias',
     match: ['warranties', 'new-warranty'],
-    group: 'tools',
-  },
-  {
-    id: 'history',
-    icon: BarChart3,
-    label: 'Historico',
-    match: ['history'],
     group: 'tools',
   },
   {

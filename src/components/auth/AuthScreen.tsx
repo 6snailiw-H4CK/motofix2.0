@@ -169,218 +169,405 @@ export const AuthScreen = () => {
       <main className="relative z-10 mx-auto max-w-7xl px-6 py-12 pt-28 pb-28 sm:px-8 lg:px-10">
         {authView === 'landing' && (
           <>
-            <section className="grid gap-10 xl:grid-cols-[1.2fr_0.8fr] items-start scroll-reveal">
+            {/* HERO SECTION */}
+            <section className="grid gap-12 xl:grid-cols-[1fr_1fr] items-center scroll-reveal pb-12 border-b border-white/10">
               <div className="space-y-8">
-                <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-200 ring-1 ring-white/5">
-                  <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                  Plataforma completa para oficinas modernas
-                </div>
-                <div className="parallax-layer space-y-5" style={{ '--parallax-speed': '0.05' } as React.CSSProperties}>
-                  <h1 className="text-5xl font-extrabold tracking-tight text-white sm:text-6xl">Um só lugar para <span className="bg-gradient-to-r from-red-500 via-fuchsia-400 to-white bg-clip-text text-transparent">entrar, conhecer</span> e acelerar sua oficina.</h1>
-                  <p className="max-w-2xl text-lg leading-8 text-slate-300">Entre no app e descubra como o MotoFix transforma a gestão da sua oficina, aumenta vendas e fideliza clientes com um painel moderno e seguro.</p>
+                {/* Badge */}
+                <div className="inline-flex items-center gap-2 rounded-full border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-300">
+                  <span className="h-2 w-2 rounded-full bg-red-400 animate-pulse" />
+                  Transformando oficinas desde 2023
                 </div>
 
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-                  <button onClick={() => setAuthView('login')} className="w-full sm:w-auto inline-flex items-center justify-center rounded-full bg-white px-6 py-3 text-sm font-semibold text-slate-950 shadow-xl shadow-white/10 transition hover:scale-[1.01]">Login</button>
-                  <button onClick={() => setAuthView('sales')} className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-red-500 to-orange-500 px-6 py-3 text-sm font-semibold text-white shadow-xl shadow-red-500/20 transition hover:opacity-95">Conheça o MotoFix <ArrowRight className="h-4 w-4" /></button>
+                {/* Headline */}
+                <div className="space-y-6">
+                  <h1 className="text-6xl font-black tracking-tight text-white leading-tight">
+                    Sua oficina <span className="bg-gradient-to-r from-red-500 via-red-400 to-orange-500 bg-clip-text text-transparent">merece mais</span> que planilhas.
+                  </h1>
+                  <p className="text-xl text-slate-300 leading-relaxed max-w-xl">
+                    MotoFix é a plataforma de gestão completa que transforma a forma como sua oficina trabalha. Agende com precisão, controle financeiro e fidelize clientes como nunca antes.
+                  </p>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-4 text-center">
-                    <p className="text-2xl font-bold text-white">+38%</p>
-                    <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-400">agendamentos</p>
+                {/* CTA Buttons */}
+                <div className="flex flex-col sm:flex-row gap-4 pt-4">
+                  <button 
+                    onClick={() => setAuthView('login')}
+                    className="px-8 py-4 rounded-full bg-white text-slate-950 font-bold shadow-xl shadow-white/20 transition hover:shadow-white/30 hover:scale-105"
+                  >
+                    Acessar minha conta
+                  </button>
+                  <button 
+                    onClick={() => setAuthView('sales')} 
+                    className="px-8 py-4 rounded-full border-2 border-red-500 text-white font-bold bg-red-500/10 transition hover:bg-red-500/20 hover:border-red-400"
+                  >
+                    Ver demonstração
+                  </button>
+                </div>
+
+                {/* Trust Indicators */}
+                <div className="grid grid-cols-3 gap-4 pt-4">
+                  <div className="space-y-1">
+                    <p className="text-3xl font-bold text-white">500+</p>
+                    <p className="text-sm text-slate-400">Oficinas ativas</p>
                   </div>
-                  <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-4 text-center">
-                    <p className="text-2xl font-bold text-white">95%</p>
-                    <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-400">retenção</p>
+                  <div className="space-y-1">
+                    <p className="text-3xl font-bold text-white">99.8%</p>
+                    <p className="text-sm text-slate-400">Disponibilidade</p>
                   </div>
-                  <div className="rounded-3xl border border-white/10 bg-white/5 px-4 py-4 text-center">
-                    <p className="text-2xl font-bold text-white">15 min</p>
-                    <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-400">para começar</p>
+                  <div className="space-y-1">
+                    <p className="text-3xl font-bold text-white">4.9★</p>
+                    <p className="text-sm text-slate-400">Avaliação média</p>
                   </div>
                 </div>
               </div>
 
-              <aside className="rounded-[32px] border border-white/10 bg-slate-900/90 p-6 shadow-2xl shadow-slate-950/50 ring-1 ring-white/5 parallax-layer" style={{ '--parallax-speed': '-0.03' } as React.CSSProperties}>
-                <div className="mb-6 flex items-center justify-between rounded-3xl bg-slate-800/80 px-5 py-4">
-                  <div>
-                    <p className="text-sm uppercase tracking-[0.25em] text-slate-500">Escolha seu caminho</p>
-                    <p className="mt-2 text-sm text-slate-300">Acesse sua oficina ou conheça o MotoFix agora.</p>
-                  </div>
-                  <div className="rounded-2xl bg-white/5 px-3 py-2 text-xs uppercase tracking-[0.2em] text-slate-200">Rápido</div>
-                </div>
+              {/* Hero Visual */}
+              <div className="relative hidden xl:block">
+                <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800/50 to-slate-900/50 p-8 backdrop-blur-sm">
+                  <div className="space-y-6">
+                    {/* Stats Cards */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="rounded-xl bg-slate-900/80 border border-white/10 p-4">
+                        <p className="text-xs text-slate-400 uppercase tracking-wide">Agendamentos hoje</p>
+                        <p className="text-2xl font-bold text-white mt-2">24</p>
+                        <p className="text-xs text-green-400 mt-2">↑ 18% vs ontem</p>
+                      </div>
+                      <div className="rounded-xl bg-slate-900/80 border border-white/10 p-4">
+                        <p className="text-xs text-slate-400 uppercase tracking-wide">Receita (mês)</p>
+                        <p className="text-2xl font-bold text-white mt-2">R$ 52.6k</p>
+                        <p className="text-xs text-green-400 mt-2">↑ 21% vs mês</p>
+                      </div>
+                      <div className="rounded-xl bg-slate-900/80 border border-white/10 p-4">
+                        <p className="text-xs text-slate-400 uppercase tracking-wide">Clientes ativos</p>
+                        <p className="text-2xl font-bold text-white mt-2">187</p>
+                        <p className="text-xs text-blue-400 mt-2">↑ 14 novos</p>
+                      </div>
+                      <div className="rounded-xl bg-slate-900/80 border border-white/10 p-4">
+                        <p className="text-xs text-slate-400 uppercase tracking-wide">Taxa de retorno</p>
+                        <p className="text-2xl font-bold text-white mt-2">72%</p>
+                        <p className="text-xs text-purple-400 mt-2">Excelente</p>
+                      </div>
+                    </div>
 
-                <div className="space-y-4">
-                  <div className="rounded-3xl border border-white/10 bg-slate-950/90 p-5">
-                    <div className="flex items-center justify-between gap-4">
+                    {/* Appointment Card */}
+                    <div className="rounded-xl bg-slate-950/80 border border-white/10 p-4">
+                      <p className="text-xs text-slate-400 uppercase tracking-wide mb-3">Próximos atendimentos</p>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-white font-medium">João Silva - Revisão</span>
+                          <span className="text-slate-400">14:30</span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-white font-medium">Maria Costa - Alinhamento</span>
+                          <span className="text-slate-400">15:45</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* CORE FEATURES */}
+            <section id="resources" className="mt-20 space-y-12 scroll-reveal">
+              <div className="text-center space-y-4">
+                <h2 className="text-4xl font-bold text-white">Tudo que sua oficina precisa para crescer</h2>
+                <p className="text-lg text-slate-400 max-w-2xl mx-auto">MotoFix centraliza agenda, financeiro, clientes e comunicação em uma plataforma única</p>
+              </div>
+
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+                {[
+                  { 
+                    icon: Calendar, 
+                    color: 'from-blue-500 to-blue-600',
+                    title: 'Agenda Inteligente', 
+                    description: 'Agendamentos automáticos, lembretes por WhatsApp e sincronização com seu time em tempo real.' 
+                  },
+                  { 
+                    icon: DollarSign, 
+                    color: 'from-green-500 to-emerald-600',
+                    title: 'Controle Financeiro', 
+                    description: 'Fluxo de caixa completo, receitas, despesas e lucro sempre atualizados no painel.' 
+                  },
+                  { 
+                    icon: Users, 
+                    color: 'from-purple-500 to-violet-600',
+                    title: 'Gestão de Clientes', 
+                    description: 'Histórico detalhado, clientes recorrentes, preferências e comportamento de compra.' 
+                  },
+                  { 
+                    icon: BarChart3, 
+                    color: 'from-orange-500 to-red-600',
+                    title: 'Relatórios Inteligentes', 
+                    description: 'Dashboard visual com métricas acionáveis para decisões de negócio mais rápidas.' 
+                  },
+                ].map((item, idx) => {
+                  const Icon = item.icon;
+                  return (
+                    <div key={idx} className="group relative rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800/50 to-slate-900/50 p-6 hover:border-red-500/50 transition-all duration-300 hover:shadow-lg hover:shadow-red-500/10 hover:-translate-y-1">
+                      <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${item.color} p-3 text-white mb-4 group-hover:scale-110 transition-transform`}>
+                        <Icon className="w-full h-full" />
+                      </div>
+                      <h3 className="text-lg font-bold text-white mb-2">{item.title}</h3>
+                      <p className="text-sm text-slate-300">{item.description}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            {/* HOW IT WORKS */}
+            <section id="how" className="mt-20 space-y-12 scroll-reveal">
+              <div className="text-center space-y-4">
+                <h2 className="text-4xl font-bold text-white">Como MotoFix funciona</h2>
+                <p className="text-lg text-slate-400 max-w-2xl mx-auto">4 passos simples para transformar sua oficina</p>
+              </div>
+
+              <div className="grid gap-6 md:grid-cols-4">
+                {[
+                  { 
+                    step: '1',
+                    title: 'Cadastre sua oficina',
+                    description: 'Configure sua oficina, serviços, preços e equipe em menos de 5 minutos.' 
+                  },
+                  { 
+                    step: '2',
+                    title: 'Organize sua agenda',
+                    description: 'Agende clientes com confirmação automática e lembretes por WhatsApp.' 
+                  },
+                  { 
+                    step: '3',
+                    title: 'Controle financeiro',
+                    description: 'Acompanhe receitas, despesas e lucro em tempo real no dashboard.' 
+                  },
+                  { 
+                    step: '4',
+                    title: 'Decida com dados',
+                    description: 'Acesse relatórios que mostram como crescer de forma consistente.' 
+                  },
+                ].map((item, idx) => (
+                  <div key={idx} className="relative group">
+                    <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800/50 to-slate-900/50 p-8 text-center hover:border-red-500/50 transition-all">
+                      <div className="inline-flex items-center justify-center h-16 w-16 rounded-full bg-gradient-to-br from-red-500 to-orange-600 text-white font-bold text-2xl mb-4 mx-auto">
+                        {item.step}
+                      </div>
+                      <h3 className="text-lg font-bold text-white mb-2">{item.title}</h3>
+                      <p className="text-sm text-slate-300">{item.description}</p>
+                    </div>
+                    {idx < 3 && (
+                      <div className="hidden md:flex absolute top-8 -right-3 w-6 justify-center">
+                        <ArrowRight className="w-5 h-5 text-slate-600" />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* PRICING */}
+            <section id="plans" className="mt-20 space-y-12 scroll-reveal">
+              <div className="text-center space-y-4">
+                <h2 className="text-4xl font-bold text-white">Escolha o plano ideal para sua oficina</h2>
+                <p className="text-lg text-slate-400 max-w-2xl mx-auto">Todos com suporte dedicado, atualizações contínuas e garantia de 30 dias</p>
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-2">
+                {[
+                  { 
+                    name: 'Starter',
+                    price: 'R$ 149',
+                    period: '/mês',
+                    description: 'Perfeito para iniciar sua transformação',
+                    features: [
+                      '✓ Agenda centralizada',
+                      '✓ Até 100 clientes',
+                      '✓ Controle financeiro básico',
+                      '✓ 1 usuário',
+                      '✓ Suporte por email'
+                    ],
+                    highlighted: false
+                  },
+                  { 
+                    name: 'Professional',
+                    price: 'R$ 299',
+                    period: '/mês',
+                    description: 'Escale sua oficina com todas as funcionalidades',
+                    features: [
+                      '✓ Tudo do Starter +',
+                      '✓ Clientes ilimitados',
+                      '✓ Controle financeiro avançado',
+                      '✓ 5 usuários',
+                      '✓ Relatórios detalhados',
+                      '✓ Prioridade 24/7',
+                      '✓ Integração WhatsApp Business'
+                    ],
+                    highlighted: true
+                  },
+                ].map((plan, idx) => (
+                  <div 
+                    key={idx} 
+                    className={`relative rounded-2xl border transition-all duration-300 ${
+                      plan.highlighted 
+                        ? 'border-red-500/50 bg-gradient-to-br from-red-500/20 to-orange-500/20 shadow-lg shadow-red-500/20 scale-105' 
+                        : 'border-white/10 bg-gradient-to-br from-slate-800/50 to-slate-900/50 hover:border-white/20'
+                    } p-8`}
+                  >
+                    {plan.highlighted && (
+                      <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-gradient-to-r from-red-500 to-orange-500 text-white text-xs font-bold px-4 py-1 rounded-full">
+                        MAIS POPULAR
+                      </div>
+                    )}
+                    
+                    <h3 className="text-2xl font-bold text-white mb-2">{plan.name}</h3>
+                    <p className="text-slate-300 text-sm mb-6">{plan.description}</p>
+                    
+                    <div className="mb-6">
+                      <span className="text-5xl font-black text-white">{plan.price}</span>
+                      <span className="text-slate-400 text-sm">{plan.period}</span>
+                    </div>
+
+                    <ul className="space-y-3 mb-8">
+                      {plan.features.map((feature, fidx) => (
+                        <li key={fidx} className="text-sm text-slate-300 flex items-center gap-2">
+                          <span className={plan.highlighted ? 'text-red-400' : 'text-emerald-400'}>•</span>
+                          {feature.replace('✓ ', '')}
+                        </li>
+                      ))}
+                    </ul>
+
+                    <button 
+                      onClick={() => setAuthView('login')}
+                      className={`w-full py-3 rounded-full font-bold transition ${
+                        plan.highlighted
+                          ? 'bg-gradient-to-r from-red-500 to-orange-500 text-white hover:opacity-90'
+                          : 'border-2 border-white/20 text-white hover:border-white/40 bg-white/5'
+                      }`}
+                    >
+                      Começar agora
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="text-center">
+                <p className="text-slate-300">Dúvidas sobre os planos? 
+                  <button 
+                    onClick={() => window.open(whatsappSalesUrl, '_blank')}
+                    className="ml-2 text-red-400 hover:text-red-300 font-semibold underline"
+                  >
+                    Fale com nosso time
+                  </button>
+                </p>
+              </div>
+            </section>
+
+            {/* SOCIAL PROOF & TESTIMONIALS */}
+            <section className="mt-20 space-y-12 scroll-reveal">
+              <div className="text-center space-y-4">
+                <h2 className="text-4xl font-bold text-white">Oficinas que já crescem com MotoFix</h2>
+                <p className="text-lg text-slate-400">Veja o que nossos clientes conquistaram</p>
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-3">
+                {[
+                  {
+                    name: 'João Silva',
+                    workshop: 'Centro Automotivo SP',
+                    result: '+67% receita em 4 meses',
+                    detail: 'De R$ 15k para R$ 25k',
+                    avatar: '👨‍💼'
+                  },
+                  {
+                    name: 'Maria Costa',
+                    workshop: 'Oficina Premium Brasília',
+                    result: '120+ agendamentos/mês',
+                    detail: '95% de retenção de clientes',
+                    avatar: '👩‍💼'
+                  },
+                  {
+                    name: 'Carlos Santos',
+                    workshop: 'Auto Serviços RJ',
+                    result: '-10h admin por semana',
+                    detail: '+30% foco em vendas',
+                    avatar: '👨‍🔧'
+                  },
+                ].map((testimonial, idx) => (
+                  <div key={idx} className="rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800/50 to-slate-900/50 p-6 hover:border-red-500/30 transition-all">
+                    <div className="flex items-center gap-4 mb-4">
+                      <div className="text-4xl">{testimonial.avatar}</div>
                       <div>
-                        <p className="text-sm text-emerald-400">Já sou cliente</p>
-                        <h3 className="mt-2 text-xl font-semibold text-white">Acesse sua oficina</h3>
-                      </div>
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-300">
-                        <Users className="h-6 w-6" />
+                        <p className="font-bold text-white text-sm">{testimonial.name}</p>
+                        <p className="text-xs text-slate-400">{testimonial.workshop}</p>
                       </div>
                     </div>
-                    <p className="mt-4 text-sm leading-6 text-slate-400">Acesse agenda, financeiro e clientes em segundos.</p>
-                    <button onClick={() => setAuthView('login')} className="mt-5 w-full rounded-full bg-emerald-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-400">Login →</button>
+                    <p className="text-red-400 font-bold text-lg mb-2">{testimonial.result}</p>
+                    <p className="text-sm text-slate-300">{testimonial.detail}</p>
                   </div>
-
-                  <div className="rounded-3xl border border-white/10 bg-slate-950/90 p-5">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-sm text-sky-400">Quero conhecer</p>
-                        <h3 className="mt-2 text-xl font-semibold text-white">Veja como o MotoFix ajuda sua oficina</h3>
-                      </div>
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-300">
-                        <TrendingUp className="h-6 w-6" />
-                      </div>
-                    </div>
-                    <p className="mt-4 text-sm leading-6 text-slate-400">Organize atendimentos, controle receitas e venda mais.</p>
-                    <button onClick={() => setAuthView('sales')} className="mt-5 w-full rounded-full bg-gradient-to-r from-sky-500 to-violet-500 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-95">Conheça →</button>
-                  </div>
-                </div>
-              </aside>
-            </section>
-
-            <section id="resources" className="mt-16 space-y-10 scroll-reveal delay-200">
-              <div className="rounded-3xl border border-white/10 bg-slate-900/90 p-8 shadow-2xl shadow-slate-950/30">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm uppercase tracking-[0.25em] text-slate-500">Recursos</p>
-                    <h2 className="mt-4 text-3xl font-bold text-white">Tudo para transformar sua oficina em um centro de performance.</h2>
-                  </div>
-                  <div className="rounded-3xl bg-white/5 p-3 text-red-400"><BarChart3 className="h-5 w-5" /></div>
-                </div>
-                <div className="mt-8 grid gap-4 sm:grid-cols-2">
-                  {[
-                    { title: 'Agenda inteligente', description: 'Agende serviços com confirmações e lembretes automáticos por WhatsApp.' },
-                    { title: 'Controle financeiro', description: 'Fluxo de caixa, receitas e despesas sempre atualizados em um painel único.' },
-                    { title: 'Gestão de clientes', description: 'Histórico completo com clientes recorrentes, fidelização e vendas extras.' },
-                    { title: 'Relatórios acionáveis', description: 'Dados claros para decisões rápidas e crescimento mais previsível.' }
-                  ].map((item, idx) => (
-                    <div key={idx} className="rounded-3xl border border-white/5 bg-slate-950/70 p-5">
-                      <p className="text-lg font-semibold text-white">{item.title}</p>
-                      <p className="mt-3 text-sm text-slate-400">{item.description}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div id="how" className="rounded-3xl border border-white/10 bg-slate-900/90 p-8 shadow-2xl shadow-slate-950/30 scroll-reveal delay-300">
-                <p className="text-sm uppercase tracking-[0.25em] text-slate-500">Como funciona</p>
-                <h2 className="mt-4 text-3xl font-bold text-white">Seu fluxo de trabalho, agora com resultado previsível.</h2>
-                <div className="mt-8 space-y-5">
-                  {[
-                    { title: '1. Conecte sua oficina', detail: 'Cadastre sua equipe, serviços e estoque em poucos minutos.' },
-                    { title: '2. Organize atendimentos', detail: 'Venda serviços com agenda automática e evite perdas de horário.' },
-                    { title: '3. Fidelize clientes', detail: 'Envie lembretes e promoções diretamente por WhatsApp.' },
-                    { title: '4. Decida com dados', detail: 'Relatórios financeiros e de retenção para impulsionar crescimento.' }
-                  ].map((item, idx) => (
-                    <div key={idx} className="rounded-3xl border border-white/5 bg-slate-950/80 p-5">
-                      <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">{item.title}</p>
-                      <p className="mt-3 text-sm leading-6 text-slate-300">{item.detail}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div id="plans" className="rounded-3xl border border-white/10 bg-slate-900/90 p-8 shadow-2xl shadow-slate-950/30 scroll-reveal delay-300">
-                <p className="text-sm uppercase tracking-[0.25em] text-slate-500">Planos</p>
-                <h2 className="mt-4 text-3xl font-bold text-white">Opções que cabem em qualquer tamanho de oficina.</h2>
-                <div className="mt-8 grid gap-4 sm:grid-cols-2">
-                  {[
-                    { title: 'Plano Starter', price: 'R$ 149/mês', description: 'Ideal para oficinas que querem começar com controle total.' },
-                    { title: 'Plano Pro', price: 'R$ 249/mês', description: 'Perfeito para oficinas que buscam escalar vendas e fidelização.' }
-                  ].map((plan, idx) => (
-                    <div key={idx} className="rounded-3xl border border-white/5 bg-slate-950/80 p-6">
-                      <p className="text-base font-semibold text-slate-300">{plan.title}</p>
-                      <p className="mt-4 text-4xl font-bold text-white">{plan.price}</p>
-                      <p className="mt-4 text-sm leading-6 text-slate-400">{plan.description}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div id="contact" className="rounded-3xl border border-white/10 bg-slate-900/90 p-8 shadow-2xl shadow-slate-950/30 scroll-reveal delay-300">
-                <p className="text-sm uppercase tracking-[0.25em] text-slate-500">Contato</p>
-                <h2 className="mt-4 text-3xl font-bold text-white">Fale com nosso time e conquiste mais resultados.</h2>
-                <p className="mt-4 text-slate-300">Agende uma demonstração personalizada, tire dúvidas e descubra como sua oficina pode vender mais com MotoFix.</p>
-                <div className="mt-8 space-y-4">
-                  <div className="rounded-3xl border border-white/5 bg-slate-950/80 p-5">
-                    <p className="text-sm font-semibold text-slate-400">Chat comercial</p>
-                    <p className="mt-2 text-sm text-slate-300">WhatsApp: <a href="https://wa.me/556999944024" target="_blank" rel="noreferrer" className="text-red-400">+55 69 99994-4024</a></p>
-                  </div>
-                  <div className="rounded-3xl border border-white/5 bg-slate-950/80 p-5">
-                    <p className="text-sm font-semibold text-slate-400">E-mail</p>
-                    <p className="mt-2 text-sm text-slate-300">boxmotorsoficial@gmail.com</p>
-                  </div>
-                </div>
-                <button onClick={() => window.open(whatsappSalesUrl, '_blank')} className="mt-6 inline-flex items-center justify-center rounded-full bg-gradient-to-r from-red-500 to-orange-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-red-500/30 transition hover:opacity-95">Falar com vendas</button>
+                ))}
               </div>
             </section>
 
-            <section className="mt-14 grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 scroll-reveal delay-200">
-              <div className="rounded-3xl border border-white/10 bg-slate-900/90 p-6 shadow-xl shadow-slate-950/30">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Agendamentos</p>
-                    <p className="mt-3 text-3xl font-bold text-white">127</p>
-                  </div>
-                  <div className="rounded-2xl bg-white/5 p-3 text-red-400"><Calendar className="h-5 w-5" /></div>
+            {/* FINAL CTA */}
+            <section className="mt-20 space-y-8 scroll-reveal">
+              <div className="rounded-3xl border-2 border-red-500/30 bg-gradient-to-br from-red-500/10 to-orange-500/10 p-12 text-center space-y-6">
+                <h2 className="text-4xl font-bold text-white">Pronto para transformar sua oficina?</h2>
+                <p className="text-lg text-slate-300 max-w-2xl mx-auto">Comece hoje com uma consultoria gratuita. Nosso time especializado está pronto para desenhar a solução perfeita para você.</p>
+                
+                <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                  <button 
+                    onClick={() => window.open(whatsappSalesUrl, '_blank')}
+                    className="px-8 py-4 rounded-full bg-gradient-to-r from-red-500 to-orange-500 text-white font-bold shadow-lg shadow-red-500/30 transition hover:scale-105 hover:shadow-red-500/50"
+                  >
+                    Agende uma consultoria - Grátis
+                  </button>
+                  <button 
+                    onClick={() => setAuthView('login')}
+                    className="px-8 py-4 rounded-full border-2 border-white/30 text-white font-bold transition hover:border-white/50 hover:bg-white/5"
+                  >
+                    Já tenho conta - Entrar
+                  </button>
                 </div>
-                <p className="mt-4 text-sm text-slate-400">+18% vs. mês anterior</p>
               </div>
 
-              <div className="rounded-3xl border border-white/10 bg-slate-900/90 p-6 shadow-xl shadow-slate-950/30">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Financeiro</p>
-                    <p className="mt-3 text-3xl font-bold text-white">R$ 52.680,00</p>
-                  </div>
-                  <div className="rounded-2xl bg-white/5 p-3 text-emerald-400"><DollarSign className="h-5 w-5" /></div>
+              {/* CONTACT INFO */}
+              <div className="grid md:grid-cols-3 gap-6">
+                <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800/50 to-slate-900/50 p-6 text-center">
+                  <div className="text-3xl mb-3">💬</div>
+                  <p className="font-bold text-white mb-2">Chat via WhatsApp</p>
+                  <p className="text-sm text-slate-400 mb-4">Fale com nosso time em tempo real</p>
+                  <a 
+                    href={whatsappSalesUrl} 
+                    target="_blank" 
+                    rel="noreferrer"
+                    className="inline-block px-4 py-2 rounded-full bg-white/10 text-red-400 hover:bg-white/20 transition text-sm font-semibold"
+                  >
+                    Abrir conversa
+                  </a>
                 </div>
-                <p className="mt-4 text-sm text-slate-400">+21% vs. mês anterior</p>
-              </div>
 
-              <div className="rounded-3xl border border-white/10 bg-slate-900/90 p-6 shadow-xl shadow-slate-950/30">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Clientes recorrentes</p>
-                    <p className="mt-3 text-3xl font-bold text-white">72%</p>
-                  </div>
-                  <div className="rounded-2xl bg-white/5 p-3 text-sky-400"><Users className="h-5 w-5" /></div>
+                <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800/50 to-slate-900/50 p-6 text-center">
+                  <div className="text-3xl mb-3">📧</div>
+                  <p className="font-bold text-white mb-2">E-mail de suporte</p>
+                  <p className="text-sm text-slate-400 mb-4">boxmotorsoficial@gmail.com</p>
+                  <a 
+                    href="mailto:boxmotorsoficial@gmail.com"
+                    className="inline-block px-4 py-2 rounded-full bg-white/10 text-red-400 hover:bg-white/20 transition text-sm font-semibold"
+                  >
+                    Enviar mensagem
+                  </a>
                 </div>
-                <p className="mt-4 text-sm text-slate-400">+14% vs. mês anterior</p>
-              </div>
 
-              <div className="rounded-3xl border border-white/10 bg-slate-900/90 p-6 shadow-xl shadow-slate-950/30">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm uppercase tracking-[0.2em] text-slate-500">Fluxo de caixa</p>
-                    <p className="mt-3 text-3xl font-bold text-white">R$ 48.920,40</p>
-                  </div>
-                  <div className="rounded-2xl bg-white/5 p-3 text-amber-400"><DollarSign className="h-5 w-5" /></div>
+                <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800/50 to-slate-900/50 p-6 text-center">
+                  <div className="text-3xl mb-3">📱</div>
+                  <p className="font-bold text-white mb-2">Telefone direto</p>
+                  <p className="text-sm text-slate-400 mb-4">+55 69 99994-4024</p>
+                  <a 
+                    href="tel:+556999944024"
+                    className="inline-block px-4 py-2 rounded-full bg-white/10 text-red-400 hover:bg-white/20 transition text-sm font-semibold"
+                  >
+                    Ligar agora
+                  </a>
                 </div>
-                <p className="mt-4 text-sm text-slate-400">+23% vs. mês anterior</p>
-              </div>
-            </section>
-
-            <section className="mt-10 grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 scroll-reveal delay-300">
-              <div className="rounded-3xl border border-white/10 bg-slate-900/90 p-5 text-sm text-slate-300 shadow-lg shadow-slate-950/20">
-                <div className="flex items-center gap-3 text-emerald-400"><ShieldCheck className="h-5 w-5" /><span>Apoio humano</span></div>
-                <p className="mt-4 text-white font-semibold">Suporte dedicado para sua equipe</p>
-              </div>
-              <div className="rounded-3xl border border-white/10 bg-slate-900/90 p-5 text-sm text-slate-300 shadow-lg shadow-slate-950/20">
-                <div className="flex items-center gap-3 text-sky-400"><Calendar className="h-5 w-5" /><span>Agenda centralizada</span></div>
-                <p className="mt-4 text-white font-semibold">Reduza falhas e aumente a produtividade</p>
-              </div>
-              <div className="rounded-3xl border border-white/10 bg-slate-900/90 p-5 text-sm text-slate-300 shadow-lg shadow-slate-950/20">
-                <div className="flex items-center gap-3 text-violet-400"><BarChart3 className="h-5 w-5" /><span>Controle financeiro</span></div>
-                <p className="mt-4 text-white font-semibold">Veja entradas, saídas e lucro com clareza</p>
-              </div>
-              <div className="rounded-3xl border border-white/10 bg-slate-900/90 p-5 text-sm text-slate-300 shadow-lg shadow-slate-950/20">
-                <div className="flex items-center gap-3 text-red-400"><Users className="h-5 w-5" /><span>Clientes fidelizados</span></div>
-                <p className="mt-4 text-white font-semibold">Atendimento personalizado e histórico completo</p>
               </div>
             </section>
           </>
