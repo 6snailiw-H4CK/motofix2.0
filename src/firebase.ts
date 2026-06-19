@@ -21,21 +21,31 @@ import {
   where
 } from 'firebase/firestore';
 
-// Pega as configurações do arquivo .env
+// Pega as configurações do arquivo .env ou do ambiente de build
+const env = typeof import.meta !== 'undefined' && 'env' in import.meta
+  ? (import.meta as any).env
+  : process.env as Record<string, string | undefined>;
+
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
+  apiKey: env.VITE_FIREBASE_API_KEY,
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: env.VITE_FIREBASE_APP_ID,
+  measurementId: env.VITE_FIREBASE_MEASUREMENT_ID,
 };
+
+const canUseWindow = () => typeof window !== 'undefined' && typeof window.document !== 'undefined';
 
 // Inicializa o Firebase
 const app = initializeApp(firebaseConfig);
 
 const initializeOfflineFirestore = () => {
+  if (!canUseWindow()) {
+    return getFirestore(app);
+  }
+
   try {
     return initializeFirestore(app, {
       localCache: persistentLocalCache({
@@ -53,9 +63,11 @@ export const db = initializeOfflineFirestore();
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-setPersistence(auth, browserLocalPersistence).catch((error) => {
-  console.warn('Falha ao configurar persistencia local do Firebase Auth:', error);
-});
+if (canUseWindow()) {
+  setPersistence(auth, browserLocalPersistence).catch((error) => {
+    console.warn('Falha ao configurar persistencia local do Firebase Auth:', error);
+  });
+}
 
 // Configura o Google Provider para sempre pedir a conta (ajuda no teste)
 googleProvider.setCustomParameters({ prompt: 'select_account' });

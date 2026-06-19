@@ -69,7 +69,18 @@ export const AuthScreen = () => {
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (error) {
+      const errorCode = typeof error === 'object' && error && 'code' in error ? String((error as { code?: string }).code) : '';
       console.error('Erro no login com Google:', error);
+
+      if (
+        errorCode === 'auth/popup-blocked' ||
+        errorCode === 'auth/cancelled-popup-request' ||
+        errorCode === 'auth/operation-not-supported-in-this-environment'
+      ) {
+        setAuthError('Popup de login não está disponível. Clique em "Entrar redirecionando" para continuar.');
+        return;
+      }
+
       setAuthError(getAuthErrorMessage(error));
     } finally {
       setIsSigningIn(false);
@@ -153,8 +164,8 @@ export const AuthScreen = () => {
               <button onClick={() => navigateToSection('plans')} className="transition hover:text-white">Planos</button>
               <button onClick={() => navigateToSection('contact')} className="transition hover:text-white">Contato</button>
             </nav>
-            <button onClick={() => setAuthView('login')} className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 transition hover:border-white/20">Login</button>
-            <button onClick={() => setAuthView('sales')} className="rounded-full bg-gradient-to-r from-red-500 to-orange-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-red-500/20 transition hover:opacity-95">Conheça o MotoFix</button>
+            <button type="button" onClick={() => setAuthView('login')} className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 transition hover:border-white/20">Login</button>
+            <button type="button" onClick={() => setAuthView('sales')} className="rounded-full bg-gradient-to-r from-red-500 to-orange-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-red-500/20 transition hover:opacity-95">Conheça o MotoFix</button>
           </div>
         </div>
       </header>
@@ -521,6 +532,7 @@ export const AuthScreen = () => {
                     Agende uma consultoria - Grátis
                   </button>
                   <button 
+                    type="button"
                     onClick={() => setAuthView('login')}
                     className="px-8 py-4 rounded-full border-2 border-white/30 text-white font-bold transition hover:border-white/50 hover:bg-white/5"
                   >
@@ -586,6 +598,7 @@ export const AuthScreen = () => {
             )}
 
             <button
+              type="button"
               onClick={handleGoogleLogin}
               disabled={isSigningIn}
               className="mt-8 flex w-full items-center justify-center gap-3 rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-70"
