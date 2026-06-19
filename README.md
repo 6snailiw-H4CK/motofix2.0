@@ -166,3 +166,7 @@ npm run deploy:rules
 ```
 
 Evite rodar somente `firebase deploy --only hosting` em producao se as regras Firestore tambem tiverem mudado.
+
+## Operacao offline
+
+A aplicacao agora possui cache persistente do Firestore, fila de escritas offline e service worker para abrir o app sem conexao depois do primeiro carregamento online. A documentacao completa esta em [`OFFLINE_SYNC.md`](./OFFLINE_SYNC.md).

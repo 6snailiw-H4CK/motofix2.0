@@ -1,15 +1,41 @@
 import { useEffect, useState } from 'react';
 import { addDays, format } from 'date-fns';
 import { getIdTokenResult, onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, getDocFromCache, setDoc } from 'firebase/firestore';
 import { auth, db } from '../firebase';
+import { queueFirestoreVoidWrite, readFirestoreWithCacheFallback } from '../services/firestoreOfflineQueue';
 import { UserProfile } from '../types';
 
 const applyClaimRole = (profile: UserProfile, isAdminClaim: boolean): UserProfile => ({
   ...profile,
-  role: isAdminClaim ? 'admin' : 'user',
+  role: isAdminClaim ? 'admin' : profile.role,
   isActive: isAdminClaim ? true : profile.isActive,
 });
+
+const getTokenResultWithOfflineFallback = async (firebaseUser: User) => {
+  try {
+    const forceRefresh = typeof navigator === 'undefined' ? true : navigator.onLine;
+    return await Promise.race([
+      getIdTokenResult(firebaseUser, forceRefresh),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Timeout refreshing auth token (>5s)')), 5000);
+      }),
+    ]);
+  } catch (error) {
+    console.warn('Falha ao atualizar token; usando token local quando disponivel:', error);
+    try {
+      return await Promise.race([
+        getIdTokenResult(firebaseUser),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Timeout loading local auth token (>3s)')), 3000);
+        }),
+      ]);
+    } catch (localTokenError) {
+      console.warn('Falha ao carregar token local; seguindo com perfil em cache:', localTokenError);
+      return null;
+    }
+  }
+};
 
 export function useAuthProfile() {
   const [user, setUser] = useState<User | null>(null);
@@ -22,15 +48,15 @@ export function useAuthProfile() {
 
     const loadUserProfile = async (firebaseUser: User) => {
       try {
-        const tokenResult = await getIdTokenResult(firebaseUser, true);
-        const isAdminClaim = tokenResult.claims.admin === true;
+        const tokenResult = await getTokenResultWithOfflineFallback(firebaseUser);
+        const isAdminClaim = tokenResult?.claims.admin === true;
         const userDoc = doc(db, 'users', firebaseUser.uid);
-        const userSnap = await Promise.race([
-          getDoc(userDoc),
-          new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Timeout loading user profile (>20s)')), 20000)
-          )
-        ]) as Awaited<ReturnType<typeof getDoc>>;
+        const userSnap = await readFirestoreWithCacheFallback(
+          () => getDoc(userDoc),
+          () => getDocFromCache(userDoc),
+          'Carregar perfil de usuario',
+          5000
+        );
 
         if (!isMounted) return;
 
@@ -42,11 +68,14 @@ export function useAuthProfile() {
           const claimProfile = applyClaimRole(profileData, isAdminClaim);
 
           if (isAdminClaim && (profileData.role !== 'admin' || profileData.isActive !== true)) {
-            await setDoc(userDoc, {
-              role: 'admin',
-              isActive: true,
-              updatedAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
-            }, { merge: true });
+            await queueFirestoreVoidWrite(
+              () => setDoc(userDoc, {
+                role: 'admin',
+                isActive: true,
+                updatedAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
+              }, { merge: true }),
+              'Atualizar perfil admin'
+            );
           }
 
           setUserProfile(claimProfile);
@@ -68,7 +97,7 @@ export function useAuthProfile() {
             subscriptionExpiresAt: format(addDays(new Date(), 30), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
             createdAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
           };
-          await setDoc(userDoc, newProfile);
+          await queueFirestoreVoidWrite(() => setDoc(userDoc, newProfile), 'Criar perfil de usuario');
           setUserProfile(newProfile);
         }
         setLoading(false);

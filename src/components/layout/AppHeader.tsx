@@ -1,10 +1,13 @@
 import { Bell, Bike, LogOut, Moon, Settings as SettingsIcon, Sun } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { ColorMode } from '../../types';
+import type { OfflineSyncStatus } from '../../hooks/useOfflineSyncStatus';
+import { OfflineSyncPill } from './OfflineSyncPill';
 
 type AppHeaderProps = {
   colorMode: ColorMode;
   alertCount: number;
+  offlineSyncStatus: OfflineSyncStatus;
   onColorModeChange: (mode: ColorMode) => void;
   onRequestNotifications: () => void;
   onSettingsClick: () => void;
@@ -14,6 +17,7 @@ type AppHeaderProps = {
 export const AppHeader = ({
   colorMode,
   alertCount,
+  offlineSyncStatus,
   onColorModeChange,
   onRequestNotifications,
   onSettingsClick,
@@ -27,6 +31,7 @@ export const AppHeader = ({
       <h1 className="text-lg font-bold tracking-tight">MotoFix</h1>
     </div>
     <div className="flex items-center gap-2">
+      <OfflineSyncPill compact status={offlineSyncStatus} />
       <button
         type="button"
         onClick={() => onColorModeChange('dark')}

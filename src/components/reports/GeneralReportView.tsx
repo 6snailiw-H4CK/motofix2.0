@@ -108,6 +108,7 @@ export const GeneralReportView = ({
   const [clientQuery, setClientQuery] = useState('');
   const [serviceTypeFilter, setServiceTypeFilter] = useState('all');
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatusFilter>('all');
+  const [isAbcOpen, setIsAbcOpen] = useState(false);
 
   const clientsById = useMemo(() => new Map(clients.map(client => [client.id, client])), [clients]);
   const normalizedClientQuery = clientQuery.trim().toLowerCase();
@@ -340,6 +341,71 @@ export const GeneralReportView = ({
       .slice(0, 10);
   }, [filteredExpenses]);
 
+  const abcBreakdown = useMemo(() => {
+    const map = new Map<string, { label: string; source: string; count: number; total: number }>();
+
+    const addEntry = (label: string, source: string, amount: number) => {
+      const normalizedLabel = label.trim() || 'Sem descricao';
+      const key = `${source}:${normalizedLabel.toLowerCase()}`;
+      const current = map.get(key) || { label: normalizedLabel, source, count: 0, total: 0 };
+      current.count += 1;
+      current.total += Math.max(0, amount);
+      map.set(key, current);
+    };
+
+    filteredMaintenances.forEach((maintenance) => {
+      addEntry(getServiceTypeLabel(maintenance.serviceType), 'Servicos/Oleo', toNumber(maintenance.serviceValue));
+    });
+
+    filteredCashLaunches.forEach((launch) => {
+      if (launch.items?.length) {
+        launch.items.forEach((item) => {
+          addEntry(item.description || launch.orderNumber || 'Lancamento caixa', 'Lancamentos Caixa', toNumber(item.total));
+        });
+        return;
+      }
+
+      addEntry(launch.orderNumber || 'Lancamento caixa', 'Lancamentos Caixa', toNumber(launch.total));
+    });
+
+    const rows = Array.from(map.values())
+      .filter(row => row.total > 0)
+      .sort((a, b) => b.total - a.total);
+    const total = rows.reduce((sum, row) => sum + row.total, 0);
+    let accumulated = 0;
+
+    return rows.map((row, index) => {
+      const percentage = total ? (row.total / total) * 100 : 0;
+      const curve = accumulated < 80 ? 'A' : accumulated < 95 ? 'B' : 'C';
+      accumulated += percentage;
+
+      return {
+        ...row,
+        position: index + 1,
+        percentage,
+        accumulated,
+        curve,
+      };
+    }).slice(0, 20);
+  }, [filteredCashLaunches, filteredMaintenances]);
+
+  const abcSummary = useMemo(() => {
+    return abcBreakdown.reduce(
+      (summary, row) => {
+        const curve = row.curve as 'A' | 'B' | 'C';
+        summary.total += row.total;
+        summary.counts[curve] += 1;
+        summary.totals[curve] += row.total;
+        return summary;
+      },
+      {
+        total: 0,
+        counts: { A: 0, B: 0, C: 0 },
+        totals: { A: 0, B: 0, C: 0 },
+      },
+    );
+  }, [abcBreakdown]);
+
   const setCurrentMonth = () => {
     setStartDate(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
     setEndDate(format(new Date(), 'yyyy-MM-dd'));
@@ -359,6 +425,13 @@ export const GeneralReportView = ({
 
   const scrollToSection = (sectionId: string) => {
     document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const openAbcCurve = () => {
+    setIsAbcOpen(true);
+    window.setTimeout(() => {
+      document.getElementById('report-abc-curve-detail')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
   };
 
   return (
@@ -545,6 +618,129 @@ export const GeneralReportView = ({
           <Metric title="Receita recorrente" value={toCurrency(summary.recurringRevenue)} tone="text-sky-400" compact onClick={() => scrollToSection('report-services-summary')} />
           <Metric title="Agenda / garantias" value={`${filteredAppointments.length} / ${filteredWarranties.length}`} tone="text-white" compact onClick={() => scrollToSection('report-appointments')} />
         </div>
+      </section>
+
+      <section id="report-abc-curve" className="min-w-0 overflow-hidden rounded-2xl border border-slate-700/60 bg-slate-800/40 p-4">
+        <button
+          type="button"
+          onClick={openAbcCurve}
+          className="flex w-full flex-col gap-4 rounded-2xl border border-slate-700/70 bg-slate-900/60 p-4 text-left transition hover:border-primary/50 hover:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-primary/40 lg:flex-row lg:items-center lg:justify-between"
+        >
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+              <BarChart3 className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-widest text-primary">Analise de vendas</p>
+              <h3 className="text-base font-black text-white">Curva ABC</h3>
+              <p className="mt-1 max-w-2xl text-xs text-slate-400">
+                Abra uma tela limpa para ver quais servicos e mercadorias concentram o faturamento no filtro atual.
+              </p>
+            </div>
+          </div>
+          <div className="grid w-full gap-2 text-xs sm:grid-cols-3 lg:w-auto lg:min-w-[420px]">
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3">
+              <p className="font-black uppercase tracking-widest text-emerald-300">Classe A</p>
+              <p className="mt-1 text-lg font-black text-white">{toCurrency(abcSummary.totals.A)}</p>
+              <p className="text-slate-400">{abcSummary.counts.A} item(ns)</p>
+            </div>
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3">
+              <p className="font-black uppercase tracking-widest text-amber-300">Classe B</p>
+              <p className="mt-1 text-lg font-black text-white">{toCurrency(abcSummary.totals.B)}</p>
+              <p className="text-slate-400">{abcSummary.counts.B} item(ns)</p>
+            </div>
+            <div className="rounded-xl border border-slate-600/60 bg-slate-800/70 p-3">
+              <p className="font-black uppercase tracking-widest text-slate-300">Classe C</p>
+              <p className="mt-1 text-lg font-black text-white">{toCurrency(abcSummary.totals.C)}</p>
+              <p className="text-slate-400">{abcSummary.counts.C} item(ns)</p>
+            </div>
+          </div>
+        </button>
+
+        {isAbcOpen && (
+          <div id="report-abc-curve-detail" className="mt-4 scroll-mt-24 rounded-2xl border border-primary/30 bg-slate-950/70 p-4">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-primary">Curva ABC detalhada</p>
+                <h3 className="text-xl font-black text-white">Itens que mais movem o faturamento</h3>
+                <p className="mt-1 text-xs text-slate-400">
+                  Total analisado: <span className="font-bold text-white">{toCurrency(abcSummary.total)}</span>. Classe A concentra o
+                  maior impacto, B e C ajudam a entender o restante da cauda.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAbcOpen(false)}
+                className="rounded-xl border border-slate-700 px-4 py-2 text-xs font-bold text-slate-200 hover:bg-slate-800"
+              >
+                Fechar Curva ABC
+              </button>
+            </div>
+            <div className="mb-4 grid gap-3 sm:grid-cols-3">
+              <ResultLine label="Classe A" value={abcSummary.totals.A} tone="text-emerald-300" />
+              <ResultLine label="Classe B" value={abcSummary.totals.B} tone="text-amber-300" />
+              <ResultLine label="Classe C" value={abcSummary.totals.C} tone="text-slate-200" />
+            </div>
+            <div className="mb-3 rounded-xl border border-slate-700/60 bg-slate-900/50 p-3 text-xs text-slate-400">
+              <p>
+                Ranking do faturamento bruto filtrado. Use esta tela para decidir o que manter em estoque, destacar em atendimento
+                e acompanhar no caixa.
+              </p>
+            </div>
+            <div className="max-w-full overflow-x-auto">
+              <table className="w-full min-w-[760px] text-left text-xs">
+                <thead className="text-[10px] uppercase tracking-widest text-slate-500">
+                  <tr>
+                    <th className="py-2">#</th>
+                    <th>Item / servico</th>
+                    <th>Origem</th>
+                    <th className="text-right">Qtd</th>
+                    <th className="text-right">Total</th>
+                    <th className="text-right">%</th>
+                    <th>Participacao</th>
+                    <th className="text-center">ABC</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {abcBreakdown.map((row) => (
+                    <tr key={`${row.source}-${row.label}`} className="text-slate-300">
+                      <td className="py-2 font-bold text-primary">{row.position}</td>
+                      <td className="max-w-xs truncate py-2 font-semibold text-white" title={row.label}>{row.label}</td>
+                      <td>{row.source}</td>
+                      <td className="text-right">{row.count}</td>
+                      <td className="text-right font-bold text-emerald-400">{toCurrency(row.total)}</td>
+                      <td className="text-right">{row.percentage.toFixed(1)}%</td>
+                      <td>
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-900">
+                            <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, row.percentage)}%` }} />
+                          </div>
+                          <span className="w-12 text-right text-[11px] text-slate-400">{Math.min(100, row.accumulated).toFixed(1)}%</span>
+                        </div>
+                      </td>
+                      <td className="text-center">
+                        <span className={`inline-flex h-7 min-w-7 items-center justify-center rounded-full px-2 text-xs font-black ${
+                          row.curve === 'A'
+                            ? 'bg-emerald-500/15 text-emerald-300'
+                            : row.curve === 'B'
+                              ? 'bg-amber-500/15 text-amber-300'
+                              : 'bg-slate-700/70 text-slate-300'
+                        }`}>
+                          {row.curve}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {abcBreakdown.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="py-6 text-center text-slate-500">Sem vendas no filtro atual para montar a Curva ABC.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">

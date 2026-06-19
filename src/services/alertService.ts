@@ -1,6 +1,6 @@
 import { 
   collection, 
-  addDoc, 
+  setDoc,
   updateDoc, 
   doc, 
   Firestore 
@@ -8,6 +8,7 @@ import {
 import { format, parseISO, isValid } from 'date-fns';
 import { Client, MessageLog } from '../types';
 import { ReminderEligibility } from '../utils/reminderEligibility';
+import { queueFirestoreVoidWrite } from './firestoreOfflineQueue';
 
 export const AlertService = {
   /**
@@ -93,7 +94,8 @@ export const AlertService = {
         userId: userId
       };
 
-      await addDoc(collection(db, 'users', userId, 'message_logs'), logData);
+      const logRef = doc(collection(db, 'users', userId, 'message_logs'));
+      await queueFirestoreVoidWrite(() => setDoc(logRef, logData), 'Registrar lembrete manual');
 
       // 2. Atualiza metadados do cliente preservando campos existentes
       await AlertService.updateClientReminderMetadata(db, client, now);
@@ -127,6 +129,9 @@ export const AlertService = {
       }
     };
 
-    await updateDoc(doc(db, 'users', client.userId, 'clients', client.id), updateData);
+    await queueFirestoreVoidWrite(
+      () => updateDoc(doc(db, 'users', client.userId, 'clients', client.id), updateData),
+      'Atualizar metadados de lembrete'
+    );
   }
 };

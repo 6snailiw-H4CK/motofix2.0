@@ -1,5 +1,6 @@
-import { addDoc, collection, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { queueFirestoreVoidWrite } from './firestoreOfflineQueue';
 
 export type AppointmentWriteData = Record<string, unknown>;
 
@@ -11,15 +12,22 @@ const appointmentDocPath = (userId: string, appointmentId: string) => (
 
 export const appointmentRepository = {
   async create(userId: string, data: AppointmentWriteData) {
-    const docRef = await addDoc(appointmentCollectionPath(userId), data);
+    const docRef = doc(appointmentCollectionPath(userId));
+    await queueFirestoreVoidWrite(() => setDoc(docRef, data), 'Criar agendamento');
     return docRef.id;
   },
 
   async update(userId: string, appointmentId: string, data: AppointmentWriteData) {
-    await updateDoc(appointmentDocPath(userId, appointmentId), data);
+    await queueFirestoreVoidWrite(
+      () => updateDoc(appointmentDocPath(userId, appointmentId), data),
+      'Atualizar agendamento'
+    );
   },
 
   async remove(userId: string, appointmentId: string) {
-    await deleteDoc(appointmentDocPath(userId, appointmentId));
+    await queueFirestoreVoidWrite(
+      () => deleteDoc(appointmentDocPath(userId, appointmentId)),
+      'Remover agendamento'
+    );
   },
 };

@@ -33,6 +33,10 @@ export type AppView =
 export interface Client {
   id: string;
   name: string;
+  /** Nome completo/razao social para uso fiscal */
+  fullName?: string;
+  /** CPF/CNPJ do cliente para preparo fiscal */
+  document?: string;
   bikeModel: string;
   oilType: string;
   oilPrice: number;
@@ -158,11 +162,39 @@ export interface CashRegisterItem {
   note?: string;
 }
 
+export type ManualFiscalDocumentStatus = 'Nao emitida' | 'Emitida' | 'Cancelada';
+
+export interface ManualFiscalAttachment {
+  name: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
+  dataUrl: string;
+}
+
+export interface ManualFiscalDocument {
+  status: ManualFiscalDocumentStatus;
+  number?: string;
+  accessKey?: string;
+  issuedAt?: string;
+  xml?: ManualFiscalAttachment | null;
+  pdf?: ManualFiscalAttachment | null;
+}
+
+export interface ManualFiscalInfo {
+  nfce: ManualFiscalDocument;
+  nfse: ManualFiscalDocument;
+  preparedAt?: string;
+}
+
 export interface CashRegisterLaunch {
   id: string;
   orderNumber: string;
   clientId?: string;
   clientName: string;
+  clientDocument?: string;
+  clientEmail?: string;
+  clientPhone?: string;
   bikeModel?: string;
   status: 'Em Lancamento' | 'Finalizado' | 'Pendente';
   openingDate: string;
@@ -181,6 +213,7 @@ export interface CashRegisterLaunch {
   fiscalInvoiceId?: string;
   fiscalReference?: string;
   fiscalIssuedAt?: string;
+  manualFiscal?: ManualFiscalInfo;
   userId: string;
   createdAt: string;
   updatedAt: string;

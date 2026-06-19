@@ -4,6 +4,9 @@ import {
   Activity,
   ArrowLeft,
   Check,
+  Copy,
+  Eye,
+  FileText,
   History,
   PackageSearch,
   Plus,
@@ -12,14 +15,27 @@ import {
   RefreshCw,
   Save,
   Search,
+  Send,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react';
 import { cn, safeFormat } from '../../lib/utils';
 import type { CashRegisterDraft } from '../../hooks/useCashRegisterActions';
-import type { CashRegisterItem, CashRegisterLaunch, Client, ProductCatalogItem, ProductCatalogVariation, Settings } from '../../types';
+import type {
+  CashRegisterItem,
+  CashRegisterLaunch,
+  Client,
+  ManualFiscalAttachment,
+  ManualFiscalDocument,
+  ManualFiscalDocumentStatus,
+  ManualFiscalInfo,
+  ProductCatalogItem,
+  ProductCatalogVariation,
+  Settings,
+} from '../../types';
 
-type QuickClientInput = Pick<Client, 'name'> & Partial<Pick<Client, 'contact' | 'bikeModel'>>;
+type QuickClientInput = Pick<Client, 'name'> & Partial<Pick<Client, 'contact' | 'bikeModel' | 'document' | 'email' | 'fullName'>>;
 
 type CashRegisterViewProps = {
   cashLaunches: CashRegisterLaunch[];
@@ -41,8 +57,10 @@ type CashRegisterViewProps = {
 };
 
 type MainTab = 'control' | 'history' | 'monitoring';
-type WorkTab = 'opening' | 'items';
+type WorkTab = 'opening' | 'items' | 'fiscal';
 type MonitoringStatusFilter = 'all' | CashRegisterLaunch['status'];
+type FiscalKind = 'nfce' | 'nfse';
+type FiscalHistoryFilter = 'all' | 'pending' | 'issued' | 'cancelled';
 type ProductPickerRow = {
   id: string;
   product: ProductCatalogItem;
@@ -50,6 +68,8 @@ type ProductPickerRow = {
 };
 
 const statusOptions: CashRegisterLaunch['status'][] = ['Em Lancamento', 'Finalizado', 'Pendente'];
+const fiscalStatusOptions: ManualFiscalDocumentStatus[] = ['Nao emitida', 'Emitida', 'Cancelada'];
+const fiscalAttachmentMaxBytes = 180 * 1024;
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const today = () => format(new Date(), 'yyyy-MM-dd');
 
@@ -63,11 +83,20 @@ const escapeHtml = (value: unknown) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 
-const parseNumber = (value: string | number) => {
+const parseNumber = (value: string | number | null | undefined) => {
   if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-  const parsed = Number.parseFloat(value.replace(/\./g, '').replace(',', '.'));
+  const cleaned = String(value ?? '').replace(/[^\d,.-]/g, '').trim();
+  const hasCommaDecimal = cleaned.includes(',') && cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.');
+  const normalized = hasCommaDecimal
+    ? cleaned.replace(/\./g, '').replace(',', '.')
+    : cleaned.replace(/,/g, '');
+  const parsed = Number.parseFloat(normalized);
   return Number.isFinite(parsed) ? parsed : 0;
 };
+
+const parsePositiveMoney = (value: string | number | null | undefined) => (
+  Math.max(0, parseNumber(value))
+);
 
 const makeId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -95,10 +124,10 @@ const formatShortOrderNumber = (orderNumber?: string) => {
 
 const calculateItem = (item: CashRegisterItem): CashRegisterItem => {
   const quantity = Math.max(1, Number(item.quantity) || 1);
-  const unitPrice = Math.max(0, Number(item.unitPrice) || 0);
+  const unitPrice = parsePositiveMoney(item.unitPrice);
   const gross = quantity * unitPrice;
-  const discountValue = Math.max(0, Number(item.discountValue) || 0);
-  const discountPercent = Math.max(0, Number(item.discountPercent) || 0);
+  const discountValue = parsePositiveMoney(item.discountValue);
+  const discountPercent = parsePositiveMoney(item.discountPercent);
   const percentValue = gross * (discountPercent / 100);
   const totalDiscount = Math.min(gross, discountValue + percentValue);
   const total = Math.max(0, gross - totalDiscount);
@@ -118,6 +147,44 @@ const fieldClass = 'w-full rounded-lg border border-slate-700/60 bg-slate-950/50
 const editableCellClass = 'w-20 rounded-md border border-slate-600/70 bg-slate-900/90 px-2 py-1.5 text-right text-[13px] font-bold text-white outline-none transition focus:border-primary focus:ring-1 focus:ring-primary';
 const editableTextCellClass = 'w-full min-w-56 rounded-md border border-slate-600/70 bg-slate-900/90 px-2 py-1.5 text-[13px] font-bold text-white outline-none transition focus:border-primary focus:ring-1 focus:ring-primary';
 const labelClass = 'text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400';
+
+const createDefaultManualFiscal = (): ManualFiscalInfo => ({
+  nfce: { status: 'Nao emitida', xml: null, pdf: null },
+  nfse: { status: 'Nao emitida', xml: null, pdf: null },
+});
+
+const normalizeManualFiscal = (value?: ManualFiscalInfo): ManualFiscalInfo => {
+  const defaults = createDefaultManualFiscal();
+
+  return {
+    nfce: { ...defaults.nfce, ...(value?.nfce || {}) },
+    nfse: { ...defaults.nfse, ...(value?.nfse || {}) },
+    preparedAt: value?.preparedAt,
+  };
+};
+
+const readAttachmentFile = (file: File): Promise<ManualFiscalAttachment> => (
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Nao foi possivel ler o arquivo fiscal.'));
+    reader.onload = () => {
+      resolve({
+        name: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        size: file.size,
+        uploadedAt: new Date().toISOString(),
+        dataUrl: String(reader.result || ''),
+      });
+    };
+    reader.readAsDataURL(file);
+  })
+);
+
+const normalizePhoneForWhatsapp = (value: string) => {
+  const digits = value.replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.startsWith('55') ? digits : `55${digits}`;
+};
 
 export const CashRegisterView = ({
   cashLaunches,
@@ -401,7 +468,7 @@ export const CashRegisterView = ({
   const addProduct = (product: ProductCatalogItem, variation?: ProductCatalogVariation) => {
     const variationId = variation?.id || '';
     const variationName = variation?.name || product.variation || '';
-    const salePrice = Number(variation?.salePrice ?? product.salePrice ?? 0);
+    const salePrice = parsePositiveMoney(variation?.salePrice ?? product.salePrice);
 
     setItems((current) => {
       const existing = current.find((item) => (
@@ -832,14 +899,17 @@ export const CashRegisterView = ({
                         <th className="px-2.5 py-1.5">Observacao</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800 bg-slate-950/40">
+                    <tbody className="bg-slate-950/40">
                       {items.length === 0 ? (
                         <tr>
                           <td colSpan={9} className="px-3 py-8 text-center text-slate-500">Clique em Incluir para pesquisar uma mercadoria importada.</td>
                         </tr>
                       ) : (
                         items.map((item) => (
-                          <tr key={item.id} className="hover:bg-slate-900/70">
+                          <tr
+                            key={item.id}
+                            className="border-b-[3px] border-yellow-300 last:border-b-0 hover:bg-slate-900/70"
+                          >
                             <td className="px-2.5 py-1.5">
                               <button type="button" onClick={() => setItems((current) => current.filter((row) => row.id !== item.id))} className="rounded-md bg-red-500/10 p-1.5 text-red-400 hover:bg-red-500/20">
                                 <Trash2 className="h-4 w-4" />
@@ -1219,14 +1289,34 @@ export const CashRegisterView = ({
                       </tr>
                     ) : (
                       productPickerRows.map(({ id, product, variation }) => (
-                        <tr key={id} className="hover:bg-slate-900/70">
+                        <tr
+                          key={id}
+                          role="button"
+                          tabIndex={0}
+                          title="Clique para incluir esta mercadoria no lancamento"
+                          onClick={() => addProduct(product, variation)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              addProduct(product, variation);
+                            }
+                          }}
+                          className="cursor-pointer transition-colors hover:bg-primary/10 focus:bg-primary/10 focus:outline-none"
+                        >
                           <td className="px-2.5 py-1.5 font-bold text-slate-300">{product.sourceCode}</td>
                           <td className="px-2.5 py-1.5 font-bold text-white">{product.description}</td>
                           <td className="px-2.5 py-1.5 text-slate-400">{variation?.name || product.variation || '-'}</td>
                           <td className="px-2.5 py-1.5 text-slate-400">{product.ncm || '-'}</td>
-                          <td className="px-2.5 py-1.5 text-right font-black text-primary">{compactCurrency(Number(variation?.salePrice ?? product.salePrice ?? 0))}</td>
+                          <td className="px-2.5 py-1.5 text-right font-black text-primary">{compactCurrency(parsePositiveMoney(variation?.salePrice ?? product.salePrice))}</td>
                           <td className="px-2.5 py-1.5 text-right">
-                            <button type="button" onClick={() => addProduct(product, variation)} className="rounded-lg bg-primary px-3 py-1.5 text-[11px] font-black uppercase text-white hover:bg-primary/90">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                addProduct(product, variation);
+                              }}
+                              className="rounded-lg bg-primary px-3 py-1.5 text-[11px] font-black uppercase text-white hover:bg-primary/90"
+                            >
                               Selecionar
                             </button>
                           </td>

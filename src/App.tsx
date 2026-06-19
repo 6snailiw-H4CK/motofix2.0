@@ -33,6 +33,7 @@ import { useMaintenanceActions } from './hooks/useMaintenanceActions';
 import { useMaintenanceStats } from './hooks/useMaintenanceStats';
 import { useMessageLogActions } from './hooks/useMessageLogActions';
 import { useNotifications } from './hooks/useNotifications';
+import { useOfflineSyncStatus } from './hooks/useOfflineSyncStatus';
 import { useProductActions } from './hooks/useProductActions';
 import { useServiceTypeActions } from './hooks/useServiceTypeActions';
 import { useSettingsActions } from './hooks/useSettingsActions';
@@ -64,6 +65,7 @@ export default function App() {
     fiscalInvoices,
     fiscalLogs
   } = useUserCollections({ user, userProfile, isNewUser });
+  const offlineSyncStatus = useOfflineSyncStatus();
   const {
     colorMode,
     expandedTopService,
@@ -226,6 +228,7 @@ export default function App() {
         alertCount={alertCount}
         colorMode={colorMode}
         settings={settings}
+        offlineSyncStatus={offlineSyncStatus}
         userProfile={userProfile}
         view={view}
         onColorModeChange={setColorMode}

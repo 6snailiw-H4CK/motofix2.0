@@ -1,8 +1,10 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { useCallback, useState } from 'react';
 import type { User } from 'firebase/auth';
+import { toast as sonnerToast } from 'sonner';
 import { DEFAULT_SETTINGS } from '../constants/appDefaults';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
+import { operationalDataResetApi } from '../services/operationalDataResetApi';
 import { settingsRepository } from '../services/settingsRepository';
 import type { Settings } from '../types';
 
@@ -21,6 +23,7 @@ type UseSettingsActionsParams = {
 
 export const useSettingsActions = ({ user, settings, setSettings }: UseSettingsActionsParams) => {
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [isResettingOperationalData, setIsResettingOperationalData] = useState(false);
 
   const showSaveMessage = useCallback((message: string) => {
     setSaveMessage(message);
@@ -76,8 +79,29 @@ export const useSettingsActions = ({ user, settings, setSettings }: UseSettingsA
     }
   }, [settings, setSettings, showSaveMessage, user]);
 
+  const resetOperationalData = useCallback(async () => {
+    if (!user || isResettingOperationalData) return false;
+
+    setIsResettingOperationalData(true);
+    try {
+      const result = await operationalDataResetApi.resetOperationalData();
+      sonnerToast.success(
+        `Zeragem concluida: ${result.deletedTotal} registro(s) removido(s) e ${result.resetClients} cliente(s) preservado(s).`
+      );
+      return true;
+    } catch (error) {
+      console.error('Erro ao zerar dados operacionais:', error);
+      sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel zerar os dados.');
+      return false;
+    } finally {
+      setIsResettingOperationalData(false);
+    }
+  }, [isResettingOperationalData, user]);
+
   return {
     completeProfileSetup,
+    isResettingOperationalData,
+    resetOperationalData,
     saveCompanyProfile,
     saveMessage,
     saveSettings,

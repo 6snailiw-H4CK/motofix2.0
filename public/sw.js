@@ -1,9 +1,94 @@
-self.addEventListener('install', () => {
-  self.skipWaiting();
+const APP_SHELL_CACHE = 'motofix-app-shell-v1';
+const RUNTIME_CACHE = 'motofix-runtime-v1';
+const PRECACHE_URLS = [
+  '/',
+  '/index.html',
+  '/manifest.json',
+  '/motofix-logo.svg',
+];
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(APP_SHELL_CACHE)
+      .then((cache) => Promise.all(PRECACHE_URLS.map((url) => cache.add(url).catch(() => null))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches.keys()
+      .then((cacheNames) => Promise.all(
+        cacheNames
+          .filter((cacheName) => ![APP_SHELL_CACHE, RUNTIME_CACHE].includes(cacheName))
+          .map((cacheName) => caches.delete(cacheName))
+      ))
+      .then(() => self.clients.claim())
+  );
+});
+
+const cacheResponse = async (cacheName, request, response) => {
+  if (!response || response.status >= 400 || response.type === 'opaque') {
+    return response;
+  }
+
+  const cache = await caches.open(cacheName);
+  await cache.put(request, response.clone());
+  return response;
+};
+
+const networkFirst = async (request, fallbackUrl) => {
+  try {
+    const response = await fetch(request);
+    return cacheResponse(RUNTIME_CACHE, request, response);
+  } catch {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+
+    if (fallbackUrl) {
+      const fallback = await caches.match(fallbackUrl);
+      if (fallback) return fallback;
+    }
+
+    throw new Error('Offline and no cached response available.');
+  }
+};
+
+const cacheFirst = async (request) => {
+  const cached = await caches.match(request);
+  if (cached) {
+    fetch(request)
+      .then((response) => cacheResponse(RUNTIME_CACHE, request, response))
+      .catch(() => null);
+    return cached;
+  }
+
+  const response = await fetch(request);
+  return cacheResponse(RUNTIME_CACHE, request, response);
+};
+
+self.addEventListener('fetch', (event) => {
+  const { request } = event;
+
+  if (request.method !== 'GET') return;
+
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+
+  if (request.mode === 'navigate') {
+    event.respondWith(networkFirst(request, '/index.html'));
+    return;
+  }
+
+  const isStaticAsset = ['script', 'style', 'image', 'font', 'manifest'].includes(request.destination)
+    || url.pathname.startsWith('/assets/');
+
+  if (isStaticAsset) {
+    event.respondWith(cacheFirst(request));
+    return;
+  }
+
+  event.respondWith(networkFirst(request));
 });
 
 self.addEventListener('notificationclick', (event) => {

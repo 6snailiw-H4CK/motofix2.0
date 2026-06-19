@@ -1,0 +1,74 @@
+import { useEffect, useState } from 'react';
+import { db, waitForPendingWrites } from '../firebase';
+import {
+  getFirestoreOfflineQueueState,
+  subscribeFirestoreOfflineQueue,
+  type FirestoreOfflineQueueState
+} from '../services/firestoreOfflineQueue';
+
+export type OfflineSyncStatus = {
+  isOnline: boolean;
+  isSyncing: boolean;
+  pendingWrites: number;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+};
+
+const getIsOnline = () => (
+  typeof navigator === 'undefined' ? true : navigator.onLine
+);
+
+export const useOfflineSyncStatus = (): OfflineSyncStatus => {
+  const [isOnline, setIsOnline] = useState(getIsOnline);
+  const [queueState, setQueueState] = useState<FirestoreOfflineQueueState>(getFirestoreOfflineQueueState);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    const updateOnlineStatus = () => setIsOnline(getIsOnline());
+
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    updateOnlineStatus();
+
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
+    };
+  }, []);
+
+  useEffect(() => subscribeFirestoreOfflineQueue(setQueueState), []);
+
+  useEffect(() => {
+    if (!isOnline) return;
+
+    let isCurrent = true;
+    setIsSyncing(true);
+
+    waitForPendingWrites(db)
+      .then(() => {
+        if (!isCurrent) return;
+        setLastSyncedAt(new Date().toISOString());
+      })
+      .catch((error) => {
+        if (!isCurrent) return;
+        console.warn('Falha ao aguardar sincronizacao pendente do Firestore:', error);
+      })
+      .finally(() => {
+        if (!isCurrent) return;
+        setIsSyncing(false);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [isOnline, queueState.lastQueuedAt, queueState.pendingWrites]);
+
+  return {
+    isOnline,
+    isSyncing,
+    pendingWrites: queueState.pendingWrites,
+    lastSyncedAt: queueState.lastSettledAt || lastSyncedAt,
+    lastError: queueState.lastError,
+  };
+};

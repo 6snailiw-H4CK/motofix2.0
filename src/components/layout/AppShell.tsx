@@ -4,11 +4,13 @@ import { BottomNav } from './BottomNav';
 import { SidebarNav } from './SidebarNav';
 import { TopBar } from './TopBar';
 import type { AppView, ColorMode, Settings, UserProfile } from '../../types';
+import type { OfflineSyncStatus } from '../../hooks/useOfflineSyncStatus';
 
 type AppShellProps = {
   alertCount: number;
   children: ReactNode;
   colorMode: ColorMode;
+  offlineSyncStatus: OfflineSyncStatus;
   settings: Settings;
   userProfile: UserProfile | null;
   view: AppView;
@@ -22,6 +24,7 @@ export const AppShell = ({
   alertCount,
   children,
   colorMode,
+  offlineSyncStatus,
   settings,
   userProfile,
   view,
@@ -50,6 +53,7 @@ export const AppShell = ({
             <AppHeader
               alertCount={alertCount}
               colorMode={colorMode}
+              offlineSyncStatus={offlineSyncStatus}
               onColorModeChange={onColorModeChange}
               onRequestNotifications={onRequestNotifications}
               onSettingsClick={() => onViewChange('settings')}
@@ -62,6 +66,7 @@ export const AppShell = ({
               alertCount={alertCount}
               businessName={businessName}
               colorMode={colorMode}
+              offlineSyncStatus={offlineSyncStatus}
               view={view}
               onColorModeChange={onColorModeChange}
               onRequestNotifications={onRequestNotifications}

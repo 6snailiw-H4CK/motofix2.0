@@ -241,6 +241,16 @@ export const AppViewRenderer = ({
     && (launch.status === 'Pendente' || (launch.status === 'Finalizado' && !launch.invoiced))
   ));
   const pendingPaymentCount = pendingPaymentClients.length + pendingCashLaunches.length;
+  const operationalDataCount = (
+    appointments.length
+    + cashLaunches.length
+    + expenseEntries.length
+    + fiscalInvoices.length
+    + fiscalLogs.length
+    + maintenances.length
+    + messageLogs.length
+    + warranties.length
+  );
   const [cashLaunchToOpenId, setCashLaunchToOpenId] = useState<string | null>(null);
 
   return (
@@ -581,6 +591,7 @@ export const AppViewRenderer = ({
       {view === 'settings' && (
         <SettingsView
           clientsCount={clients.length}
+          operationalDataCount={operationalDataCount}
           productsCount={productCatalog.length}
           userEmail={userEmail}
           userProfile={userProfile}
@@ -597,6 +608,8 @@ export const AppViewRenderer = ({
           onExportProductsBackup={() => downloadProductsWorkbook(productCatalog)}
           onImportProductsBackup={productActions.importProductsWorkbook}
           isImportingProducts={productActions.isImportingProducts}
+          onResetOperationalData={settingsActions.resetOperationalData}
+          isResettingOperationalData={settingsActions.isResettingOperationalData}
         />
       )}
 

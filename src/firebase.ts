@@ -1,6 +1,25 @@
 import { initializeApp } from 'firebase/app';
 import { browserLocalPersistence, getAuth, GoogleAuthProvider, setPersistence, signInWithPopup, signOut } from 'firebase/auth';
-import { getFirestore, collection, doc, setDoc, getDoc, getDocs, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import {
+  CACHE_SIZE_UNLIMITED,
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  getFirestore,
+  initializeFirestore,
+  onSnapshot,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  waitForPendingWrites,
+  where
+} from 'firebase/firestore';
 
 // Pega as configurações do arquivo .env
 const firebaseConfig = {
@@ -15,7 +34,22 @@ const firebaseConfig = {
 
 // Inicializa o Firebase
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+
+const initializeOfflineFirestore = () => {
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        cacheSizeBytes: CACHE_SIZE_UNLIMITED,
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+  } catch (error) {
+    console.warn('Falha ao ativar cache persistente do Firestore. Usando cache em memoria:', error);
+    return getFirestore(app);
+  }
+};
+
+export const db = initializeOfflineFirestore();
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
@@ -39,6 +73,7 @@ export {
   updateDoc,
   deleteDoc,
   serverTimestamp,
+  waitForPendingWrites,
   signInWithPopup,
   signOut
 };

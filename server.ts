@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Stripe from "stripe";
 import admin from "firebase-admin";
+import { registerDataResetRoutes } from "./server/dataResetRoutes";
 import { registerFiscalRoutes } from "./server/fiscal/fiscalRoutes";
 import { registerWhatsAppRoutes } from "./server/whatsapp/whatsappRoutes";
 import {
@@ -109,6 +110,7 @@ async function startServer() {
   app.use("/api/fiscal/nfse", scopedRateLimit({ name: "fiscal-nfse", windowMs: 5 * 60_000, maxRequests: intEnv("FISCAL_NFSE_RATE_LIMIT_PER_5_MINUTES", 12) }));
   app.use("/api/payments/create-checkout", scopedRateLimit({ name: "payments-checkout", windowMs: 15 * 60_000, maxRequests: intEnv("PAYMENTS_CHECKOUT_RATE_LIMIT_PER_15_MINUTES", 10) }));
   app.use("/api/payments/session", scopedRateLimit({ name: "payments-session", windowMs: 60_000, maxRequests: intEnv("PAYMENTS_SESSION_RATE_LIMIT_PER_MINUTE", 60) }));
+  app.use("/api/data-reset/operational", scopedRateLimit({ name: "data-reset-operational", windowMs: 60 * 60_000, maxRequests: intEnv("DATA_RESET_RATE_LIMIT_PER_HOUR", 3) }));
   app.use(bodyParser);
   app.use(express.urlencoded({ extended: false, limit: "64kb", parameterLimit: 100 }));
 
@@ -125,6 +127,13 @@ async function startServer() {
   });
 
   registerWhatsAppRoutes({
+    app,
+    admin,
+    db,
+    firebaseInitialized,
+  });
+
+  registerDataResetRoutes({
     app,
     admin,
     db,

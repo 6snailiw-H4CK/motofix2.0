@@ -1,5 +1,6 @@
-import { addDoc, collection, deleteDoc, doc, updateDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { queueFirestoreVoidWrite } from './firestoreOfflineQueue';
 
 export type WarrantyWriteData = Record<string, unknown>;
 
@@ -9,15 +10,19 @@ const warrantyDocPath = (userId: string, warrantyId: string) => doc(db, 'users',
 
 export const warrantyRepository = {
   async create(userId: string, data: WarrantyWriteData) {
-    const docRef = await addDoc(warrantyCollectionPath(userId), data);
+    const docRef = doc(warrantyCollectionPath(userId));
+    await queueFirestoreVoidWrite(() => setDoc(docRef, data), 'Criar garantia');
     return docRef.id;
   },
 
   async update(userId: string, warrantyId: string, data: WarrantyWriteData) {
-    await updateDoc(warrantyDocPath(userId, warrantyId), data);
+    await queueFirestoreVoidWrite(
+      () => updateDoc(warrantyDocPath(userId, warrantyId), data),
+      'Atualizar garantia'
+    );
   },
 
   async remove(userId: string, warrantyId: string) {
-    await deleteDoc(warrantyDocPath(userId, warrantyId));
+    await queueFirestoreVoidWrite(() => deleteDoc(warrantyDocPath(userId, warrantyId)), 'Remover garantia');
   },
 };

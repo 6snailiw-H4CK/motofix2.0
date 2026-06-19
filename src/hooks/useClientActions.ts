@@ -149,7 +149,6 @@ export const useClientActions = ({
       const createdClient = { id, ...data };
 
       sonnerToast.success('Cliente cadastrado rapidamente.');
-      onSaved();
       return createdClient;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'clients');
@@ -158,7 +157,7 @@ export const useClientActions = ({
     } finally {
       setIsSaving(false);
     }
-  }, [getStatus, onSaved, user]);
+  }, [getStatus, user]);
 
   const saveClient = useCallback(async (clientData: ClientSaveData) => {
     if (!user) return;

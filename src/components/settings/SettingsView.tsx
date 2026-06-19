@@ -1,6 +1,7 @@
 import { type Dispatch, type KeyboardEvent, type SetStateAction, useRef, useState } from 'react';
 import { format, isBefore, parseISO } from 'date-fns';
 import {
+  AlertTriangle,
   Bike,
   Download,
   Droplets,
@@ -10,7 +11,9 @@ import {
   MessageCircle,
   MessageSquare,
   Plus,
+  RotateCcw,
   ShieldCheck,
+  Trash2,
   Wrench,
   X,
 } from 'lucide-react';
@@ -21,6 +24,7 @@ import type { ColorMode, Settings, UserProfile } from '../../types';
 
 type SettingsViewProps = {
   clientsCount: number;
+  operationalDataCount: number;
   productsCount: number;
   userEmail?: string | null;
   userProfile: UserProfile | null;
@@ -37,10 +41,13 @@ type SettingsViewProps = {
   onExportProductsBackup: () => void;
   onImportProductsBackup: (file: File) => Promise<number> | number;
   isImportingProducts: boolean;
+  onResetOperationalData: () => Promise<boolean> | boolean;
+  isResettingOperationalData: boolean;
 };
 
 export const SettingsView = ({
   clientsCount,
+  operationalDataCount,
   productsCount,
   userEmail,
   userProfile,
@@ -57,10 +64,14 @@ export const SettingsView = ({
   onExportProductsBackup,
   onImportProductsBackup,
   isImportingProducts,
+  onResetOperationalData,
+  isResettingOperationalData,
 }: SettingsViewProps) => {
   const [newServiceType, setNewServiceType] = useState('');
   const [newOilType, setNewOilType] = useState('');
   const [newWarrantyCategory, setNewWarrantyCategory] = useState('');
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [resetConfirmation, setResetConfirmation] = useState('');
   const clientImportInputRef = useRef<HTMLInputElement | null>(null);
   const productImportInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -156,6 +167,15 @@ export const SettingsView = ({
     void onImportProductsBackup(file);
     if (productImportInputRef.current) {
       productImportInputRef.current.value = '';
+    }
+  };
+
+  const handleResetOperationalData = async () => {
+    if (resetConfirmation !== 'ZERAR') return;
+    const completed = await onResetOperationalData();
+    if (completed) {
+      setResetConfirmation('');
+      setShowResetConfirm(false);
     }
   };
 
@@ -292,6 +312,72 @@ export const SettingsView = ({
               </div>
             </div>
           </div>
+        </div>
+
+        <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+          <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-500/15 text-red-400">
+                  <AlertTriangle className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <h4 className="text-sm font-bold text-white">Zerar lancamentos</h4>
+                  <p className="mt-1 text-xs leading-relaxed text-red-100/80">
+                    Remove O.S., servicos, despesas, garantias, agendamentos, avisos, registros fiscais locais e
+                    historico WhatsApp. Clientes, mercadorias, configuracoes e empresa fiscal ficam preservados.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowResetConfirm((current) => !current)}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-red-500/30 bg-red-500/15 px-3 text-xs font-bold text-red-300 transition-all hover:bg-red-500/25"
+            >
+              <RotateCcw className="h-4 w-4" />
+              Zerar dados
+            </button>
+          </div>
+
+          {showResetConfirm && (
+            <div className="mt-3 grid gap-3 rounded-xl border border-red-500/25 bg-slate-950/35 p-3 md:grid-cols-[1fr_auto] md:items-end">
+              <div className="min-w-0 space-y-2">
+                <p className="text-xs text-slate-300">
+                  {operationalDataCount} registro(s) operacional(is) visivel(is) serao removidos. Para confirmar,
+                  digite <strong className="text-red-300">ZERAR</strong>.
+                </p>
+                <input
+                  value={resetConfirmation}
+                  onChange={(event) => setResetConfirmation(event.target.value.trim().toUpperCase())}
+                  placeholder="Digite ZERAR"
+                  className="h-10 w-full rounded-lg border border-red-500/30 bg-slate-950 px-3 text-sm font-bold text-white outline-none transition focus:border-red-400 focus:ring-1 focus:ring-red-400"
+                />
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2 md:w-[19rem]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setResetConfirmation('');
+                    setShowResetConfirm(false);
+                  }}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-600 bg-slate-800 px-3 text-xs font-bold text-slate-200 transition-all hover:bg-slate-700"
+                >
+                  <X className="h-4 w-4" />
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={resetConfirmation !== 'ZERAR' || isResettingOperationalData}
+                  onClick={() => void handleResetOperationalData()}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-red-500/40 bg-red-500 px-3 text-xs font-bold text-white transition-all hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {isResettingOperationalData ? 'Zerando...' : 'Confirmar'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <input

@@ -134,6 +134,8 @@ service cloud.firestore {
           'createdAt'
         ], clientKeys())
         && isText('name', 120)
+        && optionalText('fullName', 160)
+        && optionalText('document', 32)
         && isText('bikeModel', 120)
         && isText('contact', 60)
         && optionalText('email', 160)
@@ -292,6 +294,9 @@ service cloud.firestore {
         && isText('orderNumber', 80)
         && optionalText('clientId', 160)
         && isText('clientName', 120)
+        && optionalText('clientDocument', 32)
+        && optionalText('clientEmail', 160)
+        && optionalText('clientPhone', 60)
         && optionalText('bikeModel', 120)
         && cashLaunchStatusValid()
         && isText('openingDate', 40)
@@ -311,6 +316,7 @@ service cloud.firestore {
         && optionalText('fiscalInvoiceId', 160)
         && optionalText('fiscalReference', 160)
         && optionalText('fiscalIssuedAt', 40)
+        && optionalMap('manualFiscal')
         && isText('createdAt', 40)
         && isText('updatedAt', 40);
     }
@@ -450,6 +456,8 @@ service cloud.firestore {
     function clientKeys() {
       return [
         'name',
+        'fullName',
+        'document',
         'bikeModel',
         'oilType',
         'oilPrice',
@@ -561,6 +569,9 @@ service cloud.firestore {
         'orderNumber',
         'clientId',
         'clientName',
+        'clientDocument',
+        'clientEmail',
+        'clientPhone',
         'bikeModel',
         'status',
         'openingDate',
@@ -579,6 +590,7 @@ service cloud.firestore {
         'fiscalInvoiceId',
         'fiscalReference',
         'fiscalIssuedAt',
+        'manualFiscal',
         'userId',
         'createdAt',
         'updatedAt'

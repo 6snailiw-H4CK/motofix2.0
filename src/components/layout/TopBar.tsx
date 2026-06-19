@@ -1,6 +1,8 @@
 import { Bell, LogOut, Moon, Search, Settings as SettingsIcon, Sun } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { AppView, ColorMode } from '../../types';
+import type { OfflineSyncStatus } from '../../hooks/useOfflineSyncStatus';
+import { OfflineSyncPill } from './OfflineSyncPill';
 
 const viewTitles: Partial<Record<AppView, { title: string; subtitle: string }>> = {
   dashboard: {
@@ -73,6 +75,7 @@ type TopBarProps = {
   alertCount: number;
   businessName?: string;
   colorMode: ColorMode;
+  offlineSyncStatus: OfflineSyncStatus;
   view: AppView;
   onColorModeChange: (mode: ColorMode) => void;
   onRequestNotifications: () => void;
@@ -84,6 +87,7 @@ export const TopBar = ({
   alertCount,
   businessName,
   colorMode,
+  offlineSyncStatus,
   view,
   onColorModeChange,
   onRequestNotifications,
@@ -106,6 +110,8 @@ export const TopBar = ({
             <Search className="h-4 w-4" />
             <span className="text-xs">Buscar no modulo atual</span>
           </div>
+
+          <OfflineSyncPill status={offlineSyncStatus} />
 
           <button
             type="button"

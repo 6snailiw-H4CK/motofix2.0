@@ -1,5 +1,6 @@
-import { addDoc, collection, deleteDoc, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { queueFirestoreVoidWrite } from './firestoreOfflineQueue';
 
 export type ClientWriteData = Record<string, unknown>;
 
@@ -9,19 +10,23 @@ const clientDocPath = (userId: string, clientId: string) => doc(db, 'users', use
 
 export const clientRepository = {
   async create(userId: string, data: ClientWriteData) {
-    const docRef = await addDoc(clientCollectionPath(userId), data);
+    const docRef = doc(clientCollectionPath(userId));
+    await queueFirestoreVoidWrite(() => setDoc(docRef, data), 'Criar cliente');
     return docRef.id;
   },
 
   async update(userId: string, clientId: string, data: ClientWriteData) {
-    await updateDoc(clientDocPath(userId, clientId), data);
+    await queueFirestoreVoidWrite(() => updateDoc(clientDocPath(userId, clientId), data), 'Atualizar cliente');
   },
 
   async setWithId(userId: string, clientId: string, data: ClientWriteData) {
-    await setDoc(clientDocPath(userId, clientId), data, { merge: true });
+    await queueFirestoreVoidWrite(
+      () => setDoc(clientDocPath(userId, clientId), data, { merge: true }),
+      'Salvar cliente com ID'
+    );
   },
 
   async remove(userId: string, clientId: string) {
-    await deleteDoc(clientDocPath(userId, clientId));
+    await queueFirestoreVoidWrite(() => deleteDoc(clientDocPath(userId, clientId)), 'Remover cliente');
   },
 };

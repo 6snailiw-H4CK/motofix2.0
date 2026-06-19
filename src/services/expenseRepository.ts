@@ -1,5 +1,6 @@
-import { addDoc, collection, deleteDoc, doc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { queueFirestoreVoidWrite } from './firestoreOfflineQueue';
 
 export type ExpenseWriteData = Record<string, unknown>;
 
@@ -9,11 +10,12 @@ const expenseDocPath = (userId: string, expenseId: string) => doc(db, 'users', u
 
 export const expenseRepository = {
   async create(userId: string, data: ExpenseWriteData) {
-    const docRef = await addDoc(expenseCollectionPath(userId), data);
+    const docRef = doc(expenseCollectionPath(userId));
+    await queueFirestoreVoidWrite(() => setDoc(docRef, data), 'Criar gasto');
     return docRef.id;
   },
 
   async remove(userId: string, expenseId: string) {
-    await deleteDoc(expenseDocPath(userId, expenseId));
+    await queueFirestoreVoidWrite(() => deleteDoc(expenseDocPath(userId, expenseId)), 'Remover gasto');
   },
 };

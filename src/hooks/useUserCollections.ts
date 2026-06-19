@@ -2,6 +2,7 @@ import { Dispatch, SetStateAction, useEffect, useState } from 'react';
 import { User } from 'firebase/auth';
 import { collection, doc, onSnapshot, query, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { queueFirestoreVoidWrite } from '../services/firestoreOfflineQueue';
 import {
   Appointment,
   CashRegisterLaunch,
@@ -188,15 +189,21 @@ export function useUserCollections({
 
         const needsUpdate = !data.oilTypes || !data.warrantyCategories || data.isProfileComplete === undefined;
         if (needsUpdate) {
-          updateDoc(settingsDoc, {
-            oilTypes: updatedSettings.oilTypes,
-            warrantyCategories: updatedSettings.warrantyCategories,
-            isProfileComplete: updatedSettings.isProfileComplete
-          }).catch(e => console.error('Error updating settings with defaults', e));
+          queueFirestoreVoidWrite(
+            () => updateDoc(settingsDoc, {
+              oilTypes: updatedSettings.oilTypes,
+              warrantyCategories: updatedSettings.warrantyCategories,
+              isProfileComplete: updatedSettings.isProfileComplete
+            }),
+            'Atualizar configuracoes padrao'
+          ).catch(e => console.error('Error updating settings with defaults', e));
         }
       } else {
         const initialSettings = buildInitialSettings(user.uid, isNewUser);
-        setDoc(settingsDoc, initialSettings).catch(error => console.error('Error creating settings', error));
+        queueFirestoreVoidWrite(
+          () => setDoc(settingsDoc, initialSettings),
+          'Criar configuracoes iniciais'
+        ).catch(error => console.error('Error creating settings', error));
         setSettings(initialSettings);
         setSettingsLoaded(true);
       }

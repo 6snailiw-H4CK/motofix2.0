@@ -1,6 +1,7 @@
 import { collection, deleteDoc, doc, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { ProductCatalogFormInput, ProductCatalogItem } from '../types';
+import { queueFirestoreVoidWrite } from './firestoreOfflineQueue';
 
 type ProductWriteData = Omit<ProductCatalogItem, 'id' | 'userId' | 'importedAt' | 'createdAt' | 'updatedAt'>;
 
@@ -72,7 +73,7 @@ export const productRepository = {
         }, { merge: true });
       });
 
-      await batch.commit();
+      await queueFirestoreVoidWrite(() => batch.commit(), 'Importar mercadorias');
       imported += chunk.length;
     }
 
@@ -98,18 +99,21 @@ export const productRepository = {
     const id = productId || buildProductId(product.sourceCode, product.description, product.variation);
     const ref = productDocPath(userId, id);
 
-    await setDoc(ref, {
-      ...product,
-      id,
-      userId,
-      updatedAt: now,
-      ...(productId ? {} : { importedAt: now, createdAt: now }),
-    }, { merge: true });
+    await queueFirestoreVoidWrite(
+      () => setDoc(ref, {
+        ...product,
+        id,
+        userId,
+        updatedAt: now,
+        ...(productId ? {} : { importedAt: now, createdAt: now }),
+      }, { merge: true }),
+      'Salvar mercadoria'
+    );
 
     return id;
   },
 
   async delete(userId: string, productId: string) {
-    await deleteDoc(productDocPath(userId, productId));
+    await queueFirestoreVoidWrite(() => deleteDoc(productDocPath(userId, productId)), 'Remover mercadoria');
   },
 };
