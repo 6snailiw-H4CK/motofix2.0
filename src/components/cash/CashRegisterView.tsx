@@ -610,6 +610,7 @@ export const CashRegisterView = ({
     setOrderDiscountValueInput('');
     setOrderDiscountPercentInput('');
     setWorkTab('opening');
+    if (draftStorageKey) clearLocalDraft(draftStorageKey);
   };
 
   const startNewOrder = () => {
@@ -651,6 +652,46 @@ export const CashRegisterView = ({
       invoiced: finalInvoiced,
     };
   };
+
+  useEffect(() => {
+    if (!draftStorageKey || !isDraftHydrated) return;
+
+    const hasContent = Boolean(
+      editingLaunchId
+      || selectedClientId
+      || clientName.trim()
+      || bikeModel.trim()
+      || observation.trim()
+      || request.trim()
+      || servicesExecuted.trim()
+      || items.length > 0
+      || orderDiscountValueInput.trim()
+      || orderDiscountPercentInput.trim()
+    );
+
+    if (!hasContent) {
+      clearLocalDraft(draftStorageKey);
+      return;
+    }
+
+    saveLocalDraft<CashRegisterLocalDraft>(draftStorageKey, 'O.S. em andamento', 'cash-register', {
+      editingLaunchId,
+      editingOrderNumber,
+      selectedClientId,
+      clientName,
+      bikeModel,
+      status,
+      isInvoiced,
+      openingDate,
+      expectedDate,
+      observation,
+      request,
+      servicesExecuted,
+      items,
+      orderDiscountValueInput,
+      orderDiscountPercentInput,
+    });
+  }, [bikeModel, clientName, draftStorageKey, editingLaunchId, editingOrderNumber, expectedDate, isDraftHydrated, isInvoiced, items, observation, openingDate, orderDiscountPercentInput, orderDiscountValueInput, request, selectedClientId, servicesExecuted, status]);
 
   const handleSave = async (statusOverride?: CashRegisterLaunch['status'], invoiced = false) => {
     const isInvoiceAction = statusOverride === 'Finalizado' && invoiced;

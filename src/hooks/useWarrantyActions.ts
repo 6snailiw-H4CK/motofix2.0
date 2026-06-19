@@ -165,7 +165,11 @@ export const useWarrantyActions = ({
           targetId: warrantyId,
           details: { clientName: finalData.clientName, warrantyNumber: finalData.warrantyNumber },
         });
-        sonnerToast.success('Garantia registrada com sucesso!');
+        sonnerToast.success(
+          typeof navigator !== 'undefined' && navigator.onLine === false
+            ? 'Garantia salva neste computador. Sincronizacao pendente.'
+            : 'Garantia registrada com sucesso!'
+        );
         setTimeout(() => {
           generateWarrantyPDF({ ...finalData, id: warrantyId } as Warranty);
         }, 500);

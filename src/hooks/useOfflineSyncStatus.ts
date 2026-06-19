@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { db, waitForPendingWrites } from '../firebase';
 import {
   getFirestoreOfflineQueueState,
+  getPendingWriteCheckpoint,
+  confirmPendingWriteCheckpoint,
   subscribeFirestoreOfflineQueue,
   type FirestoreOfflineQueueState
 } from '../services/firestoreOfflineQueue';
@@ -15,6 +17,7 @@ export type OfflineSyncStatus = {
   lastQueuedAt: string | null;
   lastSyncedAt: string | null;
   lastError: string | null;
+  failureCount: number;
 };
 
 const getIsOnline = () => (
@@ -49,11 +52,13 @@ export const useOfflineSyncStatus = (): OfflineSyncStatus => {
     if (!isOnline) return;
 
     let isCurrent = true;
+    const pendingWriteCheckpoint = getPendingWriteCheckpoint();
     setIsSyncing(true);
 
     waitForPendingWrites(db)
       .then(() => {
         if (!isCurrent) return;
+        confirmPendingWriteCheckpoint(pendingWriteCheckpoint);
         setLastSyncedAt(new Date().toISOString());
       })
       .catch((error) => {
@@ -78,5 +83,6 @@ export const useOfflineSyncStatus = (): OfflineSyncStatus => {
     lastQueuedAt: queueState.lastQueuedAt,
     lastSyncedAt: queueState.lastSettledAt || lastSyncedAt,
     lastError: queueState.lastError,
+    failureCount: queueState.failureCount,
   };
 };

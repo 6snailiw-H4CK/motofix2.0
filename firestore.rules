@@ -346,6 +346,32 @@ service cloud.firestore {
         && optionalText('error', 1000);
     }
 
+    function operationalLogShape(userId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'timestamp',
+          'usuario',
+          'oficina',
+          'acao',
+          'resultado'
+        ], operationalLogKeys())
+        && isText('timestamp', 40)
+        && isText('usuario', 160)
+        && isText('oficina', 160)
+        && request.resource.data.acao in [
+          'cliente_criado',
+          'cliente_editado',
+          'cliente_removido',
+          'os_criada',
+          'garantia_criada',
+          'despesa_criada',
+          'receita_criada'
+        ]
+        && request.resource.data.resultado in ['sucesso', 'salvo_offline', 'erro']
+        && optionalText('targetId', 160)
+        && optionalMap('details');
+    }
+
     function whatsappAutomationShape(userId) {
       return requiredBaseFields(userId, [
           'userId',
@@ -618,6 +644,19 @@ service cloud.firestore {
       ];
     }
 
+    function operationalLogKeys() {
+      return [
+        'timestamp',
+        'usuario',
+        'userId',
+        'oficina',
+        'acao',
+        'resultado',
+        'targetId',
+        'details'
+      ];
+    }
+
     function whatsappAutomationKeys() {
       return [
         'userId',
@@ -717,6 +756,12 @@ service cloud.firestore {
       allow create: if isAdmin() || (validOwnerCreate(userId, messageLogKeys()) && messageLogShape(userId));
       allow update: if isAdmin() || (validOwnerUpdate(userId, messageLogKeys()) && messageLogShape(userId));
       allow delete: if isActiveOwner(userId) || isAdmin();
+    }
+
+    match /users/{userId}/operational_logs/{logId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isAdmin() || (validOwnerCreate(userId, operationalLogKeys()) && operationalLogShape(userId));
+      allow update, delete: if false;
     }
 
     match /users/{userId}/whatsapp_sessions/{sessionId} {

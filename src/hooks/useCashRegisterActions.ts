@@ -90,7 +90,10 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
         }
       }
 
-      sonnerToast.success(launchId ? 'Lancamento Caixa atualizado com sucesso.' : 'Lancamento Caixa salvo com sucesso.');
+      const savedOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+      sonnerToast.success(savedOffline
+        ? 'O.S. salva neste computador. Sincronizacao pendente.'
+        : launchId ? 'Lancamento Caixa atualizado com sucesso.' : 'Lancamento Caixa salvo com sucesso.');
       return true;
     } catch (error) {
       sonnerToast.error('Nao foi possivel salvar o Lancamento Caixa.');

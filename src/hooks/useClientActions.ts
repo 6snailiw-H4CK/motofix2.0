@@ -170,7 +170,7 @@ export const useClientActions = ({
   }, [getStatus, user, workshopName]);
 
   const saveClient = useCallback(async (clientData: ClientSaveData) => {
-    if (!user) return;
+    if (!user) return false;
 
     setIsSaving(true);
     let saveOperation = editingClient ? OperationType.UPDATE : OperationType.CREATE;
@@ -216,11 +216,17 @@ export const useClientActions = ({
           details: { source: 'client_service', value: clientData.serviceValue || 0 },
         });
       }
-      sonnerToast.success(result.message);
+      sonnerToast.success(
+        typeof navigator !== 'undefined' && navigator.onLine === false
+          ? 'Dados salvos neste computador. Sincronizacao pendente.'
+          : result.message
+      );
       onSaved();
+      return true;
     } catch (error) {
       handleFirestoreError(error, saveOperation, 'clients');
       sonnerToast.error('Erro ao salvar dados.');
+      return false;
     } finally {
       setIsSaving(false);
     }

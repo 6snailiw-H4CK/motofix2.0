@@ -139,3 +139,74 @@ O topo da aplicacao mostra um badge apenas quando necessario:
 6. Reconecte a internet.
 7. Aguarde o badge sumir.
 8. Confira no Firebase/Firestore se os documentos foram enviados.
+
+## Fase 2 - reforco para o piloto de 60 dias
+
+Status em andamento em 19/06/2026.
+
+### Concluido no codigo
+
+- Backup emergencial CSV para clientes, motos, ordens de servico e garantias.
+- Painel interno de saude da sincronizacao com status, ultima sincronizacao, pendencias, falhas e quantidade de drafts locais.
+- Base de log operacional em `users/{userId}/operational_logs`.
+- Registro de log para cliente criado/editado/removido, O.S. criada, garantia criada, despesa criada e receita criada.
+- Regra Firestore append-only para `operational_logs`: usuario ativo pode criar, dono/admin pode ler e ninguem pode editar ou excluir pelo cliente.
+- Servico central de drafts locais em `src/services/localDrafts.ts`.
+- Autosave e restauracao de draft em despesas e agendamentos.
+- Autosave e restauracao de draft no formulario de garantia, com limpeza somente apos salvamento bem-sucedido.
+- Autosave e restauracao de draft no cadastro de cliente/servico.
+- Autosave e restauracao completa do Lancamento Caixa.
+- Metadados da fila offline persistidos em `localStorage`, mantendo contagem de pendencias apos fechar e reabrir o navegador.
+- Checkpoint da fila conciliado com `waitForPendingWrites` depois da reconexao.
+- Contador persistente de falhas de sincronizacao no painel interno.
+- Feedback operacional especifico para gravacoes offline em clientes, O.S., garantias, despesas e agendamentos.
+- Parser monetario BR centralizado e aplicado aos fluxos operacionais corrigidos.
+
+### Em implementacao
+
+- Validacao manual autenticada em navegador com uma conta piloto.
+
+### Validacao tecnica parcial
+
+- `npm run lint` passou apos a integracao dos backups, logs, painel, drafts e fila persistente.
+
+### Relatorio tecnico dos testes de desastre
+
+Comando repetivel: `npm run test:offline`.
+
+Cenarios automatizados executados:
+
+1. Salvar draft de O.S. offline.
+2. Simular fechamento/reabertura mantendo o mesmo armazenamento local e restaurar o draft.
+3. Criar multiplos drafts locais simultaneamente.
+4. Manter uma escrita offline pendente depois do timeout da interface.
+5. Reconectar e confirmar o checkpoint de escritas pendentes.
+6. Criar tres registros offline e sincronizar posteriormente.
+7. Simular rejeicao `permission-denied` durante a sincronizacao e manter contador/mensagem de falha.
+
+Resultado final: 7 cenarios aprovados.
+
+Falha encontrada durante os testes:
+
+- O contador de drafts usava `Object.keys(localStorage)`, que nao e a forma mais portavel de enumerar o Storage.
+
+Correcao aplicada:
+
+- A enumeracao passou a usar a API padrao `localStorage.length` e `localStorage.key(index)`.
+- O teste foi repetido desde o inicio e os 7 cenarios passaram.
+
+Validacoes adicionais:
+
+- `npm run lint` passou.
+- `npm run build` passou para frontend e servidor.
+- `http://localhost:3001` respondeu `200`.
+- `http://localhost:3001/src/main.tsx` respondeu `200`.
+
+Riscos remanescentes:
+
+- O fluxo autenticado completo ainda precisa ser repetido manualmente com uma conta piloto real; nao havia credenciais de teste disponiveis nesta execucao.
+- O navegador integrado nao estava disponivel para validacao visual autenticada nesta sessao.
+- Limpar dados do site apaga drafts em `localStorage` e pode apagar o cache/pendencias do Firestore em IndexedDB.
+- Uma rejeicao por regras/permissao continua impedindo o envio ao servidor; agora ela fica visivel no painel e no contador de falhas.
+- O primeiro login e o carregamento inicial do cache continuam exigindo internet.
+- A alteracao de `firestore.rules` precisa ser publicada junto com a Fase 2 para habilitar os logs operacionais em producao.

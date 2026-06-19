@@ -412,9 +412,10 @@ export const SettingsView = ({
             </div>
             <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
               <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Falhas</p>
-              <p className="mt-1 truncate text-xs font-bold text-white" title={offlineSyncStatus.lastError || ''}>
-                {offlineSyncStatus.lastError || 'Nenhuma'}
+              <p className="mt-1 text-xs font-bold text-white" title={offlineSyncStatus.lastError || ''}>
+                {offlineSyncStatus.failureCount}
               </p>
+              <p className="mt-1 truncate text-[9px] text-slate-500" title={offlineSyncStatus.lastError || ''}>{offlineSyncStatus.lastError || 'Nenhuma falha ativa'}</p>
             </div>
           </div>
           <div className="mt-3 rounded-lg border border-slate-700/60 bg-slate-950/35 p-3">

@@ -10,7 +10,13 @@ export type LocalDraftRecord<T = unknown> = {
   data: T;
 };
 
-const canUseStorage = () => typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+const canUseStorage = () => {
+  try {
+    return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+  } catch {
+    return false;
+  }
+};
 
 const emitDraftsChanged = () => {
   if (typeof window === 'undefined') return;
@@ -32,14 +38,23 @@ export const saveLocalDraft = <T,>(key: string, label: string, scope: string, da
     data,
   };
 
-  window.localStorage.setItem(storageKey(key), JSON.stringify(record));
-  emitDraftsChanged();
+  try {
+    window.localStorage.setItem(storageKey(key), JSON.stringify(record));
+    emitDraftsChanged();
+  } catch (error) {
+    console.warn('Nao foi possivel salvar o draft local:', error);
+  }
 };
 
 export const loadLocalDraft = <T,>(key: string): LocalDraftRecord<T> | null => {
   if (!canUseStorage()) return null;
 
-  const raw = window.localStorage.getItem(storageKey(key));
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(storageKey(key));
+  } catch {
+    return null;
+  }
   if (!raw) return null;
 
   try {
@@ -53,16 +68,35 @@ export const loadLocalDraft = <T,>(key: string): LocalDraftRecord<T> | null => {
 
 export const clearLocalDraft = (key: string) => {
   if (!canUseStorage()) return;
-  window.localStorage.removeItem(storageKey(key));
-  emitDraftsChanged();
+  try {
+    window.localStorage.removeItem(storageKey(key));
+    emitDraftsChanged();
+  } catch (error) {
+    console.warn('Nao foi possivel remover o draft local:', error);
+  }
 };
 
 export const listLocalDrafts = () => {
   if (!canUseStorage()) return [] as LocalDraftRecord[];
 
-  return Object.keys(window.localStorage)
+  let storageKeys: string[] = [];
+  try {
+    storageKeys = Array.from({ length: window.localStorage.length }, (_, index) => (
+      window.localStorage.key(index)
+    )).filter((key): key is string => Boolean(key));
+  } catch {
+    return [] as LocalDraftRecord[];
+  }
+
+  return storageKeys
     .filter((key) => key.startsWith(DRAFT_PREFIX))
-    .map((key) => window.localStorage.getItem(key))
+    .map((key) => {
+      try {
+        return window.localStorage.getItem(key);
+      } catch {
+        return null;
+      }
+    })
     .filter(Boolean)
     .map((raw) => {
       try {

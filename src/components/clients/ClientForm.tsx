@@ -4,6 +4,7 @@ import { format, parseISO } from 'date-fns';
 import type { Client } from '../../types';
 import { isOilChangeService } from '../../lib/serviceTypes';
 import { parseBrazilianCurrency } from '../../lib/money';
+import { clearLocalDraft, loadLocalDraft, saveLocalDraft } from '../../services/localDrafts';
 
 export type ClientFormValues = Partial<Client> & {
   serviceType: string;
@@ -27,7 +28,24 @@ type ClientFormProps = {
   onSelectClientSuggestion: (client: Client) => void;
   onServiceTypeChange: (value: string) => void;
   onAddCustomServiceType: () => Promise<void> | void;
-  onSave: (values: ClientFormValues) => Promise<void> | void;
+  onSave: (values: ClientFormValues) => Promise<boolean> | boolean;
+  draftStorageKey?: string;
+};
+
+type ClientLocalDraft = {
+  name: string;
+  bikeModel: string;
+  contact: string;
+  oilType: string;
+  oilPrice: string;
+  serviceType: string;
+  serviceValue: string;
+  statusPagamento: 'Pago' | 'Pendente' | 'Parcial';
+  valorPago: string;
+  recurrenceDays: number;
+  lastMaintenanceDate: string;
+  notes: string;
+  isRecurringRevenue: boolean;
 };
 
 const formatPhoneInput = (value: string) => {
@@ -62,6 +80,7 @@ export const ClientForm = ({
   onServiceTypeChange,
   onAddCustomServiceType,
   onSave,
+  draftStorageKey,
 }: ClientFormProps) => {
   const isOilChange = isOilChangeService(serviceType);
   const defaultOilType = editingClient?.oilType || oilTypes[0] || '10W30';
@@ -72,6 +91,53 @@ export const ClientForm = ({
   const [recurrenceDays, setRecurrenceDays] = useState(editingClient?.recurrenceDays || 29);
   const [isRecurringRevenue, setIsRecurringRevenue] = useState(editingClient?.isRecurringRevenue ?? true);
   const [isSuggestionOpen, setIsSuggestionOpen] = useState(false);
+  const [localDraft, setLocalDraft] = useState<ClientLocalDraft | null>(null);
+  const [isDraftHydrated, setIsDraftHydrated] = useState(false);
+
+  useEffect(() => {
+    if (!draftStorageKey || editingClient) {
+      setLocalDraft(null);
+      setIsDraftHydrated(true);
+      return;
+    }
+
+    const draft = loadLocalDraft<ClientLocalDraft>(draftStorageKey);
+    if (draft?.data) {
+      setLocalDraft(draft.data);
+      onClientNameChange(draft.data.name || '');
+      if (draft.data.serviceType) onServiceTypeChange(draft.data.serviceType);
+      setServiceDate(draft.data.lastMaintenanceDate || initialServiceDate);
+      setRecurrenceDays(draft.data.recurrenceDays || 29);
+      setIsRecurringRevenue(draft.data.isRecurringRevenue ?? true);
+    }
+    setIsDraftHydrated(true);
+  }, [draftStorageKey, editingClient?.id]);
+
+  const persistFormDraft = (form: HTMLFormElement) => {
+    if (!draftStorageKey || editingClient || !isDraftHydrated) return;
+    const formData = new FormData(form);
+    const draft: ClientLocalDraft = {
+      name: String(formData.get('name') || ''),
+      bikeModel: String(formData.get('bikeModel') || ''),
+      contact: String(formData.get('contact') || ''),
+      oilType: String(formData.get('oilType') || ''),
+      oilPrice: String(formData.get('oilPrice') || ''),
+      serviceType,
+      serviceValue: String(formData.get('serviceValue') || ''),
+      statusPagamento: (formData.get('statusPagamento') as ClientLocalDraft['statusPagamento']) || 'Pago',
+      valorPago: String(formData.get('valorPago') || ''),
+      recurrenceDays,
+      lastMaintenanceDate: serviceDate,
+      notes: String(formData.get('notes') || ''),
+      isRecurringRevenue,
+    };
+    const hasContent = Boolean(draft.name.trim() || draft.bikeModel.trim() || draft.contact.trim() || draft.notes.trim());
+    if (!hasContent) {
+      clearLocalDraft(draftStorageKey);
+      return;
+    }
+    saveLocalDraft(draftStorageKey, 'Cliente/servico em andamento', 'clients', draft);
+  };
 
   useEffect(() => {
     setServiceDate(initialServiceDate);
@@ -91,8 +157,9 @@ export const ClientForm = ({
       </div>
 
       <form
-        key={editingClient?.id || 'new-service'}
-        onSubmit={(event) => {
+        key={`${editingClient?.id || 'new-service'}-${isDraftHydrated ? 'hydrated' : 'loading'}`}
+        onInput={(event) => persistFormDraft(event.currentTarget)}
+        onSubmit={async (event) => {
           event.preventDefault();
           const formData = new FormData(event.currentTarget);
           const selectedDate = formData.get('lastMaintenanceDate') as string;
@@ -100,7 +167,7 @@ export const ClientForm = ({
             ? ((formData.get('oilType') as string) || defaultOilType)
             : 'N/A';
 
-          void onSave({
+          const saved = await onSave({
             name: formData.get('name') as string,
             bikeModel: formData.get('bikeModel') as string,
             contact: formData.get('contact') as string,
@@ -115,6 +182,7 @@ export const ClientForm = ({
             lastMaintenanceDate: selectedDate ? `${selectedDate}T12:00:00Z` : undefined,
             notes: formData.get('notes') as string,
           });
+          if (saved && draftStorageKey) clearLocalDraft(draftStorageKey);
         }}
         className="space-y-5 rounded-2xl border border-slate-700/50 bg-slate-800/40 p-5 lg:p-6"
       >
@@ -163,7 +231,7 @@ export const ClientForm = ({
             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">WhatsApp</label>
             <input
               name="contact"
-              defaultValue={editingClient?.contact}
+              defaultValue={editingClient?.contact ?? localDraft?.contact ?? ''}
               required
               placeholder="Ex: (69) 99999-9999"
               onChange={(event) => {
@@ -177,7 +245,7 @@ export const ClientForm = ({
             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Modelo da Moto</label>
             <input
               name="bikeModel"
-              defaultValue={editingClient?.bikeModel}
+              defaultValue={editingClient?.bikeModel ?? localDraft?.bikeModel ?? ''}
               required
               placeholder="Ex: Honda CG 160"
               className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
@@ -218,7 +286,7 @@ export const ClientForm = ({
               <select
                 name="oilType"
                 required
-                defaultValue={defaultOilType}
+                defaultValue={localDraft?.oilType || defaultOilType}
                 className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
               >
                 {oilTypes.map((type) => (
@@ -236,7 +304,7 @@ export const ClientForm = ({
               name="serviceValue"
               type="number"
               step="0.01"
-              defaultValue={editingClient?.serviceValue ?? editingClient?.lastServiceValue ?? 0}
+              defaultValue={editingClient?.serviceValue ?? editingClient?.lastServiceValue ?? localDraft?.serviceValue ?? 0}
               required
               className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
             />
@@ -246,7 +314,7 @@ export const ClientForm = ({
             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Status do Pagamento</label>
             <select
               name="statusPagamento"
-              defaultValue={editingClient?.statusPagamento || 'Pago'}
+              defaultValue={editingClient?.statusPagamento || localDraft?.statusPagamento || 'Pago'}
               className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
             >
               <option value="Pago">Pago</option>
@@ -261,7 +329,7 @@ export const ClientForm = ({
               name="valorPago"
               type="number"
               step="0.01"
-              defaultValue={editingClient?.valorPago ?? ''}
+              defaultValue={editingClient?.valorPago ?? localDraft?.valorPago ?? ''}
               className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
             />
           </div>
@@ -306,7 +374,7 @@ export const ClientForm = ({
           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Observacoes</label>
           <textarea
             name="notes"
-            defaultValue={editingClient?.lastServiceNotes || ''}
+            defaultValue={editingClient?.lastServiceNotes || localDraft?.notes || ''}
             placeholder="Detalhes adicionais do servico..."
             className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none h-20"
           />

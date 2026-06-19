@@ -131,8 +131,11 @@ export const useAppointmentActions = ({ user, onDeleted }: UseAppointmentActions
 
       clearLocalDraft(draftKey);
       resetForm();
-      setMessage('Agendamento salvo com sucesso!');
-      sonnerToast.success('Agendamento salvo com sucesso!');
+      const savedMessage = typeof navigator !== 'undefined' && navigator.onLine === false
+        ? 'Agendamento salvo neste computador. Sincronizacao pendente.'
+        : 'Agendamento salvo com sucesso!';
+      setMessage(savedMessage);
+      sonnerToast.success(savedMessage);
       window.setTimeout(() => setMessage(null), 2500);
       return true;
     } catch (error) {

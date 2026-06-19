@@ -13,6 +13,7 @@
     "clean": "node -e \"const fs=require('fs');fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('dist-server',{recursive:true,force:true})\"",
     "postinstall": "patch-package",
     "lint": "tsc --noEmit",
+    "test:offline": "tsx scripts/offline-resilience-test.ts",
     "deploy:hosting": "npm run build && firebase deploy --only hosting",
     "deploy:rules": "firebase deploy --only firestore:rules",
     "deploy:prod": "npm run build && firebase deploy --only hosting,firestore:rules",

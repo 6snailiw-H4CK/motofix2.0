@@ -401,6 +401,7 @@ export const AppViewRenderer = ({
           deleteConfirmId={getDeleteConfirmId('cashLaunch')}
           deletingLaunchId={cashRegisterActions.deletingLaunchId}
           initialLaunchId={cashLaunchToOpenId}
+          draftStorageKey={`${currentUserId}:cash-register`}
           onBack={() => setView('clients')}
           onOpenRecurringServices={() => setView('clients')}
           onInitialLaunchLoaded={() => setCashLaunchToOpenId(null)}
@@ -506,7 +507,9 @@ export const AppViewRenderer = ({
           historyRows={scheduleClientHistoryRows}
           isSaving={clientActions.isSaving}
           onBack={() => setView('clients-schedule')}
-          onSave={clientActions.saveClient}
+          onSave={(values) => {
+            void clientActions.saveClient(values);
+          }}
           onAfterSubmit={() => setView('clients-schedule')}
         />
       )}
@@ -651,6 +654,7 @@ export const AppViewRenderer = ({
           onServiceTypeChange={clientForm.setServiceType}
           onAddCustomServiceType={serviceTypeActions.addCustomServiceType}
           onSave={clientActions.saveClient}
+          draftStorageKey={`${currentUserId}:client-form`}
         />
       )}
 

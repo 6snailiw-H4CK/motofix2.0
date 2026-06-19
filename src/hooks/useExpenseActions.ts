@@ -114,7 +114,11 @@ export const useExpenseActions = ({ user, onAfterSave, workshopName }: UseExpens
       clearLocalDraft(draftKey);
       resetForm();
       onAfterSave?.();
-      sonnerToast.success('Gasto registrado com sucesso.');
+      sonnerToast.success(
+        typeof navigator !== 'undefined' && navigator.onLine === false
+          ? 'Gasto salvo neste computador. Sincronizacao pendente.'
+          : 'Gasto registrado com sucesso.'
+      );
     } catch (error) {
       sonnerToast.error('Nao foi possivel salvar o gasto.');
       handleFirestoreError(error, OperationType.CREATE, 'expenses');
