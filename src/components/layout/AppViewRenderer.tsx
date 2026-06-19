@@ -11,11 +11,13 @@ import type {
   FiscalLog,
   MaintenanceRecord,
   MessageLog,
+  OperationalLog,
   ProductCatalogItem,
   Settings,
   UserProfile,
   Warranty,
 } from '../../types';
+import type { OfflineSyncStatus } from '../../hooks/useOfflineSyncStatus';
 import type { useAdminActions } from '../../hooks/useAdminActions';
 import type { useAppointmentActions } from '../../hooks/useAppointmentActions';
 import type { useCashRegisterActions } from '../../hooks/useCashRegisterActions';
@@ -33,6 +35,12 @@ import type { useSettingsActions } from '../../hooks/useSettingsActions';
 import type { useWarrantyActions } from '../../hooks/useWarrantyActions';
 import type { useWhatsAppReminderActions } from '../../hooks/useWhatsAppReminderActions';
 import { downloadProductsWorkbook } from '../../services/productSpreadsheet';
+import {
+  exportCashLaunchesCsv,
+  exportClientsCsv,
+  exportMotorcyclesCsv,
+  exportWarrantiesCsv,
+} from '../../services/emergencyBackup';
 
 const AdminView = lazy(() => import('../admin/AdminView').then((module) => ({ default: module.AdminView })));
 const AppointmentsView = lazy(() => import('../appointments/AppointmentsView').then((module) => ({ default: module.AppointmentsView })));
@@ -120,6 +128,7 @@ type AppViewRendererData = {
   maintenanceStats: MaintenanceStats;
   maintenances: MaintenanceRecord[];
   messageLogs: MessageLog[];
+  operationalLogs: OperationalLog[];
   nextAppointment?: Appointment;
   productCatalog: ProductCatalogItem[];
   serviceTypeOptions: string[];
@@ -133,6 +142,7 @@ type AppViewRendererSession = {
   deleteConfirmation: Pick<DeleteConfirmation, 'confirmOrRequestDelete' | 'getDeleteConfirmId'>;
   userEmail?: string | null;
   userProfile: UserProfile | null;
+  offlineSyncStatus: OfflineSyncStatus;
 };
 
 type AppViewRendererUi = {
@@ -194,6 +204,7 @@ export const AppViewRenderer = ({
     maintenanceStats,
     maintenances,
     messageLogs,
+    operationalLogs,
     nextAppointment,
     productCatalog,
     serviceTypeOptions,
@@ -206,6 +217,7 @@ export const AppViewRenderer = ({
     deleteConfirmation,
     userEmail,
     userProfile,
+    offlineSyncStatus,
   } = session;
   const {
     colorMode,
@@ -585,6 +597,7 @@ export const AppViewRenderer = ({
           onBack={() => setView('warranties')}
           onManageCategories={() => setView('settings')}
           onSubmit={warrantyActions.saveWarranty}
+          draftStorageKey={`${currentUserId}:warranty-form`}
         />
       )}
 
@@ -603,6 +616,10 @@ export const AppViewRenderer = ({
           onSaveSettings={settingsActions.saveSettings}
           onSaveSettingsPatch={settingsActions.saveSettingsPatch}
           onExportClientsBackup={clientActions.exportClientsBackup}
+          onExportClientsEmergencyCsv={() => exportClientsCsv(clients)}
+          onExportMotorcyclesEmergencyCsv={() => exportMotorcyclesCsv(clients)}
+          onExportCashLaunchesEmergencyCsv={() => exportCashLaunchesCsv(cashLaunches)}
+          onExportWarrantiesEmergencyCsv={() => exportWarrantiesCsv(warranties)}
           onImportClientsBackup={clientActions.importClientsBackup}
           isImportingClients={clientActions.isImportingClients}
           onExportProductsBackup={() => downloadProductsWorkbook(productCatalog)}
@@ -610,6 +627,8 @@ export const AppViewRenderer = ({
           isImportingProducts={productActions.isImportingProducts}
           onResetOperationalData={settingsActions.resetOperationalData}
           isResettingOperationalData={settingsActions.isResettingOperationalData}
+          offlineSyncStatus={offlineSyncStatus}
+          operationalLogs={operationalLogs}
         />
       )}
 

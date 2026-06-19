@@ -63,7 +63,8 @@ export default function App() {
     cashLaunches,
     fiscalCompanies,
     fiscalInvoices,
-    fiscalLogs
+    fiscalLogs,
+    operationalLogs
   } = useUserCollections({ user, userProfile, isNewUser });
   const offlineSyncStatus = useOfflineSyncStatus();
   const {
@@ -90,6 +91,7 @@ export default function App() {
   const disabledDefaultServiceKeys = new Set((settings.disabledDefaultServiceTypes || []).map(getServiceTypeKey));
   const activeDefaultServiceTypes = DEFAULT_SERVICE_TYPES.filter(type => !disabledDefaultServiceKeys.has(getServiceTypeKey(type)));
   const defaultServiceType = canonicalServiceType(activeDefaultServiceTypes[0] || settings.serviceTypes?.[0] || DEFAULT_SERVICE_TYPES[0]);
+  const workshopName = settings.businessName || userProfile?.displayName || 'MotoFix';
   const getStatus = getMaintenanceStatus;
 
   const handleExpenseSaved = useCallback(() => setView('expenses'), [setView]);
@@ -123,6 +125,7 @@ export default function App() {
     isCreatingService: clientForm.isCreatingService,
     onSaved: handleClientSaved,
     onDeleted: handleDeleteConfirmed,
+    workshopName,
   });
   const appointmentActions = useAppointmentActions({
     user,
@@ -135,9 +138,11 @@ export default function App() {
   const expenseActions = useExpenseActions({
     user,
     onAfterSave: handleExpenseSaved,
+    workshopName,
   });
   const cashRegisterActions = useCashRegisterActions({
     user,
+    workshopName,
   });
   const fiscalActions = useFiscalActions({
     fiscalCompanies,
@@ -153,6 +158,7 @@ export default function App() {
     getStatus,
     maintenances,
     onDeleted: handleDeleteConfirmed,
+    workshopName,
   });
   const messageLogActions = useMessageLogActions({
     user,
@@ -170,6 +176,7 @@ export default function App() {
     onOpenForm: openWarrantyForm,
     onSaved: handleWarrantySaved,
     onDeleted: handleDeleteConfirmed,
+    workshopName,
   });
 
   const {
@@ -270,6 +277,7 @@ export default function App() {
             messageLogs,
             nextAppointment,
             productCatalog,
+            operationalLogs,
             scheduleClientHistoryRows,
             serviceTypeOptions,
             settings,
@@ -280,6 +288,7 @@ export default function App() {
             deleteConfirmation: { confirmOrRequestDelete, getDeleteConfirmId },
             userEmail: user.email,
             userProfile,
+            offlineSyncStatus,
           }}
           ui={{
             colorMode,

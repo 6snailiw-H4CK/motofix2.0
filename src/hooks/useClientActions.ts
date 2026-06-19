@@ -5,7 +5,7 @@ import { saveClientWithMaintenance, type ClientSaveData } from '../services/clie
 import { clientRepository } from '../services/clientRepository';
 import { downloadClientsWorkbook, parseClientsWorkbook, type ClientBackupRow } from '../services/clientSpreadsheet';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
-import { maintenanceRepository } from '../services/maintenanceRepository';
+import { recordOperationalLog } from '../services/operationalLogRepository';
 import type { Client, MaintenanceRecord, MaintenanceStatus } from '../types';
 
 type UseClientActionsParams = {
@@ -17,6 +17,7 @@ type UseClientActionsParams = {
   onDeleted: () => void;
   onSaved: () => void;
   user: User | null;
+  workshopName?: string;
 };
 
 const normalizeText = (value?: string) => (
@@ -105,6 +106,7 @@ export const useClientActions = ({
   onDeleted,
   onSaved,
   user,
+  workshopName,
 }: UseClientActionsParams) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isImportingClients, setIsImportingClients] = useState(false);
@@ -148,6 +150,14 @@ export const useClientActions = ({
       const id = await clientRepository.create(user.uid, data);
       const createdClient = { id, ...data };
 
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName,
+        acao: 'cliente_criado',
+        targetId: id,
+        details: { name, source: 'quick_create' },
+      });
       sonnerToast.success('Cliente cadastrado rapidamente.');
       return createdClient;
     } catch (error) {
@@ -157,7 +167,7 @@ export const useClientActions = ({
     } finally {
       setIsSaving(false);
     }
-  }, [getStatus, user]);
+  }, [getStatus, user, workshopName]);
 
   const saveClient = useCallback(async (clientData: ClientSaveData) => {
     if (!user) return;
@@ -188,6 +198,24 @@ export const useClientActions = ({
         getStatus,
       });
 
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName,
+        acao: result.operation === 'created' ? 'cliente_criado' : 'cliente_editado',
+        targetId: result.clientId,
+        details: { name: clientData.name || effectiveEditingClient?.name || '' },
+      });
+      if (result.operation === 'created' && Number(clientData.serviceValue || 0) > 0) {
+        recordOperationalLog({
+          userId: user.uid,
+          usuario: user.email,
+          oficina: workshopName,
+          acao: 'receita_criada',
+          targetId: result.clientId,
+          details: { source: 'client_service', value: clientData.serviceValue || 0 },
+        });
+      }
       sonnerToast.success(result.message);
       onSaved();
     } catch (error) {
@@ -196,19 +224,27 @@ export const useClientActions = ({
     } finally {
       setIsSaving(false);
     }
-  }, [clients, editingClient, getStatus, isCreatingService, maintenances, onSaved, user]);
+  }, [clients, editingClient, getStatus, isCreatingService, maintenances, onSaved, user, workshopName]);
 
   const deleteClient = useCallback(async (id: string) => {
     if (!user?.uid) return;
 
     try {
-      await maintenanceRepository.removeByClientId(user.uid, id);
-      await clientRepository.remove(user.uid, id);
+      await clientRepository.removeWithMaintenances(user.uid, id);
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName,
+        acao: 'cliente_removido',
+        targetId: id,
+      });
       onDeleted();
+      sonnerToast.success('Cliente e historico removidos com seguranca.');
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, 'clients');
+      sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel excluir o cliente.');
     }
-  }, [onDeleted, user]);
+  }, [onDeleted, user, workshopName]);
 
   const exportClientsBackup = useCallback(() => {
     if (clients.length === 0) {

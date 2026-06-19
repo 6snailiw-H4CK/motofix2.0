@@ -4,6 +4,7 @@ import jsPDF from 'jspdf';
 import { useCallback, useState } from 'react';
 import { toast as sonnerToast } from 'sonner';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
+import { recordOperationalLog } from '../services/operationalLogRepository';
 import { warrantyRepository } from '../services/warrantyRepository';
 import type { Settings, Warranty } from '../types';
 
@@ -14,6 +15,7 @@ type UseWarrantyActionsParams = {
   onOpenForm: () => void;
   onSaved: () => void;
   onDeleted: () => void;
+  workshopName?: string;
 };
 
 export const useWarrantyActions = ({
@@ -23,6 +25,7 @@ export const useWarrantyActions = ({
   onOpenForm,
   onSaved,
   onDeleted,
+  workshopName,
 }: UseWarrantyActionsParams) => {
   const [editingWarranty, setEditingWarranty] = useState<Warranty | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -128,7 +131,7 @@ export const useWarrantyActions = ({
   }, [onOpenForm]);
 
   const saveWarranty = useCallback(async (warrantyData: Partial<Warranty>) => {
-    if (!user) return;
+    if (!user) return false;
 
     setIsSaving(true);
 
@@ -154,6 +157,14 @@ export const useWarrantyActions = ({
         sonnerToast.success('Garantia atualizada com sucesso!');
       } else {
         const warrantyId = await warrantyRepository.create(user.uid, finalData);
+        recordOperationalLog({
+          userId: user.uid,
+          usuario: user.email,
+          oficina: workshopName || settings?.businessName,
+          acao: 'garantia_criada',
+          targetId: warrantyId,
+          details: { clientName: finalData.clientName, warrantyNumber: finalData.warrantyNumber },
+        });
         sonnerToast.success('Garantia registrada com sucesso!');
         setTimeout(() => {
           generateWarrantyPDF({ ...finalData, id: warrantyId } as Warranty);
@@ -162,13 +173,15 @@ export const useWarrantyActions = ({
 
       setEditingWarranty(null);
       onSaved();
+      return true;
     } catch (error) {
       sonnerToast.error('Erro ao salvar garantia.');
       handleFirestoreError(error, editingWarranty ? OperationType.UPDATE : OperationType.CREATE, 'warranties');
+      return false;
     } finally {
       setIsSaving(false);
     }
-  }, [editingWarranty, generateWarrantyPDF, onSaved, user, warranties]);
+  }, [editingWarranty, generateWarrantyPDF, onSaved, user, warranties, workshopName, settings?.businessName]);
 
   const deleteWarranty = useCallback(async (id: string) => {
     if (!user?.uid) return;

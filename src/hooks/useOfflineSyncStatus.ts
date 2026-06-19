@@ -5,11 +5,14 @@ import {
   subscribeFirestoreOfflineQueue,
   type FirestoreOfflineQueueState
 } from '../services/firestoreOfflineQueue';
+import { getLocalDraftCount, subscribeLocalDrafts } from '../services/localDrafts';
 
 export type OfflineSyncStatus = {
   isOnline: boolean;
   isSyncing: boolean;
   pendingWrites: number;
+  localDraftCount: number;
+  lastQueuedAt: string | null;
   lastSyncedAt: string | null;
   lastError: string | null;
 };
@@ -21,6 +24,7 @@ const getIsOnline = () => (
 export const useOfflineSyncStatus = (): OfflineSyncStatus => {
   const [isOnline, setIsOnline] = useState(getIsOnline);
   const [queueState, setQueueState] = useState<FirestoreOfflineQueueState>(getFirestoreOfflineQueueState);
+  const [localDraftCount, setLocalDraftCount] = useState(getLocalDraftCount);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
 
@@ -38,6 +42,8 @@ export const useOfflineSyncStatus = (): OfflineSyncStatus => {
   }, []);
 
   useEffect(() => subscribeFirestoreOfflineQueue(setQueueState), []);
+
+  useEffect(() => subscribeLocalDrafts(setLocalDraftCount), []);
 
   useEffect(() => {
     if (!isOnline) return;
@@ -68,6 +74,8 @@ export const useOfflineSyncStatus = (): OfflineSyncStatus => {
     isOnline,
     isSyncing,
     pendingWrites: queueState.pendingWrites,
+    localDraftCount,
+    lastQueuedAt: queueState.lastQueuedAt,
     lastSyncedAt: queueState.lastSettledAt || lastSyncedAt,
     lastError: queueState.lastError,
   };

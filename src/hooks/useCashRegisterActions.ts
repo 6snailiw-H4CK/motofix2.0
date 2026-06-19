@@ -7,14 +7,16 @@ import { parseProductsWorkbook } from '../services/productSpreadsheet';
 import { productRepository } from '../services/productRepository';
 import type { CashRegisterLaunch } from '../types';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
+import { recordOperationalLog } from '../services/operationalLogRepository';
 
 type UseCashRegisterActionsParams = {
   user: User | null;
+  workshopName?: string;
 };
 
 export type CashRegisterDraft = Omit<CashRegisterLaunch, 'id' | 'orderNumber' | 'userId' | 'createdAt' | 'updatedAt'>;
 
-export const useCashRegisterActions = ({ user }: UseCashRegisterActionsParams) => {
+export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterActionsParams) => {
   const [isImportingProducts, setIsImportingProducts] = useState(false);
   const [isSavingLaunch, setIsSavingLaunch] = useState(false);
   const [deletingLaunchId, setDeletingLaunchId] = useState<string | null>(null);
@@ -61,13 +63,31 @@ export const useCashRegisterActions = ({ user }: UseCashRegisterActionsParams) =
       } else {
         const orderNumber = `LC-${format(new Date(), 'yyyyMMdd-HHmmss')}`;
 
-        await cashRegisterRepository.create(user.uid, {
+        const cashLaunchId = await cashRegisterRepository.create(user.uid, {
           ...draft,
           orderNumber,
           userId: user.uid,
           createdAt: now,
           updatedAt: now,
         });
+        recordOperationalLog({
+          userId: user.uid,
+          usuario: user.email,
+          oficina: workshopName,
+          acao: 'os_criada',
+          targetId: cashLaunchId,
+          details: { orderNumber, clientName: draft.clientName, total: draft.total },
+        });
+        if (Number(draft.total) > 0) {
+          recordOperationalLog({
+            userId: user.uid,
+            usuario: user.email,
+            oficina: workshopName,
+            acao: 'receita_criada',
+            targetId: cashLaunchId,
+            details: { source: 'cash_launch', orderNumber, total: draft.total },
+          });
+        }
       }
 
       sonnerToast.success(launchId ? 'Lancamento Caixa atualizado com sucesso.' : 'Lancamento Caixa salvo com sucesso.');
@@ -79,7 +99,7 @@ export const useCashRegisterActions = ({ user }: UseCashRegisterActionsParams) =
     } finally {
       setIsSavingLaunch(false);
     }
-  }, [user]);
+  }, [user, workshopName]);
 
   const deleteLaunch = useCallback(async (launchId: string) => {
     if (!user) return false;

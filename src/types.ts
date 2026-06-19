@@ -92,6 +92,29 @@ export interface MessageLog {
   userId: string;
 }
 
+export type OperationalLogAction =
+  | 'cliente_criado'
+  | 'cliente_editado'
+  | 'cliente_removido'
+  | 'os_criada'
+  | 'garantia_criada'
+  | 'despesa_criada'
+  | 'receita_criada';
+
+export type OperationalLogResult = 'sucesso' | 'salvo_offline' | 'erro';
+
+export interface OperationalLog {
+  id?: string;
+  timestamp: string;
+  usuario: string;
+  userId: string;
+  oficina: string;
+  acao: OperationalLogAction;
+  resultado: OperationalLogResult;
+  targetId?: string;
+  details?: Record<string, unknown>;
+}
+
 export interface MaintenanceRecord {
   id: string;
   clientId: string;

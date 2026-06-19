@@ -1,8 +1,10 @@
 import { format, startOfMonth } from 'date-fns';
 import type { User } from 'firebase/auth';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast as sonnerToast } from 'sonner';
+import { parseBrazilianCurrency } from '../lib/money';
 import { appointmentRepository } from '../services/appointmentRepository';
+import { clearLocalDraft, loadLocalDraft, saveLocalDraft } from '../services/localDrafts';
 import type { Appointment } from '../types';
 
 export type AppointmentFormValues = {
@@ -30,6 +32,8 @@ export const useAppointmentActions = ({ user, onDeleted }: UseAppointmentActions
   const [showForm, setShowForm] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState<Date>(startOfMonth(new Date()));
   const [selectedDate, setSelectedDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
+  const [isDraftHydrated, setIsDraftHydrated] = useState(false);
+  const draftKey = user?.uid ? `${user.uid}:appointment-form` : '';
 
   const formValues = useMemo(() => ({
     clientName,
@@ -46,7 +50,47 @@ export const useAppointmentActions = ({ user, onDeleted }: UseAppointmentActions
     setAddress('');
     setServiceRequested('');
     setValue('');
-  }, []);
+    if (draftKey) clearLocalDraft(draftKey);
+  }, [draftKey]);
+
+  useEffect(() => {
+    if (!draftKey) {
+      setIsDraftHydrated(true);
+      return;
+    }
+
+    const draft = loadLocalDraft<AppointmentFormValues>(draftKey);
+    if (draft?.data) {
+      setClientName(draft.data.clientName || '');
+      setBikeModel(draft.data.bikeModel || '');
+      setDate(draft.data.date || selectedDate);
+      setAddress(draft.data.address || '');
+      setServiceRequested(draft.data.serviceRequested || '');
+      setValue(draft.data.value || '');
+      setShowForm(true);
+    }
+
+    setIsDraftHydrated(true);
+  }, [draftKey, selectedDate]);
+
+  useEffect(() => {
+    if (!isDraftHydrated || !draftKey) return;
+
+    const hasContent = Boolean(clientName.trim() || bikeModel.trim() || address.trim() || serviceRequested.trim() || value.trim());
+    if (!hasContent) {
+      clearLocalDraft(draftKey);
+      return;
+    }
+
+    saveLocalDraft(draftKey, 'Agendamento em andamento', 'appointments', {
+      clientName,
+      bikeModel,
+      date: date || selectedDate,
+      address,
+      serviceRequested,
+      value,
+    });
+  }, [address, bikeModel, clientName, date, draftKey, isDraftHydrated, selectedDate, serviceRequested, value]);
 
   const setFormValue = useCallback((field: keyof AppointmentFormValues, nextValue: string) => {
     const setters = {
@@ -79,12 +123,13 @@ export const useAppointmentActions = ({ user, onDeleted }: UseAppointmentActions
         scheduledDate: date,
         address: address.trim() || '',
         serviceRequested: serviceRequested.trim(),
-        value: value ? parseFloat(value.replace(',', '.')) : 0,
+        value: parseBrazilianCurrency(value),
         createdAt: new Date().toISOString(),
         userId: user.uid,
         completed: false,
       });
 
+      clearLocalDraft(draftKey);
       resetForm();
       setMessage('Agendamento salvo com sucesso!');
       sonnerToast.success('Agendamento salvo com sucesso!');
@@ -95,7 +140,7 @@ export const useAppointmentActions = ({ user, onDeleted }: UseAppointmentActions
       setMessage('Erro ao salvar agendamento. Tente novamente.');
       return false;
     }
-  }, [address, bikeModel, clientName, date, resetForm, serviceRequested, user, value]);
+  }, [address, bikeModel, clientName, date, draftKey, resetForm, serviceRequested, user, value]);
 
   const toggleAppointmentCompleted = useCallback(async (appointment: Appointment) => {
     if (!user?.uid || !appointment?.id || appointment.completed) return;

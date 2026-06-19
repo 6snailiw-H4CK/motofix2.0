@@ -41,7 +41,7 @@ const getErrorStatus = (error: unknown) => {
   return Number.isInteger(status) && status >= 400 && status < 600 ? status : 500;
 };
 
-const isActiveDataResetUser = async (
+const isAdminDataResetUser = async (
   options: RegisterDataResetRoutesOptions,
   decoded: admin.auth.DecodedIdToken
 ) => {
@@ -51,8 +51,8 @@ const isActiveDataResetUser = async (
   const userSnapshot = await options.db.collection("users").doc(decoded.uid).get();
   if (!userSnapshot.exists) return false;
 
-  const userData = userSnapshot.data() as { isActive?: boolean } | undefined;
-  return userData?.isActive === true;
+  const userData = userSnapshot.data() as { isActive?: boolean; role?: string } | undefined;
+  return userData?.isActive === true && userData.role === "admin";
 };
 
 const requireDataResetAuth = (options: RegisterDataResetRoutesOptions) => async (
@@ -73,8 +73,8 @@ const requireDataResetAuth = (options: RegisterDataResetRoutesOptions) => async 
   try {
     const decoded = await options.admin.auth().verifyIdToken(token);
 
-    if (!(await isActiveDataResetUser(options, decoded))) {
-      return res.status(403).json({ error: "Usuario sem permissao ativa para zerar dados." });
+    if (!(await isAdminDataResetUser(options, decoded))) {
+      return res.status(403).json({ error: "Apenas administradores podem zerar dados operacionais." });
     }
 
     req.dataResetAuth = {

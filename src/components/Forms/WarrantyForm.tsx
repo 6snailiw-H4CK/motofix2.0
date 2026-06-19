@@ -3,6 +3,7 @@ import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { Warranty, Settings } from '../../types';
 import { toast as sonnerToast } from 'sonner';
+import { clearLocalDraft, loadLocalDraft, saveLocalDraft } from '../../services/localDrafts';
 
 interface WarrantyFormProps {
   editingWarranty: Warranty | null;
@@ -10,7 +11,8 @@ interface WarrantyFormProps {
   isSaving: boolean;
   onBack: () => void;
   onManageCategories?: () => void;
-  onSubmit: (warrantyData: Partial<Warranty>) => Promise<void>;
+  onSubmit: (warrantyData: Partial<Warranty>) => Promise<boolean> | boolean;
+  draftStorageKey?: string;
 }
 
 export const WarrantyForm: React.FC<WarrantyFormProps> = ({
@@ -19,7 +21,8 @@ export const WarrantyForm: React.FC<WarrantyFormProps> = ({
   isSaving,
   onBack,
   onManageCategories,
-  onSubmit
+  onSubmit,
+  draftStorageKey,
 }) => {
   // 📝 Form field states
   const [formClientName, setFormClientName] = useState('');
@@ -29,6 +32,7 @@ export const WarrantyForm: React.FC<WarrantyFormProps> = ({
   const [formServiceDate, setFormServiceDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [formDurationMonths, setFormDurationMonths] = useState(3);
   const [formClientPhone, setFormClientPhone] = useState('');
+  const [isDraftHydrated, setIsDraftHydrated] = useState(false);
 
   // 🔄 Sincronizar com editingWarranty
   useEffect(() => {
@@ -41,6 +45,28 @@ export const WarrantyForm: React.FC<WarrantyFormProps> = ({
       setFormDurationMonths(editingWarranty.durationMonths || 3);
       setFormClientPhone(editingWarranty.clientPhone || '');
     } else {
+      const draft = draftStorageKey ? loadLocalDraft<{
+        clientName: string;
+        serviceType: string;
+        serviceDescription: string;
+        serviceValue: number;
+        serviceDate: string;
+        durationMonths: number;
+        clientPhone: string;
+      }>(draftStorageKey) : null;
+
+      if (draft?.data) {
+        setFormClientName(draft.data.clientName || '');
+        setFormServiceType(draft.data.serviceType || '');
+        setFormServiceDescription(draft.data.serviceDescription || '');
+        setFormServiceValue(draft.data.serviceValue || 0);
+        setFormServiceDate(draft.data.serviceDate || format(new Date(), 'yyyy-MM-dd'));
+        setFormDurationMonths(draft.data.durationMonths || 3);
+        setFormClientPhone(draft.data.clientPhone || '');
+        setIsDraftHydrated(true);
+        return;
+      }
+
       // Reset
       setFormClientName('');
       setFormServiceType('');
@@ -50,7 +76,35 @@ export const WarrantyForm: React.FC<WarrantyFormProps> = ({
       setFormDurationMonths(3);
       setFormClientPhone('');
     }
-  }, [editingWarranty]);
+    setIsDraftHydrated(true);
+  }, [draftStorageKey, editingWarranty]);
+
+  useEffect(() => {
+    if (!draftStorageKey || editingWarranty || !isDraftHydrated) return;
+
+    const hasContent = Boolean(
+      formClientName.trim()
+      || formServiceType.trim()
+      || formServiceDescription.trim()
+      || formServiceValue > 0
+      || formClientPhone.trim()
+    );
+
+    if (!hasContent) {
+      clearLocalDraft(draftStorageKey);
+      return;
+    }
+
+    saveLocalDraft(draftStorageKey, 'Garantia em andamento', 'warranties', {
+      clientName: formClientName,
+      serviceType: formServiceType,
+      serviceDescription: formServiceDescription,
+      serviceValue: formServiceValue,
+      serviceDate: formServiceDate,
+      durationMonths: formDurationMonths,
+      clientPhone: formClientPhone,
+    });
+  }, [draftStorageKey, editingWarranty, formClientName, formClientPhone, formDurationMonths, formServiceDate, formServiceDescription, formServiceType, formServiceValue, isDraftHydrated]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,7 +114,7 @@ export const WarrantyForm: React.FC<WarrantyFormProps> = ({
       return;
     }
 
-    await onSubmit({
+    const saved = await onSubmit({
       clientName: formClientName,
       serviceType: formServiceType,
       serviceDescription: formServiceDescription,
@@ -69,6 +123,9 @@ export const WarrantyForm: React.FC<WarrantyFormProps> = ({
       durationMonths: formDurationMonths,
       clientPhone: formClientPhone
     });
+    if (saved && draftStorageKey) {
+      clearLocalDraft(draftStorageKey);
+    }
   };
 
   return (

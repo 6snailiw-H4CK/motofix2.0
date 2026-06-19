@@ -20,8 +20,10 @@ import {
   Upload,
   X,
 } from 'lucide-react';
+import { parseBrazilianCurrency } from '../../lib/money';
 import { cn, safeFormat } from '../../lib/utils';
 import type { CashRegisterDraft } from '../../hooks/useCashRegisterActions';
+import { clearLocalDraft, loadLocalDraft, saveLocalDraft } from '../../services/localDrafts';
 import type {
   CashRegisterItem,
   CashRegisterLaunch,
@@ -47,6 +49,7 @@ type CashRegisterViewProps = {
   deleteConfirmId?: string | null;
   deletingLaunchId?: string | null;
   initialLaunchId?: string | null;
+  draftStorageKey?: string;
   onBack: () => void;
   onAutoIssueFiscalFromCashLaunch?: (cashLaunchId: string) => Promise<void> | void;
   onDeleteLaunchClick: (launch: CashRegisterLaunch) => void;
@@ -67,6 +70,24 @@ type ProductPickerRow = {
   variation?: ProductCatalogVariation;
 };
 
+type CashRegisterLocalDraft = {
+  editingLaunchId: string | null;
+  editingOrderNumber: string;
+  selectedClientId: string;
+  clientName: string;
+  bikeModel: string;
+  status: CashRegisterLaunch['status'];
+  isInvoiced: boolean;
+  openingDate: string;
+  expectedDate: string;
+  observation: string;
+  request: string;
+  servicesExecuted: string;
+  items: CashRegisterItem[];
+  orderDiscountValueInput: string;
+  orderDiscountPercentInput: string;
+};
+
 const statusOptions: CashRegisterLaunch['status'][] = ['Em Lancamento', 'Finalizado', 'Pendente'];
 const fiscalStatusOptions: ManualFiscalDocumentStatus[] = ['Nao emitida', 'Emitida', 'Cancelada'];
 const fiscalAttachmentMaxBytes = 180 * 1024;
@@ -84,14 +105,7 @@ const escapeHtml = (value: unknown) =>
     .replace(/'/g, '&#039;');
 
 const parseNumber = (value: string | number | null | undefined) => {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
-  const cleaned = String(value ?? '').replace(/[^\d,.-]/g, '').trim();
-  const hasCommaDecimal = cleaned.includes(',') && cleaned.lastIndexOf(',') > cleaned.lastIndexOf('.');
-  const normalized = hasCommaDecimal
-    ? cleaned.replace(/\./g, '').replace(',', '.')
-    : cleaned.replace(/,/g, '');
-  const parsed = Number.parseFloat(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return parseBrazilianCurrency(value);
 };
 
 const parsePositiveMoney = (value: string | number | null | undefined) => (
@@ -196,6 +210,7 @@ export const CashRegisterView = ({
   deleteConfirmId,
   deletingLaunchId,
   initialLaunchId,
+  draftStorageKey,
   onBack,
   onAutoIssueFiscalFromCashLaunch,
   onDeleteLaunchClick,
@@ -229,6 +244,37 @@ export const CashRegisterView = ({
   const [isQuickClientOpen, setIsQuickClientOpen] = useState(false);
   const [isSavingQuickClient, setIsSavingQuickClient] = useState(false);
   const [quickClientForm, setQuickClientForm] = useState<QuickClientInput>({ name: '', contact: '', bikeModel: '' });
+  const [isDraftHydrated, setIsDraftHydrated] = useState(false);
+
+  useEffect(() => {
+    if (!draftStorageKey || initialLaunchId) {
+      setIsDraftHydrated(true);
+      return;
+    }
+
+    const draft = loadLocalDraft<CashRegisterLocalDraft>(draftStorageKey);
+    if (draft?.data) {
+      setEditingLaunchId(draft.data.editingLaunchId || null);
+      setEditingOrderNumber(draft.data.editingOrderNumber || '');
+      setSelectedClientId(draft.data.selectedClientId || '');
+      setClientName(draft.data.clientName || '');
+      setBikeModel(draft.data.bikeModel || '');
+      setStatus(draft.data.status || 'Em Lancamento');
+      setIsInvoiced(Boolean(draft.data.isInvoiced));
+      setOpeningDate(draft.data.openingDate || today());
+      setExpectedDate(draft.data.expectedDate || today());
+      setObservation(draft.data.observation || '');
+      setRequest(draft.data.request || '');
+      setServicesExecuted(draft.data.servicesExecuted || '');
+      setItems((draft.data.items || []).map((item) => calculateItem({ ...item, id: item.id || makeId() })));
+      setOrderDiscountValueInput(draft.data.orderDiscountValueInput || '');
+      setOrderDiscountPercentInput(draft.data.orderDiscountPercentInput || '');
+      setMainTab('control');
+      setWorkTab((draft.data.items || []).length > 0 ? 'items' : 'opening');
+    }
+
+    setIsDraftHydrated(true);
+  }, [draftStorageKey, initialLaunchId]);
 
   const productPickerRows = useMemo<ProductPickerRow[]>(() => {
     const expandedRows: ProductPickerRow[] = products.flatMap((product): ProductPickerRow[] => {

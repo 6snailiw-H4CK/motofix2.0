@@ -3,6 +3,7 @@ import { ArrowLeft, Plus, RefreshCw } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import type { Client } from '../../types';
 import { isOilChangeService } from '../../lib/serviceTypes';
+import { parseBrazilianCurrency } from '../../lib/money';
 
 export type ClientFormValues = Partial<Client> & {
   serviceType: string;
@@ -43,9 +44,7 @@ const formatPhoneInput = (value: string) => {
 };
 
 const parseMoneyInput = (value: FormDataEntryValue | null) => {
-  const normalized = String(value || '').trim().replace(',', '.');
-  const parsed = parseFloat(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return parseBrazilianCurrency(value);
 };
 
 export const ClientForm = ({

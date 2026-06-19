@@ -13,6 +13,7 @@ import {
   FiscalLog,
   MaintenanceRecord,
   MessageLog,
+  OperationalLog,
   ProductCatalogItem,
   Settings,
   UserProfile,
@@ -42,6 +43,7 @@ type UseUserCollectionsResult = {
   fiscalCompanies: FiscalCompany[];
   fiscalInvoices: FiscalInvoice[];
   fiscalLogs: FiscalLog[];
+  operationalLogs: OperationalLog[];
 };
 
 const buildSettings = (userId: string, data: Record<string, any>): Settings => ({
@@ -85,6 +87,7 @@ export function useUserCollections({
   const [fiscalCompanies, setFiscalCompanies] = useState<FiscalCompany[]>([]);
   const [fiscalInvoices, setFiscalInvoices] = useState<FiscalInvoice[]>([]);
   const [fiscalLogs, setFiscalLogs] = useState<FiscalLog[]>([]);
+  const [operationalLogs, setOperationalLogs] = useState<OperationalLog[]>([]);
 
   useEffect(() => {
     if (!user || !userProfile?.isActive) return;
@@ -179,6 +182,15 @@ export function useUserCollections({
       setFiscalLogs([]);
     });
 
+    const operationalLogsQuery = query(collection(db, 'users', user.uid, 'operational_logs'));
+    const unsubscribeOperationalLogs = onSnapshot(operationalLogsQuery, (snapshot) => {
+      const logsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as OperationalLog));
+      setOperationalLogs(logsData.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 50));
+    }, (error) => {
+      console.error('Operational logs listener error:', error);
+      setOperationalLogs([]);
+    });
+
     const settingsDoc = doc(db, 'users', user.uid, 'settings', 'config');
     const unsubscribeSettings = onSnapshot(settingsDoc, (snapshot) => {
       if (snapshot.exists()) {
@@ -250,6 +262,7 @@ export function useUserCollections({
       unsubscribeFiscalCompanies();
       unsubscribeFiscalInvoices();
       unsubscribeFiscalLogs();
+      unsubscribeOperationalLogs();
       unsubscribeSettings();
       unsubscribeUsers();
       unsubscribeMessageLogs();
@@ -271,6 +284,7 @@ export function useUserCollections({
     cashLaunches,
     fiscalCompanies,
     fiscalInvoices,
-    fiscalLogs
+    fiscalLogs,
+    operationalLogs
   };
 }

@@ -6,6 +6,7 @@ import { canonicalServiceType } from '../lib/serviceTypes';
 import { clientRepository } from '../services/clientRepository';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
 import { maintenanceRepository } from '../services/maintenanceRepository';
+import { recordOperationalLog } from '../services/operationalLogRepository';
 import type { Client, MaintenanceRecord, MaintenanceStatus } from '../types';
 
 type UseMaintenanceActionsParams = {
@@ -15,6 +16,7 @@ type UseMaintenanceActionsParams = {
   maintenances: MaintenanceRecord[];
   onDeleted: () => void;
   user: User | null;
+  workshopName?: string;
 };
 
 const maintenanceDateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'";
@@ -50,6 +52,7 @@ export const useMaintenanceActions = ({
   maintenances,
   onDeleted,
   user,
+  workshopName,
 }: UseMaintenanceActionsParams) => {
   const [processingId, setProcessingId] = useState<string | null>(null);
 
@@ -70,7 +73,7 @@ export const useMaintenanceActions = ({
     const serviceType = canonicalServiceType(client?.lastServiceType || defaultServiceType);
 
     try {
-      await maintenanceRepository.create(user.uid, {
+      const maintenanceId = await maintenanceRepository.create(user.uid, {
         clientId: client.id,
         clientName: client.name,
         bikeModel: client.bikeModel,
@@ -103,13 +106,21 @@ export const useMaintenanceActions = ({
       });
 
       sonnerToast.success(`Servico de ${client.name} confirmado com sucesso!`);
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName,
+        acao: 'receita_criada',
+        targetId: maintenanceId,
+        details: { clientName: client.name, serviceType, value: serviceValue },
+      });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'maintenances/clients');
       sonnerToast.error('Erro ao confirmar servico.');
     } finally {
       setProcessingId(null);
     }
-  }, [defaultServiceType, getStatus, processingId, user]);
+  }, [defaultServiceType, getStatus, processingId, user, workshopName]);
 
   const deleteMaintenance = useCallback(async (target: string | MaintenanceRecord) => {
     if (!user?.uid) return;

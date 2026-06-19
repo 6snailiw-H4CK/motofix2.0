@@ -28,6 +28,8 @@ type SaveClientParams = {
 
 type SaveClientResult = {
   message: string;
+  clientId: string;
+  operation: 'created' | 'updated';
 };
 
 const normalizeClientName = (name: string): string => name.toLowerCase().trim();
@@ -86,6 +88,9 @@ export const saveClientWithMaintenance = async ({
     valorPago = serviceValue;
   }
   const saldoDevedor = Math.max(0, serviceValue - valorPago);
+  const createdAt = editingClient
+    ? (editingClient.createdAt || clientData.createdAt || defaultIsoDate())
+    : (clientData.createdAt || defaultIsoDate());
 
   const plateRaw = (clientData.vehiclePlate ?? editingClient?.vehiclePlate ?? '').trim();
   const kmFromPayload = clientData.mileageKm !== undefined && clientData.mileageKm !== null
@@ -139,7 +144,7 @@ export const saveClientWithMaintenance = async ({
         : (clientData.statusPagamento || 'Pago'),
     valorPago,
     saldoDevedor,
-    createdAt: clientData.createdAt || defaultIsoDate(),
+    createdAt,
   };
 
   if (Number.isFinite(mileageKm)) {
@@ -171,7 +176,7 @@ export const saveClientWithMaintenance = async ({
       saldoDevedor,
       userId,
     });
-    return { message: 'Serviço registrado com sucesso!' };
+    return { message: 'Serviço registrado com sucesso!', clientId, operation: 'created' };
   }
 
   if (shouldCreateNewMaintenance) {
@@ -191,7 +196,7 @@ export const saveClientWithMaintenance = async ({
       saldoDevedor,
       userId,
     });
-    return { message: 'Servico registrado com sucesso!' };
+    return { message: 'Servico registrado com sucesso!', clientId, operation: 'updated' };
   }
 
   if (editingClient && clientData.serviceType) {
@@ -230,8 +235,8 @@ export const saveClientWithMaintenance = async ({
         userId,
       });
     }
-    return { message: 'Cliente e pagamento atualizados com sucesso!' };
+    return { message: 'Cliente e pagamento atualizados com sucesso!', clientId, operation: 'updated' };
   }
 
-  return { message: 'Cliente atualizado com sucesso!' };
+  return { message: 'Cliente atualizado com sucesso!', clientId, operation: editingClient ? 'updated' : 'created' };
 };

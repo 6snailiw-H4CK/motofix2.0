@@ -3,6 +3,10 @@ import { format, isBefore, parseISO } from 'date-fns';
 import {
   AlertTriangle,
   Bike,
+  CloudCheck,
+  CloudOff,
+  CloudUpload,
+  DatabaseBackup,
   Download,
   Droplets,
   FileSpreadsheet,
@@ -17,10 +21,11 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
+import type { OfflineSyncStatus } from '../../hooks/useOfflineSyncStatus';
 import { APP_VERSION, DEFAULT_SERVICE_TYPES } from '../../constants/appDefaults';
 import { canonicalServiceType, getServiceTypeKey, normalizeServiceTypeOptions } from '../../lib/serviceTypes';
 import { cn } from '../../lib/utils';
-import type { ColorMode, Settings, UserProfile } from '../../types';
+import type { ColorMode, OperationalLog, Settings, UserProfile } from '../../types';
 
 type SettingsViewProps = {
   clientsCount: number;
@@ -36,6 +41,10 @@ type SettingsViewProps = {
   onSaveSettings: () => Promise<void> | void;
   onSaveSettingsPatch: (patch: Partial<Settings>) => Promise<void> | void;
   onExportClientsBackup: () => void;
+  onExportClientsEmergencyCsv: () => void;
+  onExportMotorcyclesEmergencyCsv: () => void;
+  onExportCashLaunchesEmergencyCsv: () => void;
+  onExportWarrantiesEmergencyCsv: () => void;
   onImportClientsBackup: (file: File) => Promise<void> | void;
   isImportingClients: boolean;
   onExportProductsBackup: () => void;
@@ -43,6 +52,8 @@ type SettingsViewProps = {
   isImportingProducts: boolean;
   onResetOperationalData: () => Promise<boolean> | boolean;
   isResettingOperationalData: boolean;
+  offlineSyncStatus: OfflineSyncStatus;
+  operationalLogs: OperationalLog[];
 };
 
 export const SettingsView = ({
@@ -59,6 +70,10 @@ export const SettingsView = ({
   onSaveSettings,
   onSaveSettingsPatch,
   onExportClientsBackup,
+  onExportClientsEmergencyCsv,
+  onExportMotorcyclesEmergencyCsv,
+  onExportCashLaunchesEmergencyCsv,
+  onExportWarrantiesEmergencyCsv,
   onImportClientsBackup,
   isImportingClients,
   onExportProductsBackup,
@@ -66,6 +81,8 @@ export const SettingsView = ({
   isImportingProducts,
   onResetOperationalData,
   isResettingOperationalData,
+  offlineSyncStatus,
+  operationalLogs,
 }: SettingsViewProps) => {
   const [newServiceType, setNewServiceType] = useState('');
   const [newOilType, setNewOilType] = useState('');
@@ -87,6 +104,23 @@ export const SettingsView = ({
   const warrantyCategories = settings.warrantyCategories || [];
   const subscriptionExpiresAt = userProfile?.subscriptionExpiresAt;
   const subscriptionExpired = subscriptionExpiresAt ? isBefore(parseISO(subscriptionExpiresAt), new Date()) : false;
+  const canResetOperationalData = userProfile?.role === 'admin';
+  const syncStatus = offlineSyncStatus.lastError
+    ? { label: 'Falha', icon: AlertTriangle, className: 'border-red-500/30 bg-red-500/10 text-red-200' }
+    : !offlineSyncStatus.isOnline
+      ? { label: 'Offline', icon: CloudOff, className: 'border-amber-500/30 bg-amber-500/10 text-amber-100' }
+      : offlineSyncStatus.pendingWrites > 0 || offlineSyncStatus.isSyncing
+        ? { label: 'Sincronizando', icon: CloudUpload, className: 'border-sky-500/30 bg-sky-500/10 text-sky-100' }
+        : { label: 'Online', icon: CloudCheck, className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100' };
+  const SyncIcon = syncStatus.icon;
+  const formatSyncDate = (value: string | null) => {
+    if (!value) return 'Nunca';
+    try {
+      return format(parseISO(value), 'dd/MM/yyyy HH:mm');
+    } catch {
+      return value;
+    }
+  };
 
   const saveSettingsPatch = (patch: Partial<Settings>) => {
     updateSettings(patch);
@@ -314,6 +348,99 @@ export const SettingsView = ({
           </div>
         </div>
 
+        <div className="mt-3 rounded-xl border border-sky-500/25 bg-sky-500/10 px-4 py-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-200">
+                <DatabaseBackup className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <h4 className="text-sm font-bold text-white">Backup emergencial CSV</h4>
+                <p className="mt-1 text-xs leading-relaxed text-sky-100/80">
+                  Copias manuais rapidas para contingencia do piloto.
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 lg:w-[30rem]">
+              {[
+                ['Clientes', onExportClientsEmergencyCsv],
+                ['Motos', onExportMotorcyclesEmergencyCsv],
+                ['O.S.', onExportCashLaunchesEmergencyCsv],
+                ['Garantias', onExportWarrantiesEmergencyCsv],
+              ].map(([label, action]) => (
+                <button
+                  key={label as string}
+                  type="button"
+                  onClick={action as () => void}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-sky-500/25 bg-sky-500/10 px-3 text-xs font-bold text-sky-100 transition-all hover:bg-sky-500/15"
+                >
+                  <Download className="h-4 w-4" />
+                  {label as string}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-xl border border-slate-700/60 bg-slate-900/45 px-4 py-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Saude da sincronizacao</p>
+              <h4 className="mt-1 text-sm font-bold text-white">Painel operacional interno</h4>
+            </div>
+            <div className={cn('inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-bold', syncStatus.className)}>
+              <SyncIcon className="h-4 w-4" />
+              {syncStatus.label}
+            </div>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Ultima sync</p>
+              <p className="mt-1 text-xs font-bold text-white">{formatSyncDate(offlineSyncStatus.lastSyncedAt)}</p>
+            </div>
+            <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Pendencias</p>
+              <p className="mt-1 text-xs font-bold text-white">{offlineSyncStatus.pendingWrites}</p>
+            </div>
+            <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Drafts locais</p>
+              <p className="mt-1 text-xs font-bold text-white">{offlineSyncStatus.localDraftCount}</p>
+            </div>
+            <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Ultima fila</p>
+              <p className="mt-1 text-xs font-bold text-white">{formatSyncDate(offlineSyncStatus.lastQueuedAt)}</p>
+            </div>
+            <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Falhas</p>
+              <p className="mt-1 truncate text-xs font-bold text-white" title={offlineSyncStatus.lastError || ''}>
+                {offlineSyncStatus.lastError || 'Nenhuma'}
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 rounded-lg border border-slate-700/60 bg-slate-950/35 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Log operacional</p>
+              <span className="text-[10px] text-slate-500">{operationalLogs.length} registro(s)</span>
+            </div>
+            {operationalLogs.length === 0 ? (
+              <p className="text-xs text-slate-500">Nenhum evento operacional registrado ainda.</p>
+            ) : (
+              <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
+                {operationalLogs.slice(0, 12).map((log) => (
+                  <div key={log.id || `${log.timestamp}-${log.acao}`} className="grid gap-1 rounded-lg border border-slate-800 bg-slate-950/55 p-2 text-xs md:grid-cols-[8.5rem_1fr_7rem] md:items-center">
+                    <span className="text-slate-500">{formatSyncDate(log.timestamp)}</span>
+                    <span className="font-bold text-slate-200">{log.acao.replace(/_/g, ' ')}</span>
+                    <span className={cn('font-bold', log.resultado === 'erro' ? 'text-red-300' : log.resultado === 'salvo_offline' ? 'text-amber-200' : 'text-emerald-300')}>
+                      {log.resultado}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {canResetOperationalData && (
         <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
           <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
             <div className="min-w-0">
@@ -379,6 +506,7 @@ export const SettingsView = ({
             </div>
           )}
         </div>
+        )}
 
         <input
           ref={clientImportInputRef}
