@@ -1,5 +1,7 @@
 import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { safeFormat } from '../../lib/utils';
+import { clearLocalDraft, loadLocalDraft, saveLocalDraft } from '../../services/localDrafts';
 import type { Client, MaintenanceRecord } from '../../types';
 
 export type ClientScheduleFormValues = {
@@ -18,8 +20,13 @@ type ClientScheduleFormProps = {
   historyRows: MaintenanceRecord[];
   isSaving: boolean;
   onBack: () => void;
-  onSave: (values: ClientScheduleFormValues) => Promise<void> | void;
+  onSave: (values: ClientScheduleFormValues) => Promise<boolean> | boolean;
   onAfterSubmit: () => void;
+  draftStorageKey?: string;
+};
+
+type ClientScheduleLocalDraft = Omit<ClientScheduleFormValues, '_scheduleProfile' | 'mileageKm'> & {
+  mileageKm: string;
 };
 
 export const ClientScheduleForm = ({
@@ -29,7 +36,47 @@ export const ClientScheduleForm = ({
   onBack,
   onSave,
   onAfterSubmit,
-}: ClientScheduleFormProps) => (
+  draftStorageKey,
+}: ClientScheduleFormProps) => {
+  const [localDraft, setLocalDraft] = useState<ClientScheduleLocalDraft | null>(() => (
+    draftStorageKey && !editingClient
+      ? loadLocalDraft<ClientScheduleLocalDraft>(draftStorageKey)?.data || null
+      : null
+  ));
+
+  useEffect(() => {
+    if (!draftStorageKey || editingClient) {
+      setLocalDraft(null);
+      return;
+    }
+
+    const draft = loadLocalDraft<ClientScheduleLocalDraft>(draftStorageKey);
+    setLocalDraft(draft?.data || null);
+  }, [draftStorageKey, editingClient]);
+
+  const persistFormDraft = (form: HTMLFormElement) => {
+    if (!draftStorageKey || editingClient) return;
+    const formData = new FormData(form);
+    const draft: ClientScheduleLocalDraft = {
+      name: String(formData.get('name') || ''),
+      bikeModel: String(formData.get('bikeModel') || ''),
+      contact: String(formData.get('contact') || ''),
+      email: String(formData.get('email') || ''),
+      vehiclePlate: String(formData.get('vehiclePlate') || ''),
+      mileageKm: String(formData.get('mileageKm') || ''),
+      notes: String(formData.get('notes') || ''),
+    };
+
+    const hasContent = Boolean(draft.name.trim() || draft.bikeModel.trim() || draft.contact.trim() || draft.notes.trim());
+    if (!hasContent) {
+      clearLocalDraft(draftStorageKey);
+      return;
+    }
+
+    saveLocalDraft(draftStorageKey, 'Cliente/moto em andamento', 'clients', draft);
+  };
+
+  return (
   <div className="mx-auto max-w-xl space-y-4 lg:max-w-4xl xl:max-w-5xl">
     <div className="flex items-center gap-3">
       <button type="button" onClick={onBack} className="p-1.5 rounded-full hover:bg-slate-800 transition-colors">
@@ -44,14 +91,15 @@ export const ClientScheduleForm = ({
     </div>
 
     <form
-      key={editingClient?.id || 'schedule-new'}
-      onSubmit={(event) => {
+      key={editingClient?.id || `schedule-new-${localDraft ? 'draft' : 'empty'}`}
+      onInput={(event) => persistFormDraft(event.currentTarget)}
+      onSubmit={async (event) => {
         event.preventDefault();
         const formData = new FormData(event.currentTarget);
         const kmRaw = ((formData.get('mileageKm') as string) || '').replace(/\D/g, '');
         const mileageKmParsed = kmRaw ? parseInt(kmRaw, 10) : NaN;
 
-        void onSave({
+        const saved = await onSave({
           name: formData.get('name') as string,
           bikeModel: formData.get('bikeModel') as string,
           contact: formData.get('contact') as string,
@@ -61,7 +109,10 @@ export const ClientScheduleForm = ({
           notes: formData.get('notes') as string,
           _scheduleProfile: true,
         });
-        onAfterSubmit();
+        if (saved) {
+          if (draftStorageKey) clearLocalDraft(draftStorageKey);
+          onAfterSubmit();
+        }
       }}
       className="space-y-4 rounded-2xl border border-slate-700/50 bg-slate-800/40 p-5 lg:p-6"
     >
@@ -70,7 +121,7 @@ export const ClientScheduleForm = ({
           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome completo</label>
           <input
             name="name"
-            defaultValue={editingClient?.name || ''}
+            defaultValue={editingClient?.name || localDraft?.name || ''}
             required
             placeholder="Ex: Joao Silva"
             className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
@@ -81,7 +132,7 @@ export const ClientScheduleForm = ({
           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">WhatsApp</label>
           <input
             name="contact"
-            defaultValue={editingClient?.contact || ''}
+            defaultValue={editingClient?.contact || localDraft?.contact || ''}
             required
             placeholder="(69) 99999-9999"
             className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
@@ -93,7 +144,7 @@ export const ClientScheduleForm = ({
           <input
             name="email"
             type="email"
-            defaultValue={editingClient?.email || ''}
+            defaultValue={editingClient?.email || localDraft?.email || ''}
             placeholder="cliente@email.com"
             className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
           />
@@ -103,7 +154,7 @@ export const ClientScheduleForm = ({
           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Veiculo (modelo)</label>
           <input
             name="bikeModel"
-            defaultValue={editingClient?.bikeModel || ''}
+            defaultValue={editingClient?.bikeModel || localDraft?.bikeModel || ''}
             required
             placeholder="Ex: Honda CG 160"
             className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
@@ -114,7 +165,7 @@ export const ClientScheduleForm = ({
           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Placa</label>
           <input
             name="vehiclePlate"
-            defaultValue={editingClient?.vehiclePlate || ''}
+            defaultValue={editingClient?.vehiclePlate || localDraft?.vehiclePlate || ''}
             placeholder="ABC1D23"
             maxLength={8}
             className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none uppercase"
@@ -127,7 +178,7 @@ export const ClientScheduleForm = ({
             name="mileageKm"
             type="number"
             min={0}
-            defaultValue={editingClient?.mileageKm !== undefined ? String(editingClient.mileageKm) : ''}
+            defaultValue={editingClient?.mileageKm !== undefined ? String(editingClient.mileageKm) : localDraft?.mileageKm || ''}
             placeholder="Ex: 12500"
             className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none"
           />
@@ -137,7 +188,7 @@ export const ClientScheduleForm = ({
           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Observacoes</label>
           <textarea
             name="notes"
-            defaultValue={editingClient?.lastServiceNotes || ''}
+            defaultValue={editingClient?.lastServiceNotes || localDraft?.notes || ''}
             placeholder="Preferencias, restricoes, historico relevante..."
             className="w-full bg-slate-900/50 border-slate-700 rounded-xl p-2.5 text-sm focus:ring-1 focus:ring-primary outline-none min-h-[88px]"
           />
@@ -192,4 +243,5 @@ export const ClientScheduleForm = ({
       </div>
     </form>
   </div>
-);
+  );
+};

@@ -507,10 +507,9 @@ export const AppViewRenderer = ({
           historyRows={scheduleClientHistoryRows}
           isSaving={clientActions.isSaving}
           onBack={() => setView('clients-schedule')}
-          onSave={(values) => {
-            void clientActions.saveClient(values);
-          }}
+          onSave={clientActions.saveClient}
           onAfterSubmit={() => setView('clients-schedule')}
+          draftStorageKey={`${currentUserId}:client-schedule-form`}
         />
       )}
 
