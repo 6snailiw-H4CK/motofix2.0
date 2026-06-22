@@ -47,7 +47,7 @@ export const operationalDataResetApi = {
     const response = await fetch(buildUrl('/api/data-reset/operational'), {
       method: 'POST',
       headers: await getAuthHeaders(),
-      body: JSON.stringify({ confirmation: 'ZERAR' }),
+      body: JSON.stringify({ confirmation: 'ZERAR', backupConfirmed: true }),
     });
 
     return parseResponse<OperationalDataResetResponse>(response);

@@ -132,7 +132,12 @@ export const useExpenseActions = ({ user, onAfterSave, workshopName }: UseExpens
 
     try {
       await expenseRepository.remove(user.uid, expenseId);
-      sonnerToast.success('Gasto removido.');
+      sonnerToast.success('Gasto movido para a lixeira.', {
+        action: {
+          label: 'Desfazer',
+          onClick: () => void expenseRepository.restore(user.uid, expenseId),
+        },
+      });
     } catch (error) {
       console.error('Erro ao remover gasto:', error);
       sonnerToast.error('Nao foi possivel excluir o gasto.');

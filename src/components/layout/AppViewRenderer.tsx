@@ -39,6 +39,7 @@ import {
   exportCashLaunchesCsv,
   exportClientsCsv,
   exportMotorcyclesCsv,
+  exportOperationalBackupJson,
   exportWarrantiesCsv,
 } from '../../services/emergencyBackup';
 
@@ -63,6 +64,7 @@ const ReportView = lazy(() => import('../dashboard/ReportView').then((module) =>
 const ReturnsView = lazy(() => import('../returns/ReturnsView').then((module) => ({ default: module.ReturnsView })));
 const SettingsView = lazy(() => import('../settings/SettingsView').then((module) => ({ default: module.SettingsView })));
 const WhatsAppView = lazy(() => import('../whatsapp/WhatsAppView').then((module) => ({ default: module.WhatsAppView })));
+const CheckoutScreen = lazy(() => import('../checkout/CheckoutScreen').then((module) => ({ default: module.CheckoutScreen })));
 const WarrantiesView = lazy(() => import('../warranties/WarrantiesView').then((module) => ({ default: module.WarrantiesView })));
 const WarrantyForm = lazy(() => import('../Forms/WarrantyForm').then((module) => ({ default: module.WarrantyForm })));
 
@@ -265,9 +267,9 @@ export const AppViewRenderer = ({
   );
   const [cashLaunchToOpenId, setCashLaunchToOpenId] = useState<string | null>(null);
 
-  return (
-    <Suspense fallback={<ViewLoadingFallback />}>
-      {view === 'dashboard' && (
+  const renderedView = (() => {
+    if (view === 'dashboard') {
+      return (
         <DashboardView
           cashFlowStats={cashFlowStats}
           dailyPendingAlerts={dailyPendingAlerts}
@@ -293,9 +295,11 @@ export const AppViewRenderer = ({
           onToggleTopService={(service) => setExpandedTopService(expandedTopService === service ? null : service)}
           getTopServiceSubRows={getTopServiceSubRows}
         />
-      )}
+      );
+    }
 
-      {view === 'returns' && (
+    if (view === 'returns') {
+      return (
         <ReturnsView
           clients={clientsSortedByBalance}
           dailyPendingAlerts={dailyPendingAlerts}
@@ -316,9 +320,11 @@ export const AppViewRenderer = ({
           onRegisterReturn={maintenanceActions.addMaintenance}
           onSendWhatsApp={sendWhatsApp}
         />
-      )}
+      );
+    }
 
-      {view === 'pendencies' && (
+    if (view === 'pendencies') {
+      return (
         <PendenciesView
           cashLaunches={cashLaunches}
           maintenances={dashboardMaintenances}
@@ -330,33 +336,41 @@ export const AppViewRenderer = ({
           }}
           onRegisterPayment={(record) => maintenanceActions.settleDebt(record.id, record)}
         />
-      )}
+      );
+    }
 
-      {view === 'dashboard-revenue' && (
+    if (view === 'dashboard-revenue') {
+      return (
         <DashboardRevenueView
           dashboardStats={dashboardStats}
           clientStats={clientStats}
           onBack={() => setView('dashboard')}
         />
-      )}
+      );
+    }
 
-      {view === 'dashboard-recurring' && (
+    if (view === 'dashboard-recurring') {
+      return (
         <DashboardRecurringView
           dashboardStats={dashboardStats}
           maintenances={dashboardMaintenances}
           onBack={() => setView('dashboard')}
         />
-      )}
+      );
+    }
 
-      {view === 'dashboard-services' && (
+    if (view === 'dashboard-services') {
+      return (
         <DashboardServicesView
           dashboardStats={dashboardStats}
           maintenances={dashboardMaintenances}
           onBack={() => setView('dashboard')}
         />
-      )}
+      );
+    }
 
-      {view === 'clients' && (
+    if (view === 'clients') {
+      return (
         <ClientsView
           clients={filteredServiceClients}
           maintenances={dashboardMaintenances}
@@ -388,9 +402,11 @@ export const AppViewRenderer = ({
             confirmOrRequestDelete('maintenance', record.id, () => maintenanceActions.deleteMaintenance(record));
           }}
         />
-      )}
+      );
+    }
 
-      {view === 'cash-register' && (
+    if (view === 'cash-register') {
+      return (
         <CashRegisterView
           cashLaunches={cashLaunches}
           clients={clients}
@@ -419,9 +435,11 @@ export const AppViewRenderer = ({
             });
           }}
         />
-      )}
+      );
+    }
 
-      {view === 'products' && (
+    if (view === 'products') {
+      return (
         <ProductsView
           products={productCatalog}
           isSavingProduct={productActions.isSavingProduct}
@@ -434,9 +452,11 @@ export const AppViewRenderer = ({
             });
           }}
         />
-      )}
+      );
+    }
 
-      {view === 'fiscal' && (
+    if (view === 'fiscal') {
+      return (
         <FiscalView
           cashLaunches={cashLaunches}
           fiscalCompanies={fiscalCompanies}
@@ -452,13 +472,15 @@ export const AppViewRenderer = ({
           onSaveCompany={fiscalActions.saveCompany}
           onSyncInvoice={fiscalActions.syncInvoice}
         />
-      )}
+      );
+    }
 
-      {view === 'whatsapp' && (
-        <WhatsAppView />
-      )}
+    if (view === 'whatsapp') {
+      return <WhatsAppView />;
+    }
 
-      {view === 'appointments' && (
+    if (view === 'appointments') {
+      return (
         <AppointmentsView
           appointments={appointments}
           calendarMonth={appointmentActions.calendarMonth}
@@ -479,9 +501,11 @@ export const AppViewRenderer = ({
             confirmOrRequestDelete('appointment', appointment.id, () => appointmentActions.deleteAppointment(appointment.id));
           }}
         />
-      )}
+      );
+    }
 
-      {view === 'clients-schedule' && (
+    if (view === 'clients-schedule') {
+      return (
         <ClientsScheduleView
           clients={clientsSortedByBalance}
           clientBalanceMap={clientBalanceMap}
@@ -499,9 +523,11 @@ export const AppViewRenderer = ({
             confirmOrRequestDelete('client', client.id, () => clientActions.deleteClient(client.id));
           }}
         />
-      )}
+      );
+    }
 
-      {view === 'clients-schedule-add' && (
+    if (view === 'clients-schedule-add') {
+      return (
         <ClientScheduleForm
           editingClient={clientForm.editingClient}
           historyRows={scheduleClientHistoryRows}
@@ -511,9 +537,11 @@ export const AppViewRenderer = ({
           onAfterSubmit={() => setView('clients-schedule')}
           draftStorageKey={`${currentUserId}:client-schedule-form`}
         />
-      )}
+      );
+    }
 
-      {view === 'history' && (
+    if (view === 'history') {
+      return (
         <HistoryView
           maintenances={maintenances}
           messageLogs={messageLogs}
@@ -531,9 +559,11 @@ export const AppViewRenderer = ({
           }}
           onOpenGeneralReport={() => setView('general-report')}
         />
-      )}
+      );
+    }
 
-      {view === 'expenses' && (
+    if (view === 'expenses') {
+      return (
         <ExpensesView
           expenseEntries={expenseEntries}
           description={expenseActions.description}
@@ -554,17 +584,21 @@ export const AppViewRenderer = ({
           onDeleteExpense={expenseActions.deleteExpense}
           onResetForm={expenseActions.resetForm}
         />
-      )}
+      );
+    }
 
-      {view === 'report' && (
+    if (view === 'report') {
+      return (
         <ReportView
           dashboardStats={dashboardStats}
           maintenances={dashboardMaintenances}
           onBack={() => setView('history')}
         />
-      )}
+      );
+    }
 
-      {view === 'general-report' && (
+    if (view === 'general-report') {
+      return (
         <GeneralReportView
           cashLaunches={cashLaunches}
           clients={clients}
@@ -576,9 +610,11 @@ export const AppViewRenderer = ({
           onBack={() => setView('history')}
           onViewChange={setView}
         />
-      )}
+      );
+    }
 
-      {view === 'warranties' && (
+    if (view === 'warranties') {
+      return (
         <WarrantiesView
           warranties={warranties}
           deleteConfirmId={getDeleteConfirmId('warranty')}
@@ -589,9 +625,11 @@ export const AppViewRenderer = ({
             confirmOrRequestDelete('warranty', warranty.id, () => warrantyActions.deleteWarranty(warranty.id));
           }}
         />
-      )}
+      );
+    }
 
-      {view === 'new-warranty' && (
+    if (view === 'new-warranty') {
+      return (
         <WarrantyForm
           editingWarranty={warrantyActions.editingWarranty}
           settings={settings}
@@ -601,9 +639,11 @@ export const AppViewRenderer = ({
           onSubmit={warrantyActions.saveWarranty}
           draftStorageKey={`${currentUserId}:warranty-form`}
         />
-      )}
+      );
+    }
 
-      {view === 'settings' && (
+    if (view === 'settings') {
+      return (
         <SettingsView
           clientsCount={clients.length}
           operationalDataCount={operationalDataCount}
@@ -622,6 +662,17 @@ export const AppViewRenderer = ({
           onExportMotorcyclesEmergencyCsv={() => exportMotorcyclesCsv(clients)}
           onExportCashLaunchesEmergencyCsv={() => exportCashLaunchesCsv(cashLaunches)}
           onExportWarrantiesEmergencyCsv={() => exportWarrantiesCsv(warranties)}
+          onExportOperationalBackup={() => exportOperationalBackupJson({
+            appointments,
+            cashLaunches,
+            clients,
+            expenses: expenseEntries,
+            fiscalInvoices,
+            fiscalLogs,
+            maintenances,
+            messageLogs,
+            warranties,
+          })}
           onImportClientsBackup={clientActions.importClientsBackup}
           isImportingClients={clientActions.isImportingClients}
           onExportProductsBackup={() => downloadProductsWorkbook(productCatalog)}
@@ -629,12 +680,15 @@ export const AppViewRenderer = ({
           isImportingProducts={productActions.isImportingProducts}
           onResetOperationalData={settingsActions.resetOperationalData}
           isResettingOperationalData={settingsActions.isResettingOperationalData}
+          onOpenCheckout={() => setView('checkout')}
           offlineSyncStatus={offlineSyncStatus}
           operationalLogs={operationalLogs}
         />
-      )}
+      );
+    }
 
-      {view === 'new-client' && (
+    if (view === 'new-client') {
+      return (
         <ClientForm
           editingClient={clientForm.editingClient}
           isNewService={clientForm.isCreatingService}
@@ -655,9 +709,21 @@ export const AppViewRenderer = ({
           onSave={clientActions.saveClient}
           draftStorageKey={`${currentUserId}:client-form`}
         />
-      )}
+      );
+    }
 
-      {view === 'admin' && userProfile?.role === 'admin' && (
+    if (view === 'checkout') {
+      return (
+        <CheckoutScreen
+          userId={currentUserId}
+          userEmail={userEmail ?? ''}
+          onPaymentSuccess={() => setView('dashboard')}
+        />
+      );
+    }
+
+    if (view === 'admin' && userProfile?.role === 'admin') {
+      return (
         <AdminView
           users={allUsers}
           currentUserId={currentUserId}
@@ -665,7 +731,15 @@ export const AppViewRenderer = ({
           onUpdateSubscription={adminActions.updateSubscription}
           onSetSubscriptionDate={adminActions.setSubscriptionDate}
         />
-      )}
+      );
+    }
+
+    return null;
+  })();
+
+  return (
+    <Suspense fallback={<ViewLoadingFallback />}>
+      {renderedView}
     </Suspense>
   );
 };

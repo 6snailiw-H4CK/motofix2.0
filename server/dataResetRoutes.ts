@@ -189,6 +189,10 @@ export const registerDataResetRoutes = (options: RegisterDataResetRoutesOptions)
         throw httpError(400, "Confirmacao invalida para zerar os dados.");
       }
 
+      if (req.body?.backupConfirmed !== true) {
+        throw httpError(400, "Gere e confirme o backup operacional antes de zerar os dados.");
+      }
+
       const userId = req.dataResetAuth.uid;
       const deletedByCollection: Record<string, number> = {};
       let deletedTotal = 0;

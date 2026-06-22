@@ -66,7 +66,12 @@ export const useProductActions = ({ user, onDeleted }: UseProductActionsParams) 
     setDeletingProductId(productId);
     try {
       await productRepository.delete(user.uid, productId);
-      sonnerToast.success('Mercadoria excluida com sucesso.');
+      sonnerToast.success('Mercadoria movida para a lixeira.', {
+        action: {
+          label: 'Desfazer',
+          onClick: () => void productRepository.restore(user.uid, productId),
+        },
+      });
       onDeleted?.();
       return true;
     } catch (error) {

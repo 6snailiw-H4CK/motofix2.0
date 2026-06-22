@@ -2,6 +2,12 @@ export type MaintenanceStatus = 'OK' | 'WARNING' | 'OVERDUE';
 
 export type ColorMode = 'dark' | 'light';
 
+export interface SoftDeletable {
+  deletedAt?: string | null;
+  deletedBy?: string | null;
+  deletedReason?: string | null;
+}
+
 export type AppView =
   | 'dashboard'
   | 'dashboard-recurring'
@@ -30,7 +36,7 @@ export type AppView =
   | 'subscription-expired'
   | 'expenses';
 
-export interface Client {
+export interface Client extends SoftDeletable {
   id: string;
   name: string;
   /** Nome completo/razao social para uso fiscal */
@@ -76,7 +82,7 @@ export interface Client {
   };
 }
 
-export interface MessageLog {
+export interface MessageLog extends SoftDeletable {
   id?: string;
   clientId: string;
   clientName: string;
@@ -115,7 +121,7 @@ export interface OperationalLog {
   details?: Record<string, unknown>;
 }
 
-export interface MaintenanceRecord {
+export interface MaintenanceRecord extends SoftDeletable {
   id: string;
   clientId: string;
   clientName: string;
@@ -133,7 +139,7 @@ export interface MaintenanceRecord {
   saldoDevedor?: number; // Saldo devedor (calculado automaticamente)
 }
 
-export interface ExpenseRecord {
+export interface ExpenseRecord extends SoftDeletable {
   id: string;
   description: string;
   supplier?: string;
@@ -145,7 +151,7 @@ export interface ExpenseRecord {
   createdAt: string;
 }
 
-export interface ProductCatalogItem {
+export interface ProductCatalogItem extends SoftDeletable {
   id: string;
   sourceCode: string;
   description: string;
@@ -210,7 +216,7 @@ export interface ManualFiscalInfo {
   preparedAt?: string;
 }
 
-export interface CashRegisterLaunch {
+export interface CashRegisterLaunch extends SoftDeletable {
   id: string;
   orderNumber: string;
   clientId?: string;
@@ -356,7 +362,7 @@ export interface FiscalLog {
   createdAt: string;
 }
 
-export interface Appointment {
+export interface Appointment extends SoftDeletable {
   id: string;
   clientName: string;
   bikeModel: string;
@@ -412,7 +418,7 @@ export interface UserProfile {
   createdAt: string;
 }
 
-export interface Warranty {
+export interface Warranty extends SoftDeletable {
   id: string;
   clientName: string;
   serviceType: string;

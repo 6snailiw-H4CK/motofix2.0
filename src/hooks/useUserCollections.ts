@@ -1,8 +1,10 @@
 import { Dispatch, SetStateAction, useEffect, useState } from 'react';
+import { isBefore, parseISO } from 'date-fns';
 import { User } from 'firebase/auth';
 import { collection, doc, onSnapshot, query, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { queueFirestoreVoidWrite } from '../services/firestoreOfflineQueue';
+import { isSoftDeleted } from '../services/softDelete';
 import {
   Appointment,
   CashRegisterLaunch,
@@ -68,6 +70,13 @@ const buildInitialSettings = (userId: string, isNewUser: boolean | null): Settin
   isProfileComplete: !isNewUser
 });
 
+const mapActiveDocuments = <T,>(documents: Array<{ id: string; data: () => Record<string, unknown> }>): T[] => (
+  documents.flatMap((documentSnapshot) => {
+    const data = documentSnapshot.data();
+    return isSoftDeleted(data) ? [] : [{ id: documentSnapshot.id, ...data } as T];
+  })
+);
+
 export function useUserCollections({
   user,
   userProfile,
@@ -90,11 +99,15 @@ export function useUserCollections({
   const [operationalLogs, setOperationalLogs] = useState<OperationalLog[]>([]);
 
   useEffect(() => {
-    if (!user || !userProfile?.isActive) return;
+    const hasExpiredSubscription = userProfile?.subscriptionExpiresAt
+      ? isBefore(parseISO(userProfile.subscriptionExpiresAt), new Date())
+      : false;
+
+    if (!user || (!userProfile?.isActive && !hasExpiredSubscription)) return;
 
     const clientsQuery = query(collection(db, 'users', user.uid, 'clients'));
     const unsubscribeClients = onSnapshot(clientsQuery, (snapshot) => {
-      const clientsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Client));
+      const clientsData = mapActiveDocuments<Client>(snapshot.docs);
       setClients(clientsData);
     }, (error) => {
       console.error('Clients listener error:', error);
@@ -103,7 +116,7 @@ export function useUserCollections({
 
     const maintenanceQuery = query(collection(db, 'users', user.uid, 'maintenances'));
     const unsubscribeMaintenances = onSnapshot(maintenanceQuery, (snapshot) => {
-      const maintenanceData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MaintenanceRecord));
+      const maintenanceData = mapActiveDocuments<MaintenanceRecord>(snapshot.docs);
       setMaintenances(maintenanceData.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
     }, (error) => {
       console.error('Maintenances listener error:', error);
@@ -112,7 +125,7 @@ export function useUserCollections({
 
     const warrantyQuery = query(collection(db, 'users', user.uid, 'warranties'));
     const unsubscribeWarranties = onSnapshot(warrantyQuery, (snapshot) => {
-      const warrantyData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Warranty));
+      const warrantyData = mapActiveDocuments<Warranty>(snapshot.docs);
       setWarranties(warrantyData.sort((a, b) => b.warrantyNumber - a.warrantyNumber));
     }, (error) => {
       console.error('Warranties listener error:', error);
@@ -121,7 +134,7 @@ export function useUserCollections({
 
     const appointmentsQuery = query(collection(db, 'users', user.uid, 'appointments'));
     const unsubscribeAppointments = onSnapshot(appointmentsQuery, (snapshot) => {
-      const appointmentData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Appointment));
+      const appointmentData = mapActiveDocuments<Appointment>(snapshot.docs);
       setAppointments(appointmentData.sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate)));
     }, (error) => {
       console.error('Appointments listener error:', error);
@@ -130,7 +143,7 @@ export function useUserCollections({
 
     const expensesQuery = query(collection(db, 'users', user.uid, 'expenses'));
     const unsubscribeExpenses = onSnapshot(expensesQuery, (snapshot) => {
-      const expensesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ExpenseRecord));
+      const expensesData = mapActiveDocuments<ExpenseRecord>(snapshot.docs);
       setExpenseEntries(expensesData.sort((a, b) => b.date.localeCompare(a.date)));
     }, (error) => {
       console.error('Expenses listener error:', error);
@@ -139,7 +152,7 @@ export function useUserCollections({
 
     const productsQuery = query(collection(db, 'users', user.uid, 'products'));
     const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
-      const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ProductCatalogItem));
+      const productsData = mapActiveDocuments<ProductCatalogItem>(snapshot.docs);
       setProductCatalog(productsData.sort((a, b) => a.description.localeCompare(b.description)));
     }, (error) => {
       console.error('Products listener error:', error);
@@ -148,7 +161,7 @@ export function useUserCollections({
 
     const cashLaunchesQuery = query(collection(db, 'users', user.uid, 'cash_launches'));
     const unsubscribeCashLaunches = onSnapshot(cashLaunchesQuery, (snapshot) => {
-      const launchesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CashRegisterLaunch));
+      const launchesData = mapActiveDocuments<CashRegisterLaunch>(snapshot.docs);
       setCashLaunches(launchesData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     }, (error) => {
       console.error('Cash launches listener error:', error);
@@ -244,7 +257,7 @@ export function useUserCollections({
 
     const messageLogsQuery = query(collection(db, 'users', user.uid, 'message_logs'));
     const unsubscribeMessageLogs = onSnapshot(messageLogsQuery, (snapshot) => {
-      const logsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as MessageLog));
+      const logsData = mapActiveDocuments<MessageLog>(snapshot.docs);
       setMessageLogs(logsData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     }, (error) => {
       console.error('Message logs listener error:', error);

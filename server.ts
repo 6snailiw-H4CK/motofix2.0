@@ -1,5 +1,6 @@
 import "dotenv/config";
 import fs from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import express, { NextFunction, Request, Response } from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -86,6 +87,7 @@ const requirePaymentAuth = async (req: PaymentRequest, res: Response, next: Next
 
 async function startServer() {
   const app = express();
+  const httpServer = createHttpServer(app);
   const PORT = Number(process.env.PORT || 3000);
 
   app.set("trust proxy", 1);
@@ -281,8 +283,10 @@ async function startServer() {
               "subscription.stripeSubscriptionId": intent.id,
               "subscription.startsAt": now.toISOString(),
               "subscription.expiresAt": expiresAt.toISOString(),
+              "subscription.subscriptionExpiresAt": expiresAt.toISOString(),
               "subscription.currentPeriodEnd": expiresAt.toISOString(),
               "subscription.autoRenew": true,
+              isActive: true,
               updatedAt: now.toISOString(),
             });
 
@@ -344,7 +348,10 @@ async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: { server: httpServer },
+        hmr: { server: httpServer },
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -356,7 +363,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`🚀 Servidor rodando em http://localhost:${PORT}`);
     console.log(`📝 Versão do Stripe: ${stripe.VERSION}`);
     console.log(`🔐 Firebase Admin inicializado`);

@@ -165,7 +165,12 @@ export const useAppointmentActions = ({ user, onDeleted }: UseAppointmentActions
     try {
       await appointmentRepository.remove(user.uid, id);
       onDeleted();
-      sonnerToast.success('Agendamento excluido com sucesso.');
+      sonnerToast.success('Agendamento movido para a lixeira.', {
+        action: {
+          label: 'Desfazer',
+          onClick: () => void appointmentRepository.restore(user.uid, id),
+        },
+      });
     } catch (error) {
       console.error('Erro ao excluir agendamento:', error);
       sonnerToast.error('Erro ao excluir agendamento.');

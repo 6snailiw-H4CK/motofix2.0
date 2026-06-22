@@ -15,7 +15,12 @@ export const useMessageLogActions = ({ onDeleted, user }: UseMessageLogActionsPa
 
     try {
       await messageLogRepository.remove(user.uid, messageLogId);
-      sonnerToast.success('Log de aviso removido.');
+      sonnerToast.success('Log de aviso movido para a lixeira.', {
+        action: {
+          label: 'Desfazer',
+          onClick: () => void messageLogRepository.restore(user.uid, messageLogId),
+        },
+      });
       onDeleted();
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, 'message_logs');

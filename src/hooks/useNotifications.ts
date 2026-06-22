@@ -64,6 +64,23 @@ export const useNotifications = ({ clients }: UseNotificationsParams) => {
       setNotificationPermission(window.Notification.permission);
     }
 
+    if (import.meta.env.DEV && 'serviceWorker' in navigator) {
+      void Promise.all([
+        navigator.serviceWorker.getRegistrations()
+          .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister()))),
+        'caches' in window
+          ? window.caches.keys().then((cacheNames) => Promise.all(
+            cacheNames
+              .filter((cacheName) => cacheName.startsWith('motofix-'))
+              .map((cacheName) => window.caches.delete(cacheName))
+          ))
+          : Promise.resolve([]),
+      ]).catch((error) => {
+        console.warn('Falha ao limpar o cache de desenvolvimento:', error);
+      });
+      return;
+    }
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js')
         .then((registration) => {

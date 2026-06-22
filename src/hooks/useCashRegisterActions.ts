@@ -110,7 +110,12 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
     setDeletingLaunchId(launchId);
     try {
       await cashRegisterRepository.delete(user.uid, launchId);
-      sonnerToast.success('O.S. excluida com sucesso.');
+      sonnerToast.success('O.S. movida para a lixeira.', {
+        action: {
+          label: 'Desfazer',
+          onClick: () => void cashRegisterRepository.restore(user.uid, launchId),
+        },
+      });
       return true;
     } catch (error) {
       sonnerToast.error('Nao foi possivel excluir a O.S.');

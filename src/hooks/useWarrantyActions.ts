@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react';
 import { toast as sonnerToast } from 'sonner';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
 import { recordOperationalLog } from '../services/operationalLogRepository';
+import { shouldGenerateWarrantyPdf } from '../services/warrantyPdfGuard';
 import { warrantyRepository } from '../services/warrantyRepository';
 import type { Settings, Warranty } from '../types';
 
@@ -156,7 +157,7 @@ export const useWarrantyActions = ({
         await warrantyRepository.update(user.uid, editingWarranty.id, finalData);
         sonnerToast.success('Garantia atualizada com sucesso!');
       } else {
-        const warrantyId = await warrantyRepository.create(user.uid, finalData);
+        const { id: warrantyId, remoteConfirmed } = await warrantyRepository.create(user.uid, finalData);
         recordOperationalLog({
           userId: user.uid,
           usuario: user.email,
@@ -165,14 +166,14 @@ export const useWarrantyActions = ({
           targetId: warrantyId,
           details: { clientName: finalData.clientName, warrantyNumber: finalData.warrantyNumber },
         });
-        sonnerToast.success(
-          typeof navigator !== 'undefined' && navigator.onLine === false
-            ? 'Garantia salva neste computador. Sincronizacao pendente.'
-            : 'Garantia registrada com sucesso!'
-        );
-        setTimeout(() => {
-          generateWarrantyPDF({ ...finalData, id: warrantyId } as Warranty);
-        }, 500);
+        sonnerToast.success(remoteConfirmed
+          ? 'Garantia registrada e confirmada pelo servidor!'
+          : 'Garantia salva neste computador. Sincronizacao pendente.');
+        if (shouldGenerateWarrantyPdf(remoteConfirmed)) {
+          setTimeout(() => {
+            generateWarrantyPDF({ ...finalData, id: warrantyId } as Warranty);
+          }, 500);
+        }
       }
 
       setEditingWarranty(null);
@@ -193,6 +194,12 @@ export const useWarrantyActions = ({
     try {
       await warrantyRepository.remove(user.uid, id);
       onDeleted();
+      sonnerToast.success('Garantia movida para a lixeira.', {
+        action: {
+          label: 'Desfazer',
+          onClick: () => void warrantyRepository.restore(user.uid, id),
+        },
+      });
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, 'warranties');
     }

@@ -76,6 +76,18 @@ service cloud.firestore {
         || isText(field, maxLength);
     }
 
+    function optionalNullableText(field, maxLength) {
+      return !request.resource.data.keys().hasAny([field])
+        || request.resource.data[field] == null
+        || isText(field, maxLength);
+    }
+
+    function softDeleteMetadataValid() {
+      return optionalNullableText('deletedAt', 40)
+        && optionalNullableText('deletedBy', 160)
+        && optionalNullableText('deletedReason', 500);
+    }
+
     function isNumberInRange(field, minValue, maxValue) {
       return request.resource.data[field] is number
         && request.resource.data[field] >= minValue
@@ -159,7 +171,8 @@ service cloud.firestore {
         && paymentStatusValid()
         && optionalNumberInRange('valorPago', 0, 10000000)
         && optionalNumberInRange('saldoDevedor', 0, 10000000)
-        && optionalMap('automation');
+        && optionalMap('automation')
+        && softDeleteMetadataValid();
     }
 
     function maintenanceShape(userId) {
@@ -186,7 +199,8 @@ service cloud.firestore {
         && isText('notes', 5000)
         && paymentStatusValid()
         && optionalNumberInRange('valorPago', 0, 10000000)
-        && optionalNumberInRange('saldoDevedor', 0, 10000000);
+        && optionalNumberInRange('saldoDevedor', 0, 10000000)
+        && softDeleteMetadataValid();
     }
 
     function warrantyShape(userId) {
@@ -212,7 +226,8 @@ service cloud.firestore {
         && isText('expiryDate', 40)
         && isText('clientPhone', 60)
         && isNumberInRange('warrantyNumber', 0, 1000000000)
-        && isText('createdAt', 40);
+        && isText('createdAt', 40)
+        && softDeleteMetadataValid();
     }
 
     function appointmentShape(userId) {
@@ -232,7 +247,8 @@ service cloud.firestore {
         && isText('serviceRequested', 5000)
         && optionalNumberInRange('value', 0, 10000000)
         && request.resource.data.completed is bool
-        && isText('createdAt', 40);
+        && isText('createdAt', 40)
+        && softDeleteMetadataValid();
     }
 
     function expenseShape(userId) {
@@ -250,7 +266,8 @@ service cloud.firestore {
         && isText('paymentMethod', 80)
         && isText('date', 40)
         && optionalText('note', 5000)
-        && isText('createdAt', 40);
+        && isText('createdAt', 40)
+        && softDeleteMetadataValid();
     }
 
     function productShape(userId, productId) {
@@ -272,7 +289,8 @@ service cloud.firestore {
         && isNumberInRange('salePrice', 0, 10000000)
         && optionalText('importedAt', 40)
         && optionalText('createdAt', 40)
-        && optionalText('updatedAt', 40);
+        && optionalText('updatedAt', 40)
+        && softDeleteMetadataValid();
     }
 
     function cashLaunchShape(userId) {
@@ -307,6 +325,11 @@ service cloud.firestore {
         && request.resource.data.items is list
         && request.resource.data.items.size() <= 200
         && isNumberInRange('merchandiseTotal', 0, 10000000)
+        // Prevent saving a finalized or pending O.S. without merchandise
+        && (
+          request.resource.data.status == 'Em Lancamento'
+          || (request.resource.data.items.size() > 0 && request.resource.data.merchandiseTotal > 0)
+        )
         && isNumberInRange('servicesTotal', 0, 10000000)
         && isNumberInRange('discountTotal', 0, 10000000)
         && optionalNumberInRange('orderDiscountValue', 0, 10000000)
@@ -318,7 +341,8 @@ service cloud.firestore {
         && optionalText('fiscalIssuedAt', 40)
         && optionalMap('manualFiscal')
         && isText('createdAt', 40)
-        && isText('updatedAt', 40);
+        && isText('updatedAt', 40)
+        && softDeleteMetadataValid();
     }
 
     function messageLogShape(userId) {
@@ -343,7 +367,8 @@ service cloud.firestore {
         && isText('message', 2000)
         && isText('createdAt', 40)
         && optionalText('sentAt', 40)
-        && optionalText('error', 1000);
+        && optionalText('error', 1000)
+        && softDeleteMetadataValid();
     }
 
     function operationalLogShape(userId) {
@@ -508,7 +533,10 @@ service cloud.firestore {
         'statusPagamento',
         'valorPago',
         'saldoDevedor',
-        'automation'
+        'automation',
+        'deletedAt',
+        'deletedBy',
+        'deletedReason'
       ];
     }
 
@@ -527,7 +555,10 @@ service cloud.firestore {
         'userId',
         'statusPagamento',
         'valorPago',
-        'saldoDevedor'
+        'saldoDevedor',
+        'deletedAt',
+        'deletedBy',
+        'deletedReason'
       ];
     }
 
@@ -543,7 +574,10 @@ service cloud.firestore {
         'clientPhone',
         'warrantyNumber',
         'userId',
-        'createdAt'
+        'createdAt',
+        'deletedAt',
+        'deletedBy',
+        'deletedReason'
       ];
     }
 
@@ -557,7 +591,10 @@ service cloud.firestore {
         'value',
         'completed',
         'createdAt',
-        'userId'
+        'userId',
+        'deletedAt',
+        'deletedBy',
+        'deletedReason'
       ];
     }
 
@@ -570,7 +607,10 @@ service cloud.firestore {
         'date',
         'note',
         'userId',
-        'createdAt'
+        'createdAt',
+        'deletedAt',
+        'deletedBy',
+        'deletedReason'
       ];
     }
 
@@ -586,7 +626,10 @@ service cloud.firestore {
         'importedAt',
         'userId',
         'createdAt',
-        'updatedAt'
+        'updatedAt',
+        'deletedAt',
+        'deletedBy',
+        'deletedReason'
       ];
     }
 
@@ -619,7 +662,10 @@ service cloud.firestore {
         'manualFiscal',
         'userId',
         'createdAt',
-        'updatedAt'
+        'updatedAt',
+        'deletedAt',
+        'deletedBy',
+        'deletedReason'
       ];
     }
 
@@ -640,7 +686,10 @@ service cloud.firestore {
         'createdAt',
         'sentAt',
         'error',
-        'userId'
+        'userId',
+        'deletedAt',
+        'deletedBy',
+        'deletedReason'
       ];
     }
 
