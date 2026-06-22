@@ -1,5 +1,5 @@
-const APP_SHELL_CACHE = 'motofix-app-shell-v1';
-const RUNTIME_CACHE = 'motofix-runtime-v1';
+const APP_SHELL_CACHE = 'motofix-app-shell-v2';
+const RUNTIME_CACHE = 'motofix-runtime-v2';
 const PRECACHE_URLS = [
   '/',
   '/index.html',
@@ -74,6 +74,19 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  const isViteDevelopmentRequest = (
+    url.pathname.startsWith('/src/')
+    || url.pathname.startsWith('/@vite/')
+    || url.pathname.startsWith('/@id/')
+    || url.pathname.startsWith('/@fs/')
+    || url.pathname.startsWith('/node_modules/.vite/')
+    || url.pathname === '/@react-refresh'
+    || url.pathname === '/__vite_ping'
+  );
+
+  // Nunca misture modulos transformados de execucoes diferentes do Vite.
+  if (isViteDevelopmentRequest) return;
 
   if (request.mode === 'navigate') {
     event.respondWith(networkFirst(request, '/index.html'));

@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import type { OfflineSyncStatus } from '../../hooks/useOfflineSyncStatus';
 import { APP_VERSION, DEFAULT_SERVICE_TYPES } from '../../constants/appDefaults';
+import { FailedWritesPanel } from './FailedWritesPanel';
 import { canonicalServiceType, getServiceTypeKey, normalizeServiceTypeOptions } from '../../lib/serviceTypes';
 import { cn } from '../../lib/utils';
 import type { ColorMode, OperationalLog, Settings, UserProfile } from '../../types';
@@ -45,6 +46,7 @@ type SettingsViewProps = {
   onExportMotorcyclesEmergencyCsv: () => void;
   onExportCashLaunchesEmergencyCsv: () => void;
   onExportWarrantiesEmergencyCsv: () => void;
+  onExportOperationalBackup: () => void;
   onImportClientsBackup: (file: File) => Promise<void> | void;
   isImportingClients: boolean;
   onExportProductsBackup: () => void;
@@ -52,6 +54,7 @@ type SettingsViewProps = {
   isImportingProducts: boolean;
   onResetOperationalData: () => Promise<boolean> | boolean;
   isResettingOperationalData: boolean;
+  onOpenCheckout: () => void;
   offlineSyncStatus: OfflineSyncStatus;
   operationalLogs: OperationalLog[];
 };
@@ -74,6 +77,7 @@ export const SettingsView = ({
   onExportMotorcyclesEmergencyCsv,
   onExportCashLaunchesEmergencyCsv,
   onExportWarrantiesEmergencyCsv,
+  onExportOperationalBackup,
   onImportClientsBackup,
   isImportingClients,
   onExportProductsBackup,
@@ -81,6 +85,7 @@ export const SettingsView = ({
   isImportingProducts,
   onResetOperationalData,
   isResettingOperationalData,
+  onOpenCheckout,
   offlineSyncStatus,
   operationalLogs,
 }: SettingsViewProps) => {
@@ -89,6 +94,7 @@ export const SettingsView = ({
   const [newWarrantyCategory, setNewWarrantyCategory] = useState('');
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetConfirmation, setResetConfirmation] = useState('');
+  const [resetBackupReady, setResetBackupReady] = useState(false);
   const clientImportInputRef = useRef<HTMLInputElement | null>(null);
   const productImportInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -205,10 +211,11 @@ export const SettingsView = ({
   };
 
   const handleResetOperationalData = async () => {
-    if (resetConfirmation !== 'ZERAR') return;
+    if (resetConfirmation !== 'ZERAR' || !resetBackupReady) return;
     const completed = await onResetOperationalData();
     if (completed) {
       setResetConfirmation('');
+      setResetBackupReady(false);
       setShowResetConfirm(false);
     }
   };
@@ -226,7 +233,6 @@ export const SettingsView = ({
             </div>
           )}
         </div>
-      </div>
 
       {userProfile?.role !== 'admin' && subscriptionExpiresAt && (
         <div
@@ -249,13 +255,22 @@ export const SettingsView = ({
             </div>
           </div>
           {subscriptionExpired && (
-            <button
-              type="button"
-              onClick={() => window.open('https://wa.me/5511999999999?text=Ola, gostaria de renovar minha assinatura do MotoFix', '_blank')}
-              className="bg-red-500 text-white px-4 py-2 rounded-lg font-bold hover:bg-red-600 transition-all text-xs"
-            >
-              Renovar
-            </button>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <button
+                type="button"
+                onClick={onOpenCheckout}
+                className="bg-primary text-white px-4 py-2 rounded-lg font-bold hover:bg-primary/90 transition-all text-xs"
+              >
+                Renovar agora
+              </button>
+              <button
+                type="button"
+                onClick={() => window.open('https://wa.me/5511999999999?text=Ola, gostaria de renovar minha assinatura do MotoFix', '_blank')}
+                className="bg-slate-800 text-slate-100 px-4 py-2 rounded-lg font-semibold hover:bg-slate-700 transition-all text-xs"
+              >
+                Ajuda via WhatsApp
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -393,7 +408,7 @@ export const SettingsView = ({
               {syncStatus.label}
             </div>
           </div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-8">
             <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
               <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Ultima sync</p>
               <p className="mt-1 text-xs font-bold text-white">{formatSyncDate(offlineSyncStatus.lastSyncedAt)}</p>
@@ -401,6 +416,14 @@ export const SettingsView = ({
             <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
               <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Pendencias</p>
               <p className="mt-1 text-xs font-bold text-white">{offlineSyncStatus.pendingWrites}</p>
+            </div>
+            <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Falhas na fila</p>
+              <p className="mt-1 text-xs font-bold text-white">{offlineSyncStatus.failedWrites}</p>
+            </div>
+            <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Confirmados</p>
+              <p className="mt-1 text-xs font-bold text-white">{offlineSyncStatus.confirmedWrites}</p>
             </div>
             <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
               <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Drafts locais</p>
@@ -411,11 +434,12 @@ export const SettingsView = ({
               <p className="mt-1 text-xs font-bold text-white">{formatSyncDate(offlineSyncStatus.lastQueuedAt)}</p>
             </div>
             <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
-              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Falhas</p>
-              <p className="mt-1 text-xs font-bold text-white" title={offlineSyncStatus.lastError || ''}>
-                {offlineSyncStatus.failureCount}
-              </p>
-              <p className="mt-1 truncate text-[9px] text-slate-500" title={offlineSyncStatus.lastError || ''}>{offlineSyncStatus.lastError || 'Nenhuma falha ativa'}</p>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Retries</p>
+              <p className="mt-1 text-xs font-bold text-white">{offlineSyncStatus.retryCount}</p>
+            </div>
+            <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
+              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Falhas locais</p>
+              <p className="mt-1 text-xs font-bold text-white">{offlineSyncStatus.persistenceFailureCount}</p>
             </div>
           </div>
           <div className="mt-3 rounded-lg border border-slate-700/60 bg-slate-950/35 p-3">
@@ -439,6 +463,7 @@ export const SettingsView = ({
               </div>
             )}
           </div>
+          <FailedWritesPanel />
         </div>
 
         {canResetOperationalData && (
@@ -460,7 +485,13 @@ export const SettingsView = ({
             </div>
             <button
               type="button"
-              onClick={() => setShowResetConfirm((current) => !current)}
+              onClick={() => setShowResetConfirm((current) => {
+                if (current) {
+                  setResetConfirmation('');
+                  setResetBackupReady(false);
+                }
+                return !current;
+              })}
               className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-red-500/30 bg-red-500/15 px-3 text-xs font-bold text-red-300 transition-all hover:bg-red-500/25"
             >
               <RotateCcw className="h-4 w-4" />
@@ -473,8 +504,19 @@ export const SettingsView = ({
               <div className="min-w-0 space-y-2">
                 <p className="text-xs text-slate-300">
                   {operationalDataCount} registro(s) operacional(is) visivel(is) serao removidos. Para confirmar,
-                  digite <strong className="text-red-300">ZERAR</strong>.
+                  gere o backup e digite <strong className="text-red-300">ZERAR</strong>.
                 </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onExportOperationalBackup();
+                    setResetBackupReady(true);
+                  }}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 text-xs font-bold text-amber-200 transition-all hover:bg-amber-500/20"
+                >
+                  <DatabaseBackup className="h-4 w-4" />
+                  {resetBackupReady ? 'Backup operacional gerado' : 'Gerar backup obrigatorio'}
+                </button>
                 <input
                   value={resetConfirmation}
                   onChange={(event) => setResetConfirmation(event.target.value.trim().toUpperCase())}
@@ -487,6 +529,7 @@ export const SettingsView = ({
                   type="button"
                   onClick={() => {
                     setResetConfirmation('');
+                    setResetBackupReady(false);
                     setShowResetConfirm(false);
                   }}
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-600 bg-slate-800 px-3 text-xs font-bold text-slate-200 transition-all hover:bg-slate-700"
@@ -496,7 +539,7 @@ export const SettingsView = ({
                 </button>
                 <button
                   type="button"
-                  disabled={resetConfirmation !== 'ZERAR' || isResettingOperationalData}
+                  disabled={resetConfirmation !== 'ZERAR' || !resetBackupReady || isResettingOperationalData}
                   onClick={() => void handleResetOperationalData()}
                   className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-red-500/40 bg-red-500 px-3 text-xs font-bold text-white transition-all hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -809,6 +852,7 @@ export const SettingsView = ({
           </span>
         </div>
       </div>
+    </div>
     </div>
   );
 };

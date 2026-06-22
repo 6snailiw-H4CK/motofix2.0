@@ -245,7 +245,12 @@ export const useClientActions = ({
         targetId: id,
       });
       onDeleted();
-      sonnerToast.success('Cliente e historico removidos com seguranca.');
+      sonnerToast.success('Cliente e historico movidos para a lixeira.', {
+        action: {
+          label: 'Desfazer',
+          onClick: () => void clientRepository.restoreWithMaintenances(user.uid, id),
+        },
+      });
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, 'clients');
       sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel excluir o cliente.');

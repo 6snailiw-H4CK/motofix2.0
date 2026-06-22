@@ -1,12 +1,14 @@
-import { collection, deleteDoc, doc, setDoc, writeBatch } from 'firebase/firestore';
+import { collection, doc, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { ProductCatalogFormInput, ProductCatalogItem } from '../types';
-import { queueFirestoreVoidWrite } from './firestoreOfflineQueue';
+import { createFirestoreReplayDescriptor, queueFirestoreVoidWrite } from './firestoreOfflineQueue';
+import { createRestoreMetadata, createSoftDeleteMetadata } from './softDelete';
 
 type ProductWriteData = Omit<ProductCatalogItem, 'id' | 'userId' | 'importedAt' | 'createdAt' | 'updatedAt'>;
 
 const productCollectionPath = (userId: string) => collection(db, 'users', userId, 'products');
 const productDocPath = (userId: string, productId: string) => doc(db, 'users', userId, 'products', productId);
+const productReplayPath = (userId: string, productId: string) => ['users', userId, 'products', productId];
 
 const normalizeDocId = (value: string) =>
   value
@@ -99,21 +101,37 @@ export const productRepository = {
     const id = productId || buildProductId(product.sourceCode, product.description, product.variation);
     const ref = productDocPath(userId, id);
 
+    const data = {
+      ...product,
+      id,
+      userId,
+      updatedAt: now,
+      ...(productId ? {} : { importedAt: now, createdAt: now }),
+    };
     await queueFirestoreVoidWrite(
-      () => setDoc(ref, {
-        ...product,
-        id,
-        userId,
-        updatedAt: now,
-        ...(productId ? {} : { importedAt: now, createdAt: now }),
-      }, { merge: true }),
-      'Salvar mercadoria'
+      () => setDoc(ref, data, { merge: true }),
+      'Salvar mercadoria',
+      createFirestoreReplayDescriptor('set', productReplayPath(userId, id), data, true)
     );
 
     return id;
   },
 
-  async delete(userId: string, productId: string) {
-    await queueFirestoreVoidWrite(() => deleteDoc(productDocPath(userId, productId)), 'Remover mercadoria');
+  async delete(userId: string, productId: string, reason?: string) {
+    const metadata = createSoftDeleteMetadata(userId, reason);
+    await queueFirestoreVoidWrite(
+      () => updateDoc(productDocPath(userId, productId), metadata),
+      'Arquivar mercadoria',
+      createFirestoreReplayDescriptor('update', productReplayPath(userId, productId), metadata)
+    );
+  },
+
+  async restore(userId: string, productId: string) {
+    const metadata = createRestoreMetadata();
+    await queueFirestoreVoidWrite(
+      () => updateDoc(productDocPath(userId, productId), metadata),
+      'Restaurar mercadoria',
+      createFirestoreReplayDescriptor('update', productReplayPath(userId, productId), metadata)
+    );
   },
 };

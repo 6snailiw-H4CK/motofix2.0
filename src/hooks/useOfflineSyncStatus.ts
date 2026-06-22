@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
+import { toast as sonnerToast } from 'sonner';
 import { db, waitForPendingWrites } from '../firebase';
 import {
   getFirestoreOfflineQueueState,
   getPendingWriteCheckpoint,
-  confirmPendingWriteCheckpoint,
+  confirmPendingWriteCheckpointRemotely,
+  FIRESTORE_OFFLINE_PERSISTENCE_ERROR_EVENT,
   subscribeFirestoreOfflineQueue,
   type FirestoreOfflineQueueState
 } from '../services/firestoreOfflineQueue';
@@ -13,11 +15,16 @@ export type OfflineSyncStatus = {
   isOnline: boolean;
   isSyncing: boolean;
   pendingWrites: number;
+  failedWrites: number;
+  confirmedWrites: number;
   localDraftCount: number;
   lastQueuedAt: string | null;
   lastSyncedAt: string | null;
   lastError: string | null;
   failureCount: number;
+  retryCount: number;
+  persistenceFailureCount: number;
+  lastPersistenceError: string | null;
 };
 
 const getIsOnline = () => (
@@ -49,17 +56,31 @@ export const useOfflineSyncStatus = (): OfflineSyncStatus => {
   useEffect(() => subscribeLocalDrafts(setLocalDraftCount), []);
 
   useEffect(() => {
+    const notifyPersistenceFailure = (event: Event) => {
+      const message = (event as CustomEvent<{ message?: string }>).detail?.message;
+      sonnerToast.error('Nao foi possivel guardar a fila offline neste navegador.', {
+        description: message || 'Mantenha esta aba aberta e verifique o armazenamento do navegador.',
+      });
+    };
+    window.addEventListener(FIRESTORE_OFFLINE_PERSISTENCE_ERROR_EVENT, notifyPersistenceFailure);
+    return () => window.removeEventListener(FIRESTORE_OFFLINE_PERSISTENCE_ERROR_EVENT, notifyPersistenceFailure);
+  }, []);
+
+  useEffect(() => {
     if (!isOnline) return;
 
     let isCurrent = true;
     const pendingWriteCheckpoint = getPendingWriteCheckpoint();
+    if (pendingWriteCheckpoint.length === 0) {
+      setIsSyncing(false);
+      return;
+    }
     setIsSyncing(true);
 
-    waitForPendingWrites(db)
-      .then(() => {
+    confirmPendingWriteCheckpointRemotely(pendingWriteCheckpoint, () => waitForPendingWrites(db))
+      .then((confirmed) => {
         if (!isCurrent) return;
-        confirmPendingWriteCheckpoint(pendingWriteCheckpoint);
-        setLastSyncedAt(new Date().toISOString());
+        if (confirmed) setLastSyncedAt(new Date().toISOString());
       })
       .catch((error) => {
         if (!isCurrent) return;
@@ -79,10 +100,15 @@ export const useOfflineSyncStatus = (): OfflineSyncStatus => {
     isOnline,
     isSyncing,
     pendingWrites: queueState.pendingWrites,
+    failedWrites: queueState.failedWrites,
+    confirmedWrites: queueState.confirmedWrites,
     localDraftCount,
     lastQueuedAt: queueState.lastQueuedAt,
     lastSyncedAt: queueState.lastSettledAt || lastSyncedAt,
     lastError: queueState.lastError,
     failureCount: queueState.failureCount,
+    retryCount: queueState.retryCount,
+    persistenceFailureCount: queueState.persistenceFailureCount,
+    lastPersistenceError: queueState.lastPersistenceError,
   };
 };

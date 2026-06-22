@@ -13,9 +13,6 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
-    server: {
-      hmr: false,
-    },
     build: {
       minify: lowMemoryBuild ? false : 'esbuild',
       cssMinify: lowMemoryBuild ? false : undefined,

@@ -1,35 +1,138 @@
-import { useState } from 'react';
+import { type FormEvent, useCallback, useMemo, useState } from 'react';
 import { ArrowLeft, Bell, Bike, CheckCircle } from 'lucide-react';
-import { User, signOut } from 'firebase/auth';
+import { signOut } from 'firebase/auth';
 import { toast as sonnerToast } from 'sonner';
 import { auth } from '../../firebase';
+import { createCheckoutSession, getStripePublishableKey } from '../../services/stripeService';
+import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
+import { loadStripe, type Stripe, type StripeElementsOptions } from '@stripe/stripe-js';
 
 type CheckoutScreenProps = {
-  user: User;
+  userId: string;
+  userEmail: string;
   onPaymentSuccess: () => void;
 };
 
-export const CheckoutScreen = ({ user, onPaymentSuccess }: CheckoutScreenProps) => {
+type CheckoutFormProps = {
+  onPaymentSuccess: () => void;
+  isConfirming: boolean;
+  setIsConfirming: (value: boolean) => void;
+  setErrorMessage: (value: string | null) => void;
+};
+
+const CheckoutForm = ({ onPaymentSuccess, isConfirming, setIsConfirming, setErrorMessage }: CheckoutFormProps) => {
+  const stripe = useStripe();
+  const elements = useElements();
+
+  const handleSubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+
+      if (!stripe || !elements) {
+        setErrorMessage('Stripe ainda não está pronto. Aguarde alguns segundos.');
+        return;
+      }
+
+      setIsConfirming(true);
+      setErrorMessage(null);
+
+      const result = await stripe.confirmPayment({
+        elements,
+        confirmParams: {
+          return_url: window.location.href,
+        },
+        redirect: 'if_required',
+      });
+
+      if (result.error) {
+        setErrorMessage(result.error.message ?? 'Erro ao confirmar pagamento.');
+      } else if (result.paymentIntent?.status === 'succeeded') {
+        onPaymentSuccess();
+      }
+
+      setIsConfirming(false);
+    },
+    [elements, onPaymentSuccess, setErrorMessage, setIsConfirming, stripe]
+  );
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="space-y-4 rounded-3xl border border-slate-700/50 bg-slate-900/60 p-6">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <Bell className="w-10 h-10 text-primary" />
+          <h3 className="text-xl font-bold text-white">Pagamento seguro</h3>
+          <p className="text-sm text-slate-400">Insira seus dados para ativar a assinatura.</p>
+        </div>
+
+        <div className="rounded-3xl bg-slate-950/80 p-4">
+          <PaymentElement />
+        </div>
+      </div>
+
+      <button
+        type="submit"
+        disabled={!stripe || !elements || isConfirming}
+        className="w-full px-4 py-3 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 disabled:from-slate-600 disabled:to-slate-600 text-white font-bold rounded-xl transition-all active:scale-95"
+      >
+        {isConfirming ? 'Confirmando...' : 'Confirmar pagamento'}
+      </button>
+    </form>
+  );
+};
+
+export const CheckoutScreen = ({ userId, userEmail, onPaymentSuccess }: CheckoutScreenProps) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showPaymentForm, setShowPaymentForm] = useState(false);
-  const [stripeLoaded, setStripeLoaded] = useState(false);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [stripePromise, setStripePromise] = useState<Promise<Stripe | null> | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isConfirming, setIsConfirming] = useState(false);
 
-  const handleCheckout = async () => {
+  const handleCheckout = useCallback(async () => {
     try {
       setIsProcessing(true);
+      setErrorMessage(null);
+
+      if (!userEmail) {
+        throw new Error('É necessário possuir um e-mail cadastrado para processar o pagamento.');
+      }
+
+      const [publishableKey, session] = await Promise.all([
+        getStripePublishableKey(),
+        createCheckoutSession({
+          userId,
+          userEmail,
+          priceId: import.meta.env.VITE_STRIPE_PRICE_ID || 'price_monthly_49_90',
+        }),
+      ]);
+
+      setStripePromise(loadStripe(publishableKey));
+      setClientSecret(session.clientSecret);
       setShowPaymentForm(true);
     } catch (error) {
       console.error('Erro ao iniciar checkout:', error);
-      sonnerToast.error('Erro ao processar pagamento');
+      sonnerToast.error('Erro ao processar pagamento. Verifique se o servidor Stripe está ativo.');
+      setErrorMessage('Não foi possível iniciar a sessão de pagamento.');
     } finally {
       setIsProcessing(false);
     }
-  };
+  }, [userEmail, userId]);
 
-  void user;
-  void onPaymentSuccess;
-  void stripeLoaded;
-  void setStripeLoaded;
+  const stripeOptions = useMemo<StripeElementsOptions | null>(() => {
+    if (!clientSecret) return null;
+    return {
+      clientSecret,
+      appearance: {
+        theme: 'night',
+        variables: {
+          colorPrimary: '#8b5cf6',
+          colorBackground: '#020617',
+          colorText: '#f8fafc',
+          colorDanger: '#ef4444',
+        },
+      },
+    };
+  }, [clientSecret]);
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-b from-black via-slate-900 to-black overflow-hidden">
@@ -44,7 +147,13 @@ export const CheckoutScreen = ({ user, onPaymentSuccess }: CheckoutScreenProps) 
       </div>
 
       <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 py-12">
-        <div className="max-w-md w-full space-y-8">
+        <div className="max-w-xl w-full space-y-8">
+          {errorMessage ? (
+            <div className="rounded-3xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
+              {errorMessage}
+            </div>
+          ) : null}
+
           {!showPaymentForm ? (
             <>
               <div className="space-y-6 text-center">

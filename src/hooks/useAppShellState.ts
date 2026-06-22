@@ -5,9 +5,10 @@ import type { ServiceListFilter } from './useMaintenanceStats';
 export type AppToastState = { message: string; type: 'success' | 'error' } | null;
 
 const getInitialColorMode = (): ColorMode => {
-  if (typeof window === 'undefined') return 'light';
+  // Default to dark mode unless the user explicitly saved 'light'
+  if (typeof window === 'undefined') return 'dark';
   const saved = window.localStorage.getItem('motofix-theme');
-  return saved === 'dark' ? 'dark' : 'light';
+  return saved === 'light' ? 'light' : 'dark';
 };
 
 export const useAppShellState = () => {
@@ -49,7 +50,8 @@ export const useAppShellState = () => {
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
-    document.documentElement.classList.toggle('retro', colorMode === 'light');
+    // Only toggle the `light` class for light mode. The `retro` stylesheet
+    // produces gray/alternative visuals and should be opt-in, not automatic.
     document.documentElement.classList.toggle('light', colorMode === 'light');
     try {
       window.localStorage.setItem('motofix-theme', colorMode);

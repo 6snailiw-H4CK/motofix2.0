@@ -1,4 +1,14 @@
-import type { CashRegisterLaunch, Client, Warranty } from '../types';
+import type {
+  Appointment,
+  CashRegisterLaunch,
+  Client,
+  ExpenseRecord,
+  FiscalInvoice,
+  FiscalLog,
+  MaintenanceRecord,
+  MessageLog,
+  Warranty,
+} from '../types';
 
 type CsvRow = Record<string, unknown>;
 
@@ -28,6 +38,34 @@ const downloadCsv = (filename: string, rows: CsvRow[]) => {
 };
 
 const backupDate = () => new Date().toISOString().slice(0, 10);
+
+type OperationalBackupData = {
+  appointments: Appointment[];
+  cashLaunches: CashRegisterLaunch[];
+  clients: Client[];
+  expenses: ExpenseRecord[];
+  fiscalInvoices: FiscalInvoice[];
+  fiscalLogs: FiscalLog[];
+  maintenances: MaintenanceRecord[];
+  messageLogs: MessageLog[];
+  warranties: Warranty[];
+};
+
+export const exportOperationalBackupJson = (data: OperationalBackupData) => {
+  const payload = JSON.stringify({
+    format: 'motofix-operational-backup',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    ...data,
+  }, null, 2);
+  const blob = new Blob([payload], { type: 'application/json;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `motofix-backup-operacional-${backupDate()}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+};
 
 export const exportClientsCsv = (clients: Client[]) => {
   downloadCsv(`motofix-clientes-${backupDate()}.csv`, clients.map((client) => ({

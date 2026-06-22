@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { 
   signOut
 } from 'firebase/auth';
@@ -24,6 +24,7 @@ import { useAppointmentActions } from './hooks/useAppointmentActions';
 import { useAuthProfile } from './hooks/useAuthProfile';
 import { useClientActions } from './hooks/useClientActions';
 import { useClientFormState } from './hooks/useClientFormState';
+import { useClientFlow } from './hooks/useClientFlow';
 import { useClientStatusSync } from './hooks/useClientStatusSync';
 import { useCashRegisterActions } from './hooks/useCashRegisterActions';
 import { useDeleteConfirmation } from './hooks/useDeleteConfirmation';
@@ -37,6 +38,7 @@ import { useOfflineSyncStatus } from './hooks/useOfflineSyncStatus';
 import { useProductActions } from './hooks/useProductActions';
 import { useServiceTypeActions } from './hooks/useServiceTypeActions';
 import { useSettingsActions } from './hooks/useSettingsActions';
+import { useSubscriptionStatus } from './hooks/useSubscriptionStatus';
 import { useSubscriptionExpiryGuard } from './hooks/useSubscriptionExpiryGuard';
 import { useUserCollections } from './hooks/useUserCollections';
 import { useWarrantyActions } from './hooks/useWarrantyActions';
@@ -105,17 +107,18 @@ export default function App() {
     isClientFormOpen: view === 'new-client',
     maintenances,
   });
+  const { handleClientSaved } = useClientFlow({
+    clientForm,
+    setIsNewService,
+    setView,
+    view,
+  });
   const serviceTypeActions = useServiceTypeActions({
     user,
     settings,
     setSettings,
     onSelectServiceType: clientForm.setServiceType,
   });
-  const handleClientSaved = useCallback(() => {
-    clientForm.resetAfterSave();
-    setIsNewService(false);
-    setView(view === 'clients-schedule-add' ? 'clients-schedule' : 'clients');
-  }, [clientForm.resetAfterSave, setIsNewService, setView, view]);
   const clientActions = useClientActions({
     user,
     clients,
@@ -207,6 +210,16 @@ export default function App() {
     serviceListFilter,
   });
 
+  const { isExpired, shouldBlock } = useSubscriptionStatus({ userProfile });
+
+  useEffect(() => {
+    if (isExpired && !shouldBlock && userProfile && userProfile.role !== 'admin') {
+      setView('checkout');
+    }
+  }, [isExpired, shouldBlock, setView, userProfile]);
+
+  const shouldBlockUser = shouldBlock;
+
   const {
     chartData,
     historyServiceTypeOptions,
@@ -225,7 +238,7 @@ export default function App() {
   if (loading) return <LoadingScreen />;
   if (!user) return <AuthScreen />;
 
-  if (userProfile && !userProfile.isActive) {
+  if (shouldBlockUser) {
     return <BlockedAccessScreen userId={user.uid} onSignOut={() => signOut(auth)} />;
   }
 

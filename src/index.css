@@ -238,6 +238,7 @@
   html.light .bg-slate-900\/35,
   html.light .bg-slate-900\/40,
   html.light .bg-slate-900\/50,
+  html.light .bg-slate-900\/55,
   html.light .bg-slate-900\/60,
   html.light .bg-slate-900\/70,
   html.light .bg-slate-900\/80,
@@ -246,6 +247,7 @@
   html.light .bg-slate-950\/30,
   html.light .bg-slate-950\/40,
   html.light .bg-slate-950\/50,
+  html.light .bg-slate-950\/55,
   html.light .bg-slate-950\/60,
   html.light .bg-slate-950\/70,
   html.light .bg-slate-950\/80,
@@ -256,9 +258,58 @@
   html.light .bg-slate-700\/40,
   html.light .bg-slate-700\/30,
   html.light .bg-white\/5 {
-    background-color: rgba(255, 255, 255, 0.96) !important;
+    background-color: #ffffff !important;
     border-color: rgba(226, 232, 240, 0.92) !important;
     box-shadow: 0 12px 26px rgba(15, 23, 42, 0.06);
+  }
+
+  html.light [class*="bg-slate-700"],
+  html.light [class*="bg-slate-800"],
+  html.light [class*="bg-slate-900"],
+  html.light [class*="bg-slate-950"] {
+    background-color: #ffffff !important;
+    border-color: rgba(226, 232, 240, 0.92) !important;
+    box-shadow: 0 12px 26px rgba(15, 23, 42, 0.06) !important;
+  }
+
+  /* Ensure elements that mix bg-* and text-* on the same element are readable in light mode */
+  html.light [class*="bg-slate-700"].text-white,
+  html.light [class*="bg-slate-800"].text-white,
+  html.light [class*="bg-slate-900"].text-white,
+  html.light [class*="bg-slate-950"].text-white,
+  html.light [class*="bg-slate-700"].text-slate-100,
+  html.light [class*="bg-slate-800"].text-slate-100,
+  html.light [class*="bg-slate-900"].text-slate-100,
+  html.light [class*="bg-slate-950"].text-slate-100,
+  html.light [class*="bg-slate-700"].text-slate-200,
+  html.light [class*="bg-slate-800"].text-slate-200,
+  html.light [class*="bg-slate-900"].text-slate-200,
+  html.light [class*="bg-slate-950"].text-slate-200 {
+    color: #0f172a !important;
+  }
+
+  /* Fallback: any explicit white text in light mode becomes dark for readability */
+  html.light .text-white {
+    color: #0f172a !important;
+  }
+
+  html.light [class*="bg-slate-700"] .text-white,
+  html.light [class*="bg-slate-800"] .text-white,
+  html.light [class*="bg-slate-900"] .text-white,
+  html.light [class*="bg-slate-950"] .text-white,
+  html.light [class*="bg-slate-700"] .text-slate-100,
+  html.light [class*="bg-slate-800"] .text-slate-100,
+  html.light [class*="bg-slate-900"] .text-slate-100,
+  html.light [class*="bg-slate-950"] .text-slate-100 {
+    color: #0f172a !important;
+  }
+
+  html.light .bg-slate-900\/55,
+  html.light .bg-slate-950\/50,
+  html.light .bg-slate-950\/55,
+  html.light .bg-slate-900\/40,
+  html.light .bg-slate-900\/50 {
+    color: #0f172a !important;
   }
 
   html.light [class~="bg-[#0b0f18]"],
@@ -322,6 +373,11 @@
   html.light .bg-slate-700\/40 .text-white,
   html.light .bg-slate-700\/30 .text-white,
   html.light .bg-white\/5 .text-white {
+    color: #0f172a !important;
+  }
+
+  html.light [class*="bg-"][class*="/5"] .text-white,
+  html.light [class*="bg-"][class*="/10"] .text-white {
     color: #0f172a !important;
   }
 

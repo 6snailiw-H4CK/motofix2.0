@@ -58,7 +58,7 @@ const installBrowserEnvironment = (online: boolean) => {
   return fakeWindow;
 };
 
-installBrowserEnvironment(false);
+const queueListenerWindow = installBrowserEnvironment(false);
 
 const drafts = await import('../src/services/localDrafts.ts');
 const queue = await import('../src/services/firestoreOfflineQueue.ts');
@@ -112,9 +112,58 @@ assert.equal(failedState.pendingWrites, 0, 'falha nao pode ficar presa como pend
 assert.ok(failedState.failureCount >= 1, 'deve contabilizar falha de sincronizacao');
 assert.match(failedState.lastError || '', /permission-denied simulado/, 'deve preservar mensagem da falha');
 
+const replayableWrite = deferred();
+const replayablePromise = queue.queueFirestoreVoidWrite(
+  () => replayableWrite.promise,
+  'Teste retry seguro',
+  queue.createFirestoreReplayDescriptor(
+    'set',
+    ['users', 'test-user', 'warranties', 'test-warranty'],
+    { userId: 'test-user', clientName: 'Cliente de teste' }
+  )
+);
+replayableWrite.reject(new Error('falha corrigivel simulada'));
+await assert.rejects(replayablePromise, /falha corrigivel simulada/);
+await delay(10);
+assert.equal(
+  queue.getFailedWrites().find((write) => write.context === 'Teste retry seguro')?.canRetry,
+  true,
+  'deve identificar descritor persistido como retry seguro'
+);
+
+installBrowserEnvironment(false);
+let offlineWaitWasCalled = false;
+const confirmedWhileOffline = await queue.confirmPendingWriteCheckpointRemotely(
+  ['checkpoint-offline'],
+  async () => { offlineWaitWasCalled = true; }
+);
+assert.equal(confirmedWhileOffline, false, 'nao deve sinalizar confirmacao remota sem conexao');
+assert.equal(offlineWaitWasCalled, false, 'nao deve iniciar espera remota quando o navegador esta offline');
+
+installBrowserEnvironment(true);
+const beforeExternalWrite = JSON.parse(sharedStorageValues.get('motofix:firestore-offline-queue-state') || '{}');
+beforeExternalWrite.writes = Array.isArray(beforeExternalWrite.writes) ? beforeExternalWrite.writes : [];
+beforeExternalWrite.writes.push({
+  id: 'external-tab-write',
+  context: 'Escrita de outra aba',
+  queuedAt: new Date().toISOString(),
+  status: 'pending',
+  lastUpdatedAt: new Date().toISOString(),
+  retryCount: 0,
+});
+sharedStorageValues.set('motofix:firestore-offline-queue-state', JSON.stringify(beforeExternalWrite));
+const storageEvent = new Event('storage');
+Object.defineProperty(storageEvent, 'key', { value: 'motofix:firestore-offline-queue-state' });
+queueListenerWindow.dispatchEvent(storageEvent);
+assert.ok(
+  queue.getPendingWriteCheckpoint().includes('external-tab-write'),
+  'deve reaplicar a fila quando outra aba altera o localStorage'
+);
+queue.confirmPendingWriteCheckpoint(['external-tab-write']);
+
 drafts.clearLocalDraft('test:cash');
 drafts.clearLocalDraft('test:expense');
 drafts.clearLocalDraft('test:warranty');
 assert.equal(drafts.getLocalDraftCount(), 0, 'deve limpar drafts apos conclusao segura');
 
-console.log('Offline resilience tests passed: 7 scenarios.');
+console.log('Offline resilience tests passed: 10 scenarios.');
