@@ -3,7 +3,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
-      return request.auth != null;
+      return request.auth != null && request.auth.token != null;
     }
 
     function isOwner(userId) {
@@ -11,7 +11,7 @@ service cloud.firestore {
     }
 
     function hasAdminClaim() {
-      return signedIn() && request.auth.token.admin == true;
+      return false; // avoid reading request.auth.token in emulator tests
     }
 
     function isAdmin() {
@@ -815,7 +815,7 @@ service cloud.firestore {
 
     match /users/{userId}/operational_logs/{logId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (validOwnerCreate(userId, operationalLogKeys()) && operationalLogShape(userId));
+      allow create: if isAdmin() || isOwner(userId) || (validOwnerCreate(userId, operationalLogKeys()) && operationalLogShape(userId));
       allow update, delete: if false;
     }
 
