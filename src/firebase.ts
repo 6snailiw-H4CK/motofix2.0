@@ -22,9 +22,7 @@ import {
 } from 'firebase/firestore';
 
 // Pega as configurações do arquivo .env ou do ambiente de build
-const env = typeof import.meta !== 'undefined' && 'env' in import.meta
-  ? (import.meta as any).env
-  : process.env as Record<string, string | undefined>;
+const env = import.meta.env as Record<string, string | undefined>;
 
 const firebaseConfig = {
   apiKey: env.VITE_FIREBASE_API_KEY,

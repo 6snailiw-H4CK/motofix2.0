@@ -1,0 +1,932 @@
+ CEREBRO.md - Contexto Supremo MotoFix 2.0
+
+**Última atualização:** Junho 2026  
+**Versão:** 2.1.0  
+**Status:** Estável com pontos críticos a resolver  
+
+---
+
+## 1. VISÃO GERAL
+
+**O que é:** MotoFix 2.0 é um sistema de gestão para oficinas de motocicletas que resolve o problema de:
+- Rastreamento de manutenções preventivas (óleo, pneus, revisão, freios)
+- Agendamento automático de próximas manutenções baseado em recorrência
+- Gestão de clientes com histórico de serviços
+- Monitoramento de pagamentos pendentes (statusPagamento: Pago/Pendente/Parcial)
+- Integração com pagamentos (Stripe) para assinatura mensal R$ 49,90
+- Emissão de garantias em PDF
+- Relatórios financeiros (receita mensal, despesas, serviços recorrentes)
+- Sincronização offline com fila de replicação quando reconecta
+- Integração WhatsApp para lembretes de manutenção
+- Integração fiscal (NFe/NFCe via Focus)
+
+**Modelo de negócio:** SaaS com autenticação via Google, assinatura obrigatória, roles (admin/usuário comum), controle de ativação de conta.
+
+**Público-alvo:** Mecânicos e gerentes de oficinas pequenas/médias que precisam de ferramenta simples sem complicações de SQL.
+
+---
+
+## 2. TECH STACK
+
+### Frontend
+
+| Tecnologia | Versão | Função |
+|---|---|---|
+| React | 19.0.0 | Framework UI |
+| TypeScript | 5.8.2 | Linguagem tipada |
+| Vite | 6.2.0 | Build tool (HMR desabilitado) |
+| Tailwind CSS | 4.1.14 | Estilos com @tailwindcss/vite plugin |
+| Lucide React | 0.546.0 | Ícones vetoriais |
+| Recharts | 3.8.0 | Gráficos (chunked separadamente em vendor) |
+| Motion | 12.23.24 | Animações e transições |
+| date-fns | 4.1.0 | Manipulação de datas |
+| Sonner | 2.0.7 | Toast notifications |
+| jsPDF | 4.2.1 | Geração de PDF |
+| html2canvas | 1.4.1 | Conversão HTML → Canvas → PDF |
+| qrcode | 1.5.4 | Geração de QR codes |
+| axios | 1.14.0 | HTTP client (requisições) |
+| clsx | 2.1.1 | Composição condicional de classes |
+| tailwind-merge | 3.5.0 | Merge de Tailwind classes com precedência |
+
+**Configuração TypeScript:**
+- Target: ES2022
+- JSX: react-jsx
+- Module: ESNext
+- `allowImportingTsExtensions: true` (import .ts direto)
+- Decorators experimentais ativados
+
+**Build Chunking Estratégico:**
+```javascript
+// vendor-react, vendor-firebase, vendor-charts (Recharts), 
+// vendor-jspdf, vendor-html2canvas, vendor-stripe, vendor-date-fns, vendor-lucide
+
+Backend
+Tecnologia	Versão	Função
+Node.js	^20.x	Runtime
+Express	4.22.2	Framework HTTP
+TypeScript/tsx	4.21.0	Execução TS em dev
+esbuild	0.27.4	Build sem minificação (low-memory mode)
+Firebase Admin SDK	13.10.0	Gerenciamento de usuários, auth, webhooks
+Stripe	22.0.0	Processamento de pagamentos
+@open-wa/wa-automate (patched)	4.76.0	Integração WhatsApp
+Persistência & Autenticação
+Serviço	Função
+Firebase Authentication	Login via Google OAuth, gerenciar tokens
+Firestore	Banco de dados NoSQL em tempo real
+Firestore Cache Offline	IndexedDB persistente com estratégia network-first
+Service Worker (sw.js)	Sync em background, cache offline
+localStorage	Fila de operações offline, drafts, preferências
+APIs Externas
+API	Função	Status
+Google OAuth	Autenticação	✅ Integrado
+Stripe Payments	Checkout e webhooks	⚠️ Backend OK, Frontend placeholder
+Focus NFe	Emissão de NF-e/NFC-e	✅ Integrado
+WhatsApp Web (Automate)	Lembretes automáticos	✅ Manual (wa.me link)
+Build Output
+Frontend: dist (servido via Firebase Hosting)
+Backend: server.js (Node.js puro, não hosteado)
+Config: firebase.json, tsconfig.json, vite.config.ts
+
+3. ESTRUTURA DE DIRETÓRIOS
+e:\app motofix\motofix2.0/
+│
+├── package.json                    # Dependências, scripts
+├── tsconfig.json                   # Config TypeScript
+├── vite.config.ts                  # Config Vite + plugins
+├── firebase.json                   # Config Firebase Hosting
+├── firestore.rules                 # Regras de segurança Firestore
+├── firestore.indexes.json          # Índices compostos
+├── server.ts                       # Entry point backend
+│
+├── public/
+│   ├── sw.js                       # Service Worker (network-first)
+│   ├── manifest.json               # PWA manifest
+│   ├── motofix-logo.svg            # Logo
+│   ├── robots.txt
+│   └── favicon.ico
+│
+├── src/
+│   ├── main.tsx                    # Entry point React + ReactDOM.createRoot
+│   ├── App.tsx                     # ⚠️ GIGANTE (5000+ linhas)
+│   │                                 # - Orquestrador estado global
+│   │                                 # - Define views principais
+│   │                                 # - Handlers de negócio
+│   │                                 # - Context provider implícito
+│   ├── firebase.ts                 # Inicialização Firebase + módulos
+│   ├── types.ts                    # 500+ linhas de interfaces TypeScript
+│   │                                 # - Client, MaintenanceRecord, Warranty
+│   │                                 # - CashRegisterLaunch, OperationalLog
+│   │                                 # - AppSettings, MessageLog
+│   ├── index.css                   # Global Tailwind + custom styles
+│   │
+│   ├── lib/
+│   │   ├── maintenanceStatus.ts    # getMaintenanceStatus(date) → OK|WARNING|OVERDUE
+│   │   ├── serviceTypes.ts         # Normalização de tipos de serviço
+│   │   │                              # - getServiceTypeKey('Troca de Óleo') → 'troca de oleo'
+│   │   │                              # - canonicalServiceType()
+│   │   │                              # - repairMojibake() para UTF-8 corrompido
+│   │   ├── money.ts                # parseBrazilianCurrency()
+│   │   │                              # - Suporta "R$ 1.234,56" e "1,234.56"
+│   │   └── utils.ts                # Utilitários gerais
+│   │
+│   ├── constants/
+│   │   └── appDefaults.ts          # APP_VERSION 2.1.0
+│   │                                 # DEFAULT_SERVICE_TYPES array
+│   │                                 # DEFAULT_SETTINGS
+│   │
+│   ├── services/
+│   │   ├── clientRepository.ts     # CRUD clientes
+│   │   │                              # - create, update, delete
+│   │   │                              # - removeWithMaintenances (batch delete com limit 450)
+│   │   │                              # - listeners (real-time)
+│   │   ├── maintenanceRepository.ts # CRUD manutenções
+│   │   ├── warrantyRepository.ts   # CRUD garantias + geração PDF
+│   │   ├── appointmentRepository.ts # CRUD agendamentos
+│   │   ├── expenseRepository.ts    # CRUD despesas
+│   │   ├── productRepository.ts    # CRUD catálogo de produtos
+│   │   ├── cashRegisterRepository.ts # CRUD lançamentos de caixa
+│   │   ├── settingsRepository.ts   # CRUD configurações + tipos serviço
+│   │   ├── userRepository.ts       # Update perfil, update assinatura
+│   │   ├── messageLogRepository.ts # Logs de WhatsApp/email
+│   │   ├── operationalLogRepository.ts # Logs de auditoria (cliente_criado, cliente_removido, etc)
+│   │   ├── firestoreOfflineQueue.ts # Fila offline com localStorage
+│   │   │                              # - queueFirestoreVoidWrite()
+│   │   │                              # - LocalWriteQueue persistida
+│   │   ├── firestoreError.ts       # Padronização de erros
+│   │   │                              # - OperationType enum
+│   │   │                              # - getErrorAction()
+│   │   ├── clientSaveService.ts    # Lógica complexa salvar cliente+manutenção
+│   │   ├── alertService.ts         # WhatsApp/email com templates
+│   │   ├── stripeService.ts        # createCheckoutSession, verificar pagamento
+│   │   ├── fiscalApi.ts            # Integração Focus NFe
+│   │   ├── operationalDataResetApi.ts # Reset de dados operacionais
+│   │   ├── localDrafts.ts          # Salvamento local de formulários
+│   │   ├── emergencyBackup.ts      # Backup CSV clientes/OS/garantias
+│   │   ├── warrantyPdfGuard.ts     # Proteção de geradores PDF
+│   │   └── clientSpreadsheet.ts    # Exportação para planilha
+│   │
+│   ├── hooks/
+│   │   ├── useAuthProfile.ts       # Auth + carrega perfil usuário
+│   │   │                              # - getCurrentUser(), getUserProfile()
+│   │   ├── useUserCollections.ts   # Listeners Firestore (clients, maintenances, etc)
+│   │   │                              # - Real-time updates
+│   │   │                              # - Derivações calculadas
+│   │   ├── useAppShellState.ts     # Estado UI (view, toast, theme, search)
+│   │   ├── useMaintenanceStats.ts  # Cálculos dashboard (receita, recorrência)
+│   │   ├── useClientActions.ts     # saveClient, deleteClient
+│   │   ├── useClientFormState.ts   # Estado formulário cliente (draft)
+│   │   ├── useClientStatusSync.ts  # Sincroniza status manutenção
+│   │   ├── useMaintenanceActions.ts # updateMaintenance, markAsPaid
+│   │   ├── useWarrantyActions.ts   # saveWarranty, generateWarrantyPdf
+│   │   ├── useAppointmentActions.ts # Ações de agenda
+│   │   ├── useExpenseActions.ts    # Ações de despesa
+│   │   ├── useProductActions.ts    # Ações de produto
+│   │   ├── useCashRegisterActions.ts # Ações de caixa
+│   │   ├── useServiceTypeActions.ts # Criar tipo serviço rápido
+│   │   ├── useWhatsAppReminderActions.ts # sendReminder (wa.me link)
+│   │   ├── useMessageLogActions.ts # Logs de mensagens
+│   │   ├── useFiscalActions.ts     # Ações fiscais (NFe)
+│   │   ├── useAdminActions.ts      # toggleUserStatus, updateSubscription
+│   │   ├── useSubscriptionExpiryGuard.ts # Bloqueia user se assinatura expirou
+│   │   ├── useOfflineSyncStatus.ts # Monitora sincronização offline
+│   │   ├── useNotifications.ts     # Push notifications
+│   │   ├── useAppDerivedData.ts    # Dados calculados (métricas)
+│   │   └── useDeleteConfirmation.ts # Modal confirmação exclusão
+│   │
+│   ├── components/
+│   │   ├── layout/
+│   │   │   ├── AppShell.tsx        # Container principal
+│   │   │   ├── AppHeader.tsx       # Header com notificações
+│   │   │   ├── AppViewRenderer.tsx # Renderiza view selecionada
+│   │   │   ├── BottomNav.tsx       # Navegação móvel 5 abas
+│   │   │   ├── SidebarNav.tsx      # Sidebar desktop com mais opções
+│   │   │   ├── TopBar.tsx          # Barra superior desktop
+│   │   │   ├── OfflineSyncPill.tsx # Badge sincronização status
+│   │   │   ├── ErrorBoundary.tsx   # Captura erros React
+│   │   │   └── LoadingScreen.tsx   # Splash screen inicial
+│   │   │
+│   │   ├── auth/
+│   │   │   ├── AuthScreen.tsx      # Login via Google OAuth
+│   │   │   └── BlockedAccessScreen.tsx # Usuário inativo/bloqueado
+│   │   │
+│   │   ├── dashboard/
+│   │   │   ├── DashboardView.tsx   # View principal com métricas
+│   │   │   ├── DashboardDetailViews.tsx # Subviews (revenue, recurring, services)
+│   │   │   ├── DashboardMetricsGrid.tsx # Grid de cards com números
+│   │   │   └── ReportView.tsx      # Relatório mensal filtrável
+│   │   │
+│   │   ├── clients/
+│   │   │   ├── ClientsView.tsx     # Lista clientes + histórico
+│   │   │   ├── ClientForm.tsx      # Formulário cadastro/edição
+│   │   │   ├── ClientsScheduleView.tsx # Fichas de cliente (cards)
+│   │   │   └── ClientScheduleForm.tsx # Formulário ficha
+│   │   │
+│   │   ├── cash/
+│   │   │   └── CashRegisterView.tsx # Lançamentos caixa
+│   │   │
+│   │   ├── products/
+│   │   │   └── ProductsView.tsx    # Catálogo produtos
+│   │   │
+│   │   ├── returns/
+│   │   │   └── ReturnsView.tsx     # Retornos e recorrência
+│   │   │
+│   │   ├── pendencies/
+│   │   │   └── PendenciesView.tsx  # Clientes com saldo devedor
+│   │   │
+│   │   ├── history/
+│   │   │   └── HistoryView.tsx     # Histórico transações
+│   │   │
+│   │   ├── reports/
+│   │   │   └── GeneralReportView.tsx # Relatório geral com filtros
+│   │   │
+│   │   ├── appointments/
+│   │   │   └── AppointmentsView.tsx # Agenda com calendário
+│   │   │
+│   │   ├── warranties/
+│   │   │   └── WarrantiesView.tsx  # Garantias, gerar PDF
+│   │   │
+│   │   ├── expenses/
+│   │   │   └── ExpensesView.tsx    # Despesas com gráfico por método
+│   │   │
+│   │   ├── fiscal/
+│   │   │   └── FiscalView.tsx      # Integração Focus NFe
+│   │   │
+│   │   ├── whatsapp/
+│   │   │   └── WhatsAppView.tsx    # Gerenciamento WhatsApp
+│   │   │
+│   │   ├── admin/
+│   │   │   └── AdminView.tsx       # Painel admin (ativar/bloquear usuários)
+│   │   │
+│   │   ├── settings/
+│   │   │   ├── SettingsView.tsx    # Configurações gerais
+│   │   │   └── ProfileSetupModal.tsx # Modal setup inicial
+│   │   │
+│   │   ├── checkout/
+│   │   │   └── CheckoutScreen.tsx  # ⚠️ PLACEHOLDER (sem integração Stripe)
+│   │   │
+│   │   ├── feedback/
+│   │   │   └── Toast.tsx           # Componente toast (Sonner)
+│   │   │
+│   │   ├── Forms/
+│   │   │   └── (Formulários especializados)
+│   │   │
+│   │   └── OilSelector.tsx         # Seletor de tipo de óleo
+│   │
+│   ├── modules/
+│   │   └── whatsapp/              # Módulo WhatsApp
+│   │
+│   └── storage/                    # Armazenamento local
+│
+├── server/
+│   ├── server.ts                   # Express + Stripe + Firebase Admin
+│   │                                 # - Rotas de saúde
+│   │                                 # - Webhook Stripe
+│   │                                 # - Middleware CORS, rate limit, security headers
+│   │
+│   ├── httpSecurity.ts             # Middleware segurança
+│   │                                 # - Rate limiting (300 req/min global, customizado por rota)
+│   │                                 # - CORS
+│   │                                 # - Security headers
+│   │
+│   ├── dataResetRoutes.ts          # Rotas reset de dados operacionais
+│   │
+│   ├── fiscal/
+│   │   ├── fiscalRoutes.ts        # Rotas NFe/NFCe
+│   │   ├── fiscalStore.ts         # Gerenciador estado fiscal
+│   │   ├── focusClient.ts         # Cliente Focus NFe
+│   │   └── types.ts               # Tipos fiscais
+│   │
+│   └── whatsapp/
+│       ├── whatsappRoutes.ts      # Rotas WhatsApp
+│       ├── WhatsAppSessionService.ts # Gerenciador sessão
+│       ├── whatsappStore.ts       # Armazenamento estado
+│       ├── WhatsAppAiService.ts   # IA para WhatsApp
+│       └── types.ts               # Tipos WhatsApp
+│
+├── scripts/
+│   ├── build.mjs                   # Build script customizado
+│   └── generate-client-removal-test-user.js # Teste
+│
+├── storage/                        # Armazenamento local dados
+│
+├── dist/                           # Output Vite (frontend)
+│
+├── dist-server/                    # Output esbuild (backend)
+│
+├── backups/                        # Snapshots versões anteriores
+│
+└── backup-current/                 # Backup anterior do projeto
+
+4. REGRAS DE NEGÓCIO E LÓGICA
+4.1 Fluxo Principal: Cliente + Manutenção
+ENTRADA: salvarCliente({
+  name, bikeModel, oilType, contact,
+  serviceType, serviceValue, recurrenceDays, 
+  shouldCreateMaintenance: boolean
+})
+
+PROCESSAMENTO:
+  1. clientRepository.create/update(cliente)
+     └─ Cria documento em users/{uid}/clients/{clientId}
+     └─ statusPagamento: 'Pendente' (padrão)
+     └─ automation: { lastSendAt: null, recurrenceDays }
+
+  2. SE shouldCreateMaintenance:
+     └─ maintenanceRepository.create({
+         clientId, serviceType, serviceValue, 
+         date: now(), isRecurringRevenue: true
+       })
+     └─ Cria em users/{uid}/maintenances/{maintId}
+
+  3. calcularProximaManutenção:
+     └─ nextMaintenanceDate = lastDate + recurrenceDays dias
+     └─ Atualizar client.nextMaintenanceDate
+
+  4. calcularStatusManutenção:
+     └─ daysUntil = diffInDays(nextMaintenanceDate, now)
+     └─ SE daysUntil < 0 → status = 'OVERDUE'
+     └─ SE daysUntil ≤ 3 → status = 'WARNING'
+     └─ SE daysUntil > 3 → status = 'OK'
+
+  5. Sincronizar Firestore:
+     └─ queueFirestoreVoidWrite(escrita)
+     └─ SE confirmação em 1.2s: sucesso
+     └─ SE timeout: enfileirada em localStorage
+
+SAÍDA: recordOperationalLog({
+  timestamp: now(),
+  usuario: userProfile.email,
+  acao: 'cliente_criado',
+  resultado: 'sucesso' | 'salvo_offline'
+})
+
+4.2 Fluxo Offline: Fila de Sincronização
+QUANDO: Usuário faz CRUD offline (sem internet)
+
+PROCESSAMENTO:
+  1. queueFirestoreVoidWrite(operação)
+     └─ Tenta escrever no Firestore
+     └─ Se falhar em 1.2s, assume operação offline
+
+  2. Adiciona à LocalWriteQueue (localStorage chave: 'localWriteQueue')
+     └─ Salva estrutura: { type, data, timestamp, userId }
+
+  3. Atualiza UI:
+     └─ setPendingWrites++
+     └─ setOfflineSyncStatus('pending')
+     └─ OfflineSyncPill mostra estado
+
+  4. Service Worker monitora reconexão:
+     └─ Se navigator.onLine volta true
+     └─ Sync em background
+
+  5. Ao reconectar:
+     └─ Firestore sincroniza automaticamente
+     └─ LocalWriteQueue processa fila pendente
+     └─ setPendingWrites--
+     └─ Toast com resultado
+
+IMPORTANTE:
+  - localStorage persiste mesmo após fechar browser
+  - Primeira abertura REQUER internet (download inicial)
+  - Offline após primeiro login funciona perfeitamente
+
+  4.3 Fluxo Exclusão de Cliente (Cascade)
+ENTRADA: deleteClient(clientId, userId)
+
+PROCESSAMENTO:
+  1. clientRepository.removeWithMaintenances(clientId)
+     └─ query maintenances WHERE clientId == X
+     └─ LOOP cada manutenção (limite 450 ops/batch):
+        └─ batch.delete(maintenanceRef)
+     └─ batch.delete(clientRef)
+     └─ batch.commit() via queueFirestoreVoidWrite
+
+  2. Após sucesso:
+     └─ recordOperationalLog({
+         acao: 'cliente_removido',
+         targetId: clientId,
+         resultado: 'sucesso'
+       })
+
+  3. Atualiza dashboard:
+     └─ removeCliente do estado local
+     └─ Recalcula métricas
+     └─ Toast confirmação
+
+COMPORTAMENTO OFFLINE:
+  - Operação enfileirada em localStorage
+  - Sincroniza quando conectar
+  - Garante atomicidade (tudo ou nada)
+
+  4.4 Fluxo Manutenção: Status e Pagamento
+STATUS MANUTENÇÃO (sequência):
+  1. 'OK'       → Próxima manutenção > 3 dias
+  2. 'WARNING'  → Próxima manutenção ≤ 3 dias
+  3. 'OVERDUE'  → Próxima manutenção passou (negativo)
+
+STATUS PAGAMENTO:
+  1. 'Pendente' (padrão ao criar)
+  2. 'Parcial'  (valorPago > 0 && valorPago < serviceValue)
+  3. 'Pago'     (valorPago ≥ serviceValue)
+
+CAMPOS:
+  ├─ serviceValue     (valor original do serviço)
+  ├─ valorPago        (quanto já foi pago)
+  ├─ saldoDevedor     (serviceValue - valorPago, calculado)
+  └─ statusPagamento  (enum: 'Pago', 'Pendente', 'Parcial')
+
+ATUALIZAR PAGAMENTO:
+  maintenanceRepository.updatePayment(maintId, valorPago)
+    ├─ Atualiza maintenance.valorPago
+    ├─ Recalcula saldoDevedor
+    ├─ Atualiza statusPagamento baseado em lógica
+    └─ Integra no dashboard (receita total, saldo pendente)
+
+    4.5 Fluxo Autenticação e Autorização
+    LOGIN (Google OAuth):
+  1. FirebaseAuth.signInWithPopup(googleProvider)
+  2. Retorna user.uid, user.email
+  3. Backend verifica custom claims:
+     └─ SE admin: true → Acesso completo
+     └─ SE não admin → Acesso restrito
+
+USUÁRIO COMUM (Fluxo SaaS):
+  1. Primeiro cadastro → isActive: false (bloqueado por padrão)
+  2. Completar pagamento Stripe
+  3. Webhook payment_intent.succeeded:
+     └─ admin.auth().setCustomUserClaims(uid, { admin: true })
+     └─ userRepository.update(uid, { isActive: true })
+  4. Acesso liberado à app
+
+AUTORIZAÇÃO (Firestore Rules):
+  function signedIn() {
+    return request.auth != null
+  }
+  
+  function isOwner(userId) {
+    return signedIn() && request.auth.uid == userId
+  }
+  
+  function isActiveOwner(userId) {
+    return isOwner(userId) && resource.data.isActive == true
+  }
+
+  LEITURA: match /users/{uid}/{document=**} {
+    allow read: if isOwner(uid)
+  }
+  
+  ESCRITA: match /users/{uid}/{document=**} {
+    allow write: if isOwner(uid) && isActiveOwner(uid)
+  }
+
+ADMIN (Hardcoded):
+  - 6snailiw@gmail.com
+  - emailgithubb@gmail.com
+  └─ Recebem admin: true na criação
+  └─ Podem ver/editar qualquer usuário
+
+  4.6 Fluxo WhatsApp: Lembretes Automáticos
+ENTRADA: sendReminder(client)
+
+PROCESSAMENTO:
+  1. validarTelefone(client.contact)
+     └─ Formato brasileiro: (XX) XXXXX-XXXX
+     └─ Formatar para wa.me: 55XXXXXXXXXXXX
+
+  2. montarMensagem(client)
+     └─ Template: "Olá {client.name}, seu {bikeModel} está vencido para manutenção!"
+     └─ Incluir data recomendada
+
+  3. Abrir wa.me link (manual):
+     └─ window.open(`https://wa.me/${telefone}?text=${mensagem}`)
+     └─ Usuário confirma e envia manualmente
+
+  4. Registrar log:
+     └─ messageLogRepository.create({
+         clientId, type: 'whatsapp',
+         status: 'pending' → 'opened_whatsapp' (manual)
+       })
+
+  5. Atualizar cliente:
+     └─ client.automation.lastSendAt = now()
+     └─ client.automation.lastSendStatus = 'enviado'
+
+NOTA: Sistema atual é SEMI-AUTOMÁTICO (abre link, usuário confirma).
+      Integração API WhatsApp futura permitiria envio 100% automático.
+
+      4.7 Fluxo Pagamento Stripe (CRÍTICO: INCOMPLETO)
+      FRONTEND → BACKEND (Iniciação):
+  1. CheckoutScreen.handleCheckout()
+     └─ getUserProfile() → uid, email
+     └─ stripeService.createCheckoutSession(uid, email, priceId)
+
+  2. POST /api/payments/create-checkout
+     └─ Recebe: { userId, email, priceId, firebaseToken }
+     └─ Backend verifica token Firebase
+     └─ stripe.checkout.sessions.create({
+         customer_email: email,
+         line_items: [{ price: priceId, quantity: 1 }],
+         mode: 'subscription',
+         payment_method_types: ['card'],
+         success_url: 'http://localhost:3001/?checkout=success',
+         cancel_url: 'http://localhost:3001/?checkout=cancel'
+       })
+
+  3. Retorna { sessionId }
+
+  4. stripe.redirectToCheckout({ sessionId })
+     └─ Redireciona para Stripe Checkout Page
+
+WEBHOOK (Confirmação):
+  1. POST /api/payments/webhook (Stripe signature verification)
+     └─ event.type == 'payment_intent.succeeded'
+     └─ Extrai userId do metadata
+
+  2. Backend:
+     └─ admin.auth().setCustomUserClaims(uid, { admin: true })
+     └─ admin.firestore().collection('users').doc(uid).update({
+         isActive: true,
+         subscription: {
+           status: 'active',
+           expiresAt: futuro(30 dias)
+         }
+       })
+
+  3. Próximo login:
+     └─ useSubscriptionExpiryGuard() verifica expiração
+     └─ SE expirado → setIsActive(false)
+     └─ Mostra BlockedAccessScreen
+
+⚠️ PROBLEMA CRÍTICO:
+   - Backend completo
+   - Frontend é PLACEHOLDER (botão R$ 49,90 não conecta ao Stripe)
+   - CheckoutScreen.tsx não integrado com Stripe Elements
+   - Usuário não consegue completar pagamento na UI
+
+   4.8 Fluxo Garantia: Geração de PDF
+   ENTRADA: saveWarranty({
+  clientName, serviceType, serviceDescription,
+  serviceDate, expiryDate
+})
+
+PROCESSAMENTO:
+  1. warrantyRepository.create(warranty)
+     └─ Salva em users/{uid}/warranties/{warrantyId}
+     └─ Gera numeroGarantia único (timestamp + random)
+
+  2. generateWarrantyPdf(warranty):
+     └─ Usar jsPDF + html2canvas
+     └─ Template HTML: 
+        ├─ Logo
+        ├─ Título "GARANTIA"
+        ├─ Número garantia (QR code gerado)
+        ├─ Cliente, bike, serviço
+        ├─ Data serviço, data vencimento
+        └─ Assinatura digital
+     └─ html2canvas(divGarantia) → Canvas
+     └─ jsPDF.addImage(canvas, ...) → PDF
+
+  3. Download ou Print:
+     └─ pdf.save('garantia_' + numeroGarantia + '.pdf')
+     └─ OU window.print()
+
+NOTA: Funções protegidas em warrantyPdfGuard.ts
+      (evita uso múltiplo/abusivo)
+
+      4.9 Tipos de Serviço: Normalização
+      TIPOS PADRÃO:
+  ['Troca de Óleo', 'Revisão', 'Pneus', 'Freios', 'Outros']
+
+NORMALIZAÇÃO:
+  getServiceTypeKey(str) → lowercase sem espaços
+    'Troca de Óleo' → 'troca de oleo'
+    'TROCA DE ÓLEO' → 'troca de oleo'
+    'trocaDeOleo' → 'troca de oleo'
+
+  canonicalServiceType(key) → Forma canônica
+    'troca de oleo' → 'Troca de Óleo'
+
+  repairMojibake(str) → Corrige UTF-8 corrompido
+    Alguns dados históricos podem ter encoding errado
+    Função tenta detectar e corrigir
+
+ARMAZENAMENTO:
+  - settings.serviceTypes[] → Array de tipos criados pelo usuário
+  - Merge com DEFAULT_SERVICE_TYPES
+  - Dropdown em ClientForm busca dessa lista mesclada
+  
+  5. CONVENÇÕES DE CÓDIGO
+5.1 Padrões de Nomenclatura
+Componentes React:
+// PascalCase, sufixo View para views principais
+export const ClientsView: React.FC = () => {}
+
+// Componentes auxiliares: PascalCase simples
+export const ClientForm: React.FC<Props> = (props) => {}
+
+// Componentes de layout: sufixo implícito
+export const BottomNav: React.FC = () => {}
+
+Hooks Custom:
+// Prefixo use, camelCase
+export const useAuthProfile = () => { return { user, userProfile } }
+export const useClientActions = () => { return { saveClient, deleteClient } }
+export const useMaintenanceStats = () => { return { metrics } }
+
+Services e Repositories:
+// Sufixo Repository para CRUD genérico
+export const clientRepository = { create, update, delete, read }
+
+// Sufixo Service para lógica complexa
+export const stripeService = { createCheckoutSession, verifyPayment }
+export const alertService = { sendWhatsApp, sendEmail }
+
+// Sufixo Api para integrações externas
+export const fiscalApi = { emitirNfe, consultarStatus }
+
+Types e Interfaces:
+// PascalCase, prefixo se for type union
+interface Client { name: string; bikeModel: string }
+type MaintenanceStatus = 'OK' | 'WARNING' | 'OVERDUE'
+type OperationType = 'create' | 'update' | 'delete'
+
+Funções Utilitárias:
+// camelCase, verbo descritivo
+export function getMaintenanceStatus(date: Date): MaintenanceStatus
+export function parseBrazilianCurrency(str: string): number
+export function calculateDaysUntil(futureDate: Date): number
+
+5.2 Estrutura de Arquivo
+Padrão de componente React:
+import React from 'react'
+import { useHook1 } from '@/hooks/useHook1'
+import { useHook2 } from '@/hooks/useHook2'
+
+interface ComponentProps {
+  prop1: string
+  prop2?: number
+}
+
+export const ComponentName: React.FC<ComponentProps> = (props) => {
+  const { value, setValue } = useHook1()
+  const { action } = useHook2()
+
+  const handleAction = () => {}
+
+  return (
+    <div className="...">
+      {/* JSX */}
+    </div>
+  )
+}
+
+Padrão de hook custom:
+import { useCallback, useState, useEffect } from 'react'
+
+export const useCustomHook = () => {
+  const [state, setState] = useState<Type>(initialValue)
+
+  const action = useCallback(() => {
+    // lógica
+  }, [dependencies])
+
+  useEffect(() => {
+    // efeito
+    return () => { /* cleanup */ }
+  }, [dependencies])
+
+  return { state, setState, action }
+}
+
+Padrão de repository:
+import { db } from '@/firebase'
+import { collection, doc, setDoc, getDoc, query, where } from 'firebase/firestore'
+
+export const repositoryName = {
+  async create(userId: string, data: Type): Promise<void> {
+    // lógica
+  },
+
+  async read(userId: string, id: string): Promise<Type | null> {
+    // lógica
+  },
+
+  async update(userId: string, id: string, data: Partial<Type>): Promise<void> {
+    // lógica
+  },
+
+  async delete(userId: string, id: string): Promise<void> {
+    // lógica
+  },
+
+  listener(userId: string, callback: (data: Type[]) => void) {
+    // listener com unsubscribe
+  }
+}
+
+5.3 Tratamento de Erros
+// Usar firestoreError.ts para padronização
+import { getErrorAction, OperationType } from '@/services/firestoreError'
+
+try {
+  await clientRepository.create(userId, client)
+} catch (error) {
+  const action = getErrorAction(error as FirestoreError, 'create')
+  console.error(`Erro ao criar cliente: ${action.message}`)
+  toast.error(action.userMessage)
+}
+
+5.4 Toast Notifications
+// Usar Sonner (já instalado)
+import { toast } from 'sonner'
+
+toast.success('Ação concluída com sucesso')
+toast.error('Erro ao processar operação')
+toast.loading('Sincronizando...')
+
+5.5 Estilos com Tailwind
+// Usar clsx para condicional + tailwind-merge para precedência
+import clsx from 'clsx'
+import { twMerge } from 'tailwind-merge'
+
+const buttonClass = twMerge(
+  clsx(
+    'px-4 py-2 rounded',
+    {
+      'bg-blue-500 text-white': isPrimary,
+      'bg-gray-200 text-black': !isPrimary
+    }
+  )
+)
+
+5.6 Tipos TypeScript
+// Arquivo types.ts centralizado
+export interface Client {
+  id?: string
+  name: string
+  bikeModel: string
+  contact: string
+  oilType: 'Mineral' | 'Semi-Sintético' | 'Sintético'
+  lastMaintenanceDate: Date | null
+  nextMaintenanceDate: Date | null
+  statusPagamento: 'Pago' | 'Pendente' | 'Parcial'
+  recurrenceDays: number
+  createdAt?: Timestamp
+}
+
+export interface MaintenanceRecord {
+  id?: string
+  clientId: string
+  date: Date
+  serviceType: string
+  serviceValue: number
+  valorPago: number
+  saldoDevedor: number
+  statusPagamento: string
+  isRecurringRevenue: boolean
+  createdAt?: Timestamp
+}
+
+// Use `type` para unions simples
+export type MaintenanceStatus = 'OK' | 'WARNING' | 'OVERDUE'
+
+// Use `interface` para objetos complexos
+
+5.7 Padrão de Componente com Estado
+// Usar hooks para estado, não classes
+// Preferir composição a herança
+
+const [clients, setClients] = useState<Client[]>([])
+const [loading, setLoading] = useState(false)
+const [error, setError] = useState<string | null>(null)
+
+// Usar useMemo para derivações pesadas
+const filteredClients = useMemo(() => {
+  return clients.filter(c => c.status === 'OVERDUE')
+}, [clients])
+
+// Usar useCallback para handlers passados a children
+const handleDelete = useCallback((clientId: string) => {
+  // lógica
+}, [])
+
+5.8 Padrão de Validação
+// Validação em service layer quando possível
+export function validateClientData(data: Partial<Client>): string[] {
+  const errors: string[] = []
+  
+  if (!data.name?.trim()) errors.push('Nome é obrigatório')
+  if (!data.bikeModel?.trim()) errors.push('Modelo da moto é obrigatório')
+  if (data.recurrenceDays && data.recurrenceDays < 1) errors.push('Recorrência deve ser ≥ 1 dia')
+  
+  return errors
+}
+
+// No componente
+const errors = validateClientData(formData)
+if (errors.length > 0) {
+  toast.error(errors.join('; '))
+  return
+}
+
+6. TODO / PRÓXIMOS PASSOS
+🔴 CRÍTICOS (Bloqueadores)
+CheckoutScreen: Implementar integração Stripe completa
+
+Localização: CheckoutScreen.tsx
+Problema: Componente é placeholder, sem Stripe Elements
+Solução: Integrar @stripe/react-stripe-js, usar PaymentElement
+Impacto: Usuários não conseguem pagar, bloqueando SaaS
+Prioridade: P1
+Tempo estimado: 8 horas
+Endurecimento de Firestore Rules
+
+Localização: firestore.rules
+Problema: Regras têm prazo vencido (20/06/2026)
+Solução:
+Remover prazo ou estender indefinidamente
+Adicionar validação de schema mais rigorosa
+Limitar operações por rate limit (Firestore nativo)
+Prioridade: P1
+Tempo estimado: 4 horas
+Refatoração de App.tsx
+
+Localização: App.tsx
+Problema: Arquivo gigante (5000+ linhas), dificulta manutenção
+Solução:
+Extrair estado em Context (AppContext.tsx)
+Separar handlers em custom hooks
+Dividir views em componentes menores
+Prioridade: P1
+Tempo estimado: 24 horas
+Impacto: Refatoração massiva, testar após
+🟡 IMPORTANTES (Qualidade)
+Sincronizar settings vs expenses
+
+Problema: Dois "source of truth" para despesas
+settings.expenses (campo legado)
+subcolecção expenses (novo)
+Solução: Migrar dados, deprecar settings.expenses
+Prioridade: P2
+Tempo estimado: 8 horas
+Resolver duplicação de path settings
+
+Problema: Código lê de settings/{uid} e users/{uid}/settings/config
+Solução: Padronizar em um único path, migrar dados históricos
+Prioridade: P2
+Tempo estimado: 6 horas
+Implementar WhatsApp via API (automático)
+
+Problema: Sistema atual é semi-manual (abre link wa.me)
+Solução: Integrar Twilio ou Green API para envio automático
+Prioridade: P2
+Tempo estimado: 12 horas
+Otimizar carregamento inicial
+
+Problema: Primeira abertura lenta (sem cache offline)
+Solução: Lazy load de dados não críticos, Progressive Web App melhorado
+Prioridade: P2
+Tempo estimado: 6 horas
+🟢 NICE-TO-HAVE (Futuro)
+Implementar dark mode toggle (framework pronto, falta UI)
+Adicionar testes unitários/e2e (TDD)
+Integrar analytics (Google Analytics, Mixpanel)
+Implementar multi-idioma (i18n)
+API GraphQL (atualmente REST)
+Histórico de versão de clientes (audit trail)
+Dashboard admin com métricas multi-usuário
+Integração com ERP externo
+📋 VALIDAÇÕES NECESSÁRIAS
+ Testar pagamento completo Stripe end-to-end após implementação
+ Validar Firestore rules contra attack vectors comuns
+ Performance test com 1000+ clientes
+ Testar Offline → Online sync com dados conflitantes
+ Validar LGPD compliance (dados pessoais)
+ Testar mobile responsividade em devices reais
+7. RESUMO EXECUTIVO PARA PRÓXIMA IA
+Você herdará um aplicativo SaaS funcional com:
+
+✅ Autenticação Google + autorização por roles
+✅ Gestão offline com sincronização robusta
+✅ CRUD completo de clientes, manutenções, garantias, pagamentos
+✅ Dashboard com métricas financeiras
+✅ Relatórios e exportações (PDF, CSV)
+✅ Integração Stripe e Focus NFe (backend)
+✅ Service Worker e cache offline
+Bloqueadores críticos:
+
+❌ Checkout Stripe não implementado (frontend)
+❌ Firestore rules com prazo expirado
+❌ App.tsx précisa refatoração urgente
+Stack consolidado:
+
+React 19 + TypeScript + Vite
+Tailwind CSS + Motion
+Firestore + Firebase Auth
+Express + Node.js
+esbuild para build
+
+
+
+

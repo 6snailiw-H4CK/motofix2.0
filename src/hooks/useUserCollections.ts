@@ -244,7 +244,7 @@ export function useUserCollections({
     });
 
     let unsubscribeUsers = () => {};
-    if (userProfile.role === 'admin') {
+    if (userProfile?.role === 'admin' && userProfile?.isActive) {
       const usersQuery = collection(db, 'users');
       unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
         const usersData = snapshot.docs.map(doc => doc.data() as UserProfile);
