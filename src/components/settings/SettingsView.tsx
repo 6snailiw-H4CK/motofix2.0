@@ -221,194 +221,104 @@ export const SettingsView = ({
   };
 
   return (
-    <div className="light-readable-view mx-auto w-full max-w-7xl space-y-5 px-1 sm:px-2">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className="light-readable-view w-full max-w-full min-h-screen space-y-6 px-4 py-6 sm:px-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <h2 className="text-xl font-bold">Configuracoes</h2>
-        <div className="flex flex-col gap-2 sm:items-end">
-          {userEmail && (
-            <div className="flex max-w-full items-center gap-2 rounded-xl border border-slate-700/60 bg-slate-900/40 px-3 py-2 text-xs">
-              <Mail className="h-4 w-4 shrink-0 text-primary" />
-              <span className="text-slate-500">Conta Google:</span>
-              <span className="truncate font-medium text-slate-200">{userEmail}</span>
-            </div>
-          )}
-        </div>
 
-      {userProfile?.role !== 'admin' && subscriptionExpiresAt && (
-        <div
-          className={cn(
-            'p-4 rounded-xl border flex items-center justify-between',
-            subscriptionExpired
-              ? 'bg-red-500/10 border-red-500/30 text-red-500'
-              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
-          )}
-        >
-          <div className="flex items-center gap-3">
-            <div className={cn('p-2 rounded-lg', subscriptionExpired ? 'bg-red-500/20' : 'bg-emerald-500/20')}>
-              <ShieldCheck className="w-5 h-5" />
-            </div>
-            <div>
-              <p className="text-[9px] font-bold uppercase tracking-widest opacity-70">Sua Assinatura</p>
-              <p className="text-sm font-bold">
-                {subscriptionExpired ? 'Expirada' : `Ativa ate ${format(parseISO(subscriptionExpiresAt), 'dd/MM/yyyy')}`}
-              </p>
-            </div>
-          </div>
-          {subscriptionExpired && (
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <button
-                type="button"
-                onClick={onOpenCheckout}
-                className="bg-primary text-white px-4 py-2 rounded-lg font-bold hover:bg-primary/90 transition-all text-xs"
-              >
-                Renovar agora
-              </button>
-              <button
-                type="button"
-                onClick={() => window.open('https://wa.me/5511999999999?text=Ola, gostaria de renovar minha assinatura do MotoFix', '_blank')}
-                className="bg-slate-800 text-slate-100 px-4 py-2 rounded-lg font-semibold hover:bg-slate-700 transition-all text-xs"
-              >
-                Ajuda via WhatsApp
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="rounded-2xl border border-slate-700/50 bg-slate-800/35 p-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400">
-              <FileSpreadsheet className="h-5 w-5" />
-            </span>
-            <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Backups</p>
-              <h3 className="text-base font-bold text-white">Backups e restauracao</h3>
-            </div>
-          </div>
-          <p className="max-w-2xl text-xs leading-relaxed text-slate-400">
-            Salve copias em XLSX ou restaure dados de clientes e mercadorias sem sair das configuracoes.
-          </p>
-        </div>
-
-        <div className="mt-4 grid gap-3 lg:grid-cols-2">
-          <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 px-4 py-3">
-            <div className="grid gap-3 2xl:grid-cols-[1fr_auto] 2xl:items-center">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h4 className="text-sm font-bold text-white">Clientes</h4>
-                  <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-emerald-400">
-                    {clientsCount} registro(s)
-                  </span>
-                </div>
-                <p className="mt-1 text-xs text-slate-400">
-                  Contatos, motos, agenda, recorrencias e dados de relacionamento.
-                </p>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2 2xl:w-[22rem]">
-                <button
-                  type="button"
-                  onClick={onExportClientsBackup}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 text-xs font-bold text-emerald-400 transition-all hover:bg-emerald-500/15"
-                >
-                  <Download className="h-4 w-4" />
-                  Exportar
-                </button>
-                <button
-                  type="button"
-                  disabled={isImportingClients}
-                  onClick={() => clientImportInputRef.current?.click()}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-3 text-xs font-bold text-primary transition-all hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <Upload className="h-4 w-4" />
-                  {isImportingClients ? 'Importando...' : 'Importar'}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 px-4 py-3">
-            <div className="grid gap-3 2xl:grid-cols-[1fr_auto] 2xl:items-center">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h4 className="text-sm font-bold text-white">Mercadorias</h4>
-                  <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-primary">
-                    {productsCount} item(ns)
-                  </span>
-                </div>
-                <p className="mt-1 text-xs text-slate-400">
-                  Codigos, descricoes, NCM, valores de venda e variacoes cadastradas.
-                </p>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2 2xl:w-[22rem]">
-                <button
-                  type="button"
-                  onClick={onExportProductsBackup}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 text-xs font-bold text-emerald-400 transition-all hover:bg-emerald-500/15"
-                >
-                  <Download className="h-4 w-4" />
-                  Exportar
-                </button>
-                <button
-                  type="button"
-                  disabled={isImportingProducts}
-                  onClick={() => productImportInputRef.current?.click()}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-3 text-xs font-bold text-primary transition-all hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <Upload className="h-4 w-4" />
-                  {isImportingProducts ? 'Importando...' : 'Importar'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-3 rounded-xl border border-sky-500/25 bg-sky-500/10 px-4 py-3">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-200">
-                <DatabaseBackup className="h-4 w-4" />
+      <div className="rounded-2xl border border-slate-700/50 bg-slate-800/35 p-4 w-full min-w-0">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400">
+                <FileSpreadsheet className="h-5 w-5" />
               </span>
               <div className="min-w-0">
-                <h4 className="text-sm font-bold text-white">Backup emergencial CSV</h4>
-                <p className="mt-1 text-xs leading-relaxed text-sky-100/80">
-                  Copias manuais rapidas para contingencia do piloto.
-                </p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">8. Backups</p>
+                <h3 className="text-base font-bold text-white">Backups e restauracao</h3>
               </div>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:w-[30rem]">
-              {[
-                ['Clientes', onExportClientsEmergencyCsv],
-                ['Motos', onExportMotorcyclesEmergencyCsv],
-                ['O.S.', onExportCashLaunchesEmergencyCsv],
-                ['Garantias', onExportWarrantiesEmergencyCsv],
-              ].map(([label, action]) => (
-                <button
-                  key={label as string}
-                  type="button"
-                  onClick={action as () => void}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-sky-500/25 bg-sky-500/10 px-3 text-xs font-bold text-sky-100 transition-all hover:bg-sky-500/15"
-                >
-                  <Download className="h-4 w-4" />
-                  {label as string}
-                </button>
-              ))}
+            <p className="text-xs leading-relaxed text-slate-400">Salve copias em XLSX ou restaure dados de clientes e mercadorias sem sair das configuracoes.</p>
+
+            <div className="mt-4 grid gap-3 xl:grid-cols-2">
+              <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 px-4 py-3 w-full min-w-0">
+                <div className="grid gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className="text-sm font-bold text-white">Clientes</h4>
+                      <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-emerald-400">
+                        {clientsCount} registro(s)
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-400">Contatos, motos, agenda, recorrencias e dados de relacionamento.</p>
+                  </div>
+                  <div className="grid gap-2 xl:grid-cols-2 2xl:w-[22rem]">
+                    <button type="button" onClick={onExportClientsBackup} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 text-xs font-bold text-emerald-400 transition-all hover:bg-emerald-500/15">
+                      <Download className="h-4 w-4" /> Exportar
+                    </button>
+                    <button type="button" disabled={isImportingClients} onClick={() => clientImportInputRef.current?.click()} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-3 text-xs font-bold text-primary transition-all hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-60">
+                      <Upload className="h-4 w-4" /> {isImportingClients ? 'Importando...' : 'Importar'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 px-4 py-3 w-full min-w-0">
+                <div className="grid gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className="text-sm font-bold text-white">Mercadorias</h4>
+                      <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-primary">{productsCount} item(ns)</span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-400">Codigos, descricoes, NCM, valores de venda e variacoes cadastradas.</p>
+                  </div>
+                  <div className="grid gap-2 xl:grid-cols-2 2xl:w-[22rem]">
+                    <button type="button" onClick={onExportProductsBackup} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 text-xs font-bold text-emerald-400 transition-all hover:bg-emerald-500/15">
+                      <Download className="h-4 w-4" /> Exportar
+                    </button>
+                    <button type="button" disabled={isImportingProducts} onClick={() => productImportInputRef.current?.click()} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-primary/20 bg-primary/10 px-3 text-xs font-bold text-primary transition-all hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-60">
+                      <Upload className="h-4 w-4" /> {isImportingProducts ? 'Importando...' : 'Importar'}
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
+
+            <div className="mt-3 rounded-xl border border-sky-500/25 bg-sky-500/10 px-4 py-3 w-full min-w-0">
+              <div className="flex flex-col gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-200"><DatabaseBackup className="h-4 w-4" /></span>
+                  <div className="min-w-0">
+                    <h4 className="text-sm font-bold text-white">Backup emergencial CSV</h4>
+                    <p className="mt-1 text-xs leading-relaxed text-sky-100/80">Copias manuais rapidas para contingencia do piloto.</p>
+                  </div>
+                </div>
+                <div className="grid gap-2 xl:grid-cols-2 xl:w-[30rem]">
+                  {[
+                    ['Clientes', onExportClientsEmergencyCsv],
+                    ['Motos', onExportMotorcyclesEmergencyCsv],
+                    ['O.S.', onExportCashLaunchesEmergencyCsv],
+                    ['Garantias', onExportWarrantiesEmergencyCsv],
+                  ].map(([label, action]) => (
+                    <button key={label as string} type="button" onClick={action as () => void} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-sky-500/25 bg-sky-500/10 px-3 text-xs font-bold text-sky-100 transition-all hover:bg-sky-500/15">
+                      <Download className="h-4 w-4" /> {label as string}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
         </div>
 
-        <div className="mt-3 rounded-xl border border-slate-700/60 bg-slate-900/45 px-4 py-3">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        {/* 9. Saude da sincronizacao (metrics + logs) */}
+        <div className="rounded-2xl border border-slate-700/50 bg-slate-800/35 p-4 w-full min-w-0">
+          <div className="flex flex-col gap-3">
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Saude da sincronizacao</p>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-primary">9. Saude da sincronizacao</p>
               <h4 className="mt-1 text-sm font-bold text-white">Painel operacional interno</h4>
             </div>
             <div className={cn('inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-bold', syncStatus.className)}>
-              <SyncIcon className="h-4 w-4" />
-              {syncStatus.label}
+              <SyncIcon className="h-4 w-4" /> {syncStatus.label}
             </div>
           </div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-8">
+          <div className="mt-3 grid gap-2 md:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
               <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Ultima sync</p>
               <p className="mt-1 text-xs font-bold text-white">{formatSyncDate(offlineSyncStatus.lastSyncedAt)}</p>
@@ -424,22 +334,6 @@ export const SettingsView = ({
             <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
               <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Confirmados</p>
               <p className="mt-1 text-xs font-bold text-white">{offlineSyncStatus.confirmedWrites}</p>
-            </div>
-            <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
-              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Drafts locais</p>
-              <p className="mt-1 text-xs font-bold text-white">{offlineSyncStatus.localDraftCount}</p>
-            </div>
-            <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
-              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Ultima fila</p>
-              <p className="mt-1 text-xs font-bold text-white">{formatSyncDate(offlineSyncStatus.lastQueuedAt)}</p>
-            </div>
-            <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
-              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Retries</p>
-              <p className="mt-1 text-xs font-bold text-white">{offlineSyncStatus.retryCount}</p>
-            </div>
-            <div className="rounded-lg border border-slate-700/60 bg-slate-950/45 p-3">
-              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Falhas locais</p>
-              <p className="mt-1 text-xs font-bold text-white">{offlineSyncStatus.persistenceFailureCount}</p>
             </div>
           </div>
           <div className="mt-3 rounded-lg border border-slate-700/60 bg-slate-950/35 p-3">
@@ -466,92 +360,25 @@ export const SettingsView = ({
           <FailedWritesPanel />
         </div>
 
-        {canResetOperationalData && (
-        <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
-          <div className="grid gap-3 lg:grid-cols-[1fr_auto] lg:items-center">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-500/15 text-red-400">
-                  <AlertTriangle className="h-4 w-4" />
-                </span>
-                <div className="min-w-0">
-                  <h4 className="text-sm font-bold text-white">Zerar lancamentos</h4>
-                  <p className="mt-1 text-xs leading-relaxed text-red-100/80">
-                    Remove O.S., servicos, despesas, garantias, agendamentos, avisos, registros fiscais locais e
-                    historico WhatsApp. Clientes, mercadorias, configuracoes e empresa fiscal ficam preservados.
-                  </p>
-                </div>
-              </div>
+      <div className="flex flex-col gap-6 w-full min-h-[70vh]">
+        <div className="flex flex-col gap-6 w-full">
+
+      {userEmail && (
+        <div className="rounded-2xl border border-slate-700/50 bg-slate-800/35 p-4">
+          <div className="flex items-center gap-3">
+            <Mail className="h-5 w-5 text-primary" />
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-primary">1. Conta Google</p>
+              <p className="mt-1 text-sm font-bold text-white">{userEmail}</p>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowResetConfirm((current) => {
-                if (current) {
-                  setResetConfirmation('');
-                  setResetBackupReady(false);
-                }
-                return !current;
-              })}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-red-500/30 bg-red-500/15 px-3 text-xs font-bold text-red-300 transition-all hover:bg-red-500/25"
-            >
-              <RotateCcw className="h-4 w-4" />
-              Zerar dados
-            </button>
           </div>
-
-          {showResetConfirm && (
-            <div className="mt-3 grid gap-3 rounded-xl border border-red-500/25 bg-slate-950/35 p-3 md:grid-cols-[1fr_auto] md:items-end">
-              <div className="min-w-0 space-y-2">
-                <p className="text-xs text-slate-300">
-                  {operationalDataCount} registro(s) operacional(is) visivel(is) serao removidos. Para confirmar,
-                  gere o backup e digite <strong className="text-red-300">ZERAR</strong>.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onExportOperationalBackup();
-                    setResetBackupReady(true);
-                  }}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 text-xs font-bold text-amber-200 transition-all hover:bg-amber-500/20"
-                >
-                  <DatabaseBackup className="h-4 w-4" />
-                  {resetBackupReady ? 'Backup operacional gerado' : 'Gerar backup obrigatorio'}
-                </button>
-                <input
-                  value={resetConfirmation}
-                  onChange={(event) => setResetConfirmation(event.target.value.trim().toUpperCase())}
-                  placeholder="Digite ZERAR"
-                  className="h-10 w-full rounded-lg border border-red-500/30 bg-slate-950 px-3 text-sm font-bold text-white outline-none transition focus:border-red-400 focus:ring-1 focus:ring-red-400"
-                />
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2 md:w-[19rem]">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setResetConfirmation('');
-                    setResetBackupReady(false);
-                    setShowResetConfirm(false);
-                  }}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-600 bg-slate-800 px-3 text-xs font-bold text-slate-200 transition-all hover:bg-slate-700"
-                >
-                  <X className="h-4 w-4" />
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  disabled={resetConfirmation !== 'ZERAR' || !resetBackupReady || isResettingOperationalData}
-                  onClick={() => void handleResetOperationalData()}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-red-500/40 bg-red-500 px-3 text-xs font-bold text-white transition-all hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  {isResettingOperationalData ? 'Zerando...' : 'Confirmar'}
-                </button>
-              </div>
-            </div>
-          )}
         </div>
-        )}
+      )}
 
+      {/* Backups moved below in the vertical order */}
+      </div>
+
+      {/* Saude da sincronizacao moved below in vertical order */}
         <input
           ref={clientImportInputRef}
           type="file"
@@ -571,9 +398,9 @@ export const SettingsView = ({
       <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 space-y-4">
         <div className="flex items-center gap-2 mb-1">
           <Bike className="w-4 h-4 text-primary" />
-          <h3 className="text-sm font-bold">Perfil da Empresa</h3>
+          <h3 className="text-sm font-bold">4. Perfil da Empresa</h3>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome da Empresa</label>
             <input
@@ -623,7 +450,7 @@ export const SettingsView = ({
       <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 space-y-4">
         <div className="flex items-center gap-2 mb-1">
           <MessageSquare className="w-4 h-4 text-primary" />
-          <h3 className="text-sm font-bold">Template do WhatsApp</h3>
+          <h3 className="text-sm font-bold">5. Template do WhatsApp</h3>
         </div>
         <p className="text-[10px] text-slate-400">
           Use as tags: <code>{'{client}'}</code>, <code>{'{bike}'}</code>, <code>{'{date}'}</code>
@@ -648,7 +475,7 @@ export const SettingsView = ({
       <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 space-y-4">
         <div className="flex items-center gap-3 mb-2">
           <Wrench className="w-5 h-5 text-primary" />
-          <h3 className="font-bold">Categorias de Servicos</h3>
+          <h3 className="font-bold">6. Categorias de Servicos</h3>
         </div>
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
@@ -702,7 +529,7 @@ export const SettingsView = ({
       <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 space-y-4">
         <div className="flex items-center gap-3 mb-2">
           <Droplets className="w-5 h-5 text-primary" />
-          <h3 className="font-bold">Tipos de Oleo / Itens Disponiveis</h3>
+          <h3 className="font-bold">7. Tipos de Oleo / Itens Disponiveis</h3>
         </div>
         <div className="flex flex-wrap gap-2">
           {oilTypes.map((type, index) => (
@@ -735,7 +562,7 @@ export const SettingsView = ({
       <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 space-y-4">
         <div className="flex items-center gap-3 mb-2">
           <ShieldCheck className="w-5 h-5 text-primary" />
-          <h3 className="font-bold">Categorias de Garantia</h3>
+          <h3 className="font-bold">8. Categorias de Garantia</h3>
         </div>
         <div className="flex flex-wrap gap-2">
           {warrantyCategories.map((category, index) => (
@@ -767,7 +594,7 @@ export const SettingsView = ({
 
       <div
         className={cn(
-          'institutional-card rounded-2xl border p-6 space-y-5',
+          'institutional-card rounded-2xl border p-6 space-y-5 w-full min-w-0',
           colorMode === 'light'
             ? 'bg-slate-100 text-slate-900 border-slate-300'
             : 'bg-gradient-to-br from-slate-800/80 to-slate-900/60 text-slate-100 border-slate-700/80'
@@ -775,7 +602,7 @@ export const SettingsView = ({
       >
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Institucional</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-primary">9. Institucional</p>
             <h3 className={cn('text-lg font-bold', colorMode === 'light' ? 'text-slate-900' : 'text-white')}>
               Sobre o MotoFix
             </h3>
@@ -795,7 +622,7 @@ export const SettingsView = ({
           O MotoFix e uma solucao profissional de gestao para oficinas e centros automotivos. Centraliza cadastro de
           clientes, controle de servicos recorrentes, alertas proativos, historico financeiro e gestao de garantias.
         </p>
-        <ul className={cn('grid gap-2 text-sm sm:grid-cols-2', colorMode === 'light' ? 'text-slate-700' : 'text-slate-400')}>
+        <ul className={cn('grid gap-2 text-sm xl:grid-cols-2', colorMode === 'light' ? 'text-slate-700' : 'text-slate-400')}>
           {[
             'Indicadores claros e atualizados sobre o status de pagamento.',
             'Agendamento com ficha completa do cliente integrada ao historico de servicos.',
@@ -816,7 +643,7 @@ export const SettingsView = ({
         </ul>
         <div
           className={cn(
-            'flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between',
+            'flex flex-col gap-3 border-t pt-4 xl:flex-row xl:items-center xl:justify-between',
             colorMode === 'light' ? 'border-slate-200 text-slate-900' : 'border-slate-700/50 text-slate-500'
           )}
         >
@@ -852,7 +679,8 @@ export const SettingsView = ({
           </span>
         </div>
       </div>
-    </div>
+        </div>
+      </div>
     </div>
   );
 };

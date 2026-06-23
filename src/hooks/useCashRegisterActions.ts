@@ -118,7 +118,10 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
       });
       return true;
     } catch (error) {
-      sonnerToast.error('Nao foi possivel excluir a O.S.');
+      const permissionDenied = error instanceof Error && error.message.toLowerCase().includes('permission');
+      sonnerToast.error(permissionDenied
+        ? 'Sem permissão para excluir este lançamento de caixa. Entre em contato com o administrador.'
+        : 'Nao foi possivel excluir a O.S.');
       handleFirestoreError(error, OperationType.DELETE, 'cash_launches');
       return false;
     } finally {
