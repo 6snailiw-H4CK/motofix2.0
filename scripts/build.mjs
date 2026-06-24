@@ -41,7 +41,20 @@ const waitForWindowsProcessCleanup = async () => {
   await new Promise((resolve) => setTimeout(resolve, 1000));
 };
 
+const runLowMemoryClientBuild = () => {
+  run(['run', 'build:client'], {
+    env: {
+      MOTOFIX_LOW_MEMORY_BUILD: '1',
+    },
+  });
+};
+
 const buildClient = async () => {
+  if (process.platform === 'win32' || process.env.MOTOFIX_LOW_MEMORY_BUILD === '1') {
+    runLowMemoryClientBuild();
+    return;
+  }
+
   const clientBuilt = run(['run', 'build:client'], { allowFailure: process.platform === 'win32' });
 
   if (clientBuilt) {

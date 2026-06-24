@@ -224,8 +224,10 @@ export const SettingsView = ({
     <div className="light-readable-view w-full max-w-full min-h-screen space-y-6 px-4 py-6 sm:px-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <h2 className="text-xl font-bold">Configuracoes</h2>
+      </div>
 
-      <div className="rounded-2xl border border-slate-700/50 bg-slate-800/35 p-4 w-full min-w-0">
+      <div className="flex flex-col gap-6 w-full min-h-[70vh]">
+        <div className="rounded-2xl border border-slate-700/50 bg-slate-800/35 p-4 w-full min-w-0">
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400">
@@ -305,6 +307,7 @@ export const SettingsView = ({
                 </div>
               </div>
             </div>
+          </div>
         </div>
 
         {/* 9. Saude da sincronizacao (metrics + logs) */}
@@ -360,9 +363,6 @@ export const SettingsView = ({
           <FailedWritesPanel />
         </div>
 
-      <div className="flex flex-col gap-6 w-full min-h-[70vh]">
-        <div className="flex flex-col gap-6 w-full">
-
       {userEmail && (
         <div className="rounded-2xl border border-slate-700/50 bg-slate-800/35 p-4">
           <div className="flex items-center gap-3">
@@ -375,25 +375,20 @@ export const SettingsView = ({
         </div>
       )}
 
-      {/* Backups moved below in the vertical order */}
-      </div>
-
-      {/* Saude da sincronizacao moved below in vertical order */}
-        <input
-          ref={clientImportInputRef}
-          type="file"
-          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          className="hidden"
-          onChange={(event) => handleClientImportFile(event.target.files?.[0])}
-        />
-        <input
-          ref={productImportInputRef}
-          type="file"
-          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          className="hidden"
-          onChange={(event) => handleProductImportFile(event.target.files?.[0])}
-        />
-      </div>
+      <input
+        ref={clientImportInputRef}
+        type="file"
+        accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        className="hidden"
+        onChange={(event) => handleClientImportFile(event.target.files?.[0])}
+      />
+      <input
+        ref={productImportInputRef}
+        type="file"
+        accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        className="hidden"
+        onChange={(event) => handleProductImportFile(event.target.files?.[0])}
+      />
 
       <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 space-y-4">
         <div className="flex items-center gap-2 mb-1">
@@ -679,7 +674,6 @@ export const SettingsView = ({
           </span>
         </div>
       </div>
-        </div>
       </div>
     </div>
   );
