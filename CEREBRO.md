@@ -70,3 +70,46 @@
 - Refatorar `AppViewRenderer.tsx` para separar renderização de telas e diminuir blocos condicionais.
 - Garantir que usuário expirado possa chegar à renovação sem bloquear o app inteiro.
 - Revisar e documentar regras de `fiscal_*` collections (fiscal_companies, fiscal_invoices, etc.)
+
+## 8. SettingsView, Build e Deploy (Atualizado 2026-06-24)
+
+### Correcao do erro JSX em `SettingsView.tsx`
+- **Problema**: Vite/React-Babel exibia erro em `src/components/settings/SettingsView.tsx`:
+  - `Adjacent JSX elements must be wrapped in an enclosing tag`
+  - Depois, `Unexpected token, expected ","`
+- **Causa raiz**:
+  - A arvore JSX do `return` estava com wrappers desalinhados.
+  - Havia `</div>` sobrando/faltando depois dos cards de backup/sincronizacao.
+  - Em uma etapa intermediaria, o arquivo ficou com fragmento `<>...</>` sem fechamento correto do `return`.
+- **Solucao**:
+  - `SettingsView` voltou a ter um unico `div` raiz.
+  - O header fecha antes da pilha principal de conteudo.
+  - A pilha principal (`flex flex-col gap-6`) envolve backups, saude da sincronizacao, inputs ocultos, perfil, templates, categorias e card institucional.
+  - Removidos fechamentos extras e comentarios temporarios de reordenacao.
+
+### Build em Windows com pouca memoria
+- **Problema**: `npm run build` estourava memoria no Windows durante bundle/transpile do esbuild (`errno=1455`, `JavaScript heap out of memory`).
+- **Solucao em `vite.config.ts`**:
+  - Quando `MOTOFIX_LOW_MEMORY_BUILD=1`, o build usa `target: 'esnext'`.
+  - O modo leve desativa minificacao JS/CSS e gzip report.
+  - `rollupOptions.maxParallelFileOps` fica em `1` no modo leve.
+- **Solucao em `scripts/build.mjs`**:
+  - Em Windows, `npm run build` entra direto no modo de baixa memoria.
+  - Isso evita tentar primeiro o build pesado, que deixava processos `node/esbuild` consumindo memoria e travava o fluxo.
+
+### Validacoes feitas
+- `@babel/parser` parseou `SettingsView.tsx` com plugins `typescript` e `jsx`.
+- `npm run build:client` passou no modo leve.
+- `npm run build:server` passou.
+- `npm run build` passou completo apos ajuste do script.
+
+### Deploy Firebase
+- Comando usado: `firebase deploy --only hosting,firestore:rules`.
+- Projeto: `motofix-2-local`.
+- Firestore rules compiladas e publicadas em `cloud.firestore`.
+- Hosting publicado no canal live.
+- URL publicada: `https://motofix-2-local.web.app`.
+
+### Observacoes de workspace
+- `.firebase/hosting.ZGlzdA.cache` foi atualizado pelo deploy.
+- `package.json`, `package-lock.json` e scripts de validacao Firestore soltos ja estavam modificados antes desta etapa e devem ser revisados em separado antes de entrarem em outro commit.

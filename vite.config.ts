@@ -14,10 +14,12 @@ export default defineConfig(() => {
       },
     },
     build: {
+      target: lowMemoryBuild ? 'esnext' : undefined,
       minify: lowMemoryBuild ? false : 'esbuild',
       cssMinify: lowMemoryBuild ? false : undefined,
       reportCompressedSize: !lowMemoryBuild,
       rollupOptions: {
+        maxParallelFileOps: lowMemoryBuild ? 1 : undefined,
         output: {
           manualChunks(id) {
             if (!id.includes('node_modules')) return undefined;
