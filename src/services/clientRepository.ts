@@ -1,6 +1,12 @@
 import { collection, doc, getDoc, getDocFromCache, getDocs, getDocsFromCache, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
-import { createFirestoreReplayDescriptor, queueFirestoreVoidWrite, readFirestoreWithCacheFallback } from './firestoreOfflineQueue';
+import {
+  createFirestoreBatchReplayDescriptor,
+  createFirestoreReplayDescriptor,
+  queueFirestoreVoidWrite,
+  readFirestoreWithCacheFallback,
+  type FirestoreReplayMutation
+} from './firestoreOfflineQueue';
 import { createRestoreMetadata, createSoftDeleteMetadata, isSoftDeleted } from './softDelete';
 
 export type ClientWriteData = Record<string, unknown>;
@@ -9,6 +15,7 @@ const clientCollectionPath = (userId: string) => collection(db, 'users', userId,
 const clientDocPath = (userId: string, clientId: string) => doc(db, 'users', userId, 'clients', clientId);
 const clientReplayPath = (userId: string, clientId: string) => ['users', userId, 'clients', clientId];
 const maintenanceCollectionPath = (userId: string) => collection(db, 'users', userId, 'maintenances');
+const maintenanceReplayPath = (userId: string, maintenanceId: string) => ['users', userId, 'maintenances', maintenanceId];
 const SAFE_BATCH_LIMIT = 450;
 
 const getClientMaintenances = (userId: string, clientId: string) => {
@@ -65,9 +72,26 @@ export const clientRepository = {
 
     const metadata = createSoftDeleteMetadata(userId, reason || 'Cliente e historico arquivados pelo usuario');
     const batch = writeBatch(db);
-    activeMaintenances.forEach((maintenanceDoc) => batch.update(maintenanceDoc.ref, metadata));
+    const replayWrites: FirestoreReplayMutation[] = [];
+    activeMaintenances.forEach((maintenanceDoc) => {
+      batch.update(maintenanceDoc.ref, metadata);
+      replayWrites.push({
+        operation: 'update',
+        path: maintenanceReplayPath(userId, maintenanceDoc.id),
+        data: metadata,
+      });
+    });
     batch.update(clientDocPath(userId, clientId), metadata);
-    await queueFirestoreVoidWrite(() => batch.commit(), 'Arquivar cliente e historico');
+    replayWrites.push({
+      operation: 'update',
+      path: clientReplayPath(userId, clientId),
+      data: metadata,
+    });
+    await queueFirestoreVoidWrite(
+      () => batch.commit(),
+      'Arquivar cliente e historico',
+      createFirestoreBatchReplayDescriptor(replayWrites)
+    );
     return activeMaintenances.length;
   },
 
@@ -94,9 +118,26 @@ export const clientRepository = {
 
     const metadata = createRestoreMetadata();
     const batch = writeBatch(db);
-    sameDeletionBatch.forEach((maintenanceDoc) => batch.update(maintenanceDoc.ref, metadata));
+    const replayWrites: FirestoreReplayMutation[] = [];
+    sameDeletionBatch.forEach((maintenanceDoc) => {
+      batch.update(maintenanceDoc.ref, metadata);
+      replayWrites.push({
+        operation: 'update',
+        path: maintenanceReplayPath(userId, maintenanceDoc.id),
+        data: metadata,
+      });
+    });
     batch.update(clientRef, metadata);
-    await queueFirestoreVoidWrite(() => batch.commit(), 'Restaurar cliente e historico');
+    replayWrites.push({
+      operation: 'update',
+      path: clientReplayPath(userId, clientId),
+      data: metadata,
+    });
+    await queueFirestoreVoidWrite(
+      () => batch.commit(),
+      'Restaurar cliente e historico',
+      createFirestoreBatchReplayDescriptor(replayWrites)
+    );
     return sameDeletionBatch.length;
   },
 };

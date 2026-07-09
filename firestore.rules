@@ -11,7 +11,9 @@ service cloud.firestore {
     }
 
     function hasAdminClaim() {
-      return false; // avoid reading request.auth.token in emulator tests
+      return signedIn()
+        && request.auth.token.keys().hasAny(['admin'])
+        && request.auth.token.admin == true;
     }
 
     function isAdmin() {
@@ -91,7 +93,9 @@ service cloud.firestore {
     function softDeleteMetadataValid() {
       return optionalNullableText('deletedAt', 40)
         && optionalNullableText('deletedBy', 160)
-        && optionalNullableText('deletedReason', 500);
+        && optionalNullableText('deletedReason', 500)
+        && optionalNullableText('resetAt', 40)
+        && optionalNullableText('resetId', 160);
     }
 
     function isNumberInRange(field, minValue, maxValue) {
@@ -342,6 +346,15 @@ service cloud.firestore {
         && optionalNumberInRange('orderDiscountPercent', 0, 100)
         && isNumberInRange('total', 0, 10000000)
         && optionalBool('invoiced')
+        && optionalText('paymentMethod', 40)
+        && (
+          !request.resource.data.keys().hasAny(['invoiced'])
+          || request.resource.data.invoiced != true
+          || (
+            request.resource.data.keys().hasAny(['paymentMethod'])
+            && request.resource.data.paymentMethod in ['Debito', 'Credito', 'Pix', 'Dinheiro']
+          )
+        )
         && optionalText('fiscalInvoiceId', 160)
         && optionalText('fiscalReference', 160)
         && optionalText('fiscalIssuedAt', 40)
@@ -542,7 +555,9 @@ service cloud.firestore {
         'automation',
         'deletedAt',
         'deletedBy',
-        'deletedReason'
+        'deletedReason',
+        'resetAt',
+        'resetId'
       ];
     }
 
@@ -564,7 +579,9 @@ service cloud.firestore {
         'saldoDevedor',
         'deletedAt',
         'deletedBy',
-        'deletedReason'
+        'deletedReason',
+        'resetAt',
+        'resetId'
       ];
     }
 
@@ -583,7 +600,9 @@ service cloud.firestore {
         'createdAt',
         'deletedAt',
         'deletedBy',
-        'deletedReason'
+        'deletedReason',
+        'resetAt',
+        'resetId'
       ];
     }
 
@@ -600,7 +619,9 @@ service cloud.firestore {
         'userId',
         'deletedAt',
         'deletedBy',
-        'deletedReason'
+        'deletedReason',
+        'resetAt',
+        'resetId'
       ];
     }
 
@@ -616,7 +637,9 @@ service cloud.firestore {
         'createdAt',
         'deletedAt',
         'deletedBy',
-        'deletedReason'
+        'deletedReason',
+        'resetAt',
+        'resetId'
       ];
     }
 
@@ -635,7 +658,9 @@ service cloud.firestore {
         'updatedAt',
         'deletedAt',
         'deletedBy',
-        'deletedReason'
+        'deletedReason',
+        'resetAt',
+        'resetId'
       ];
     }
 
@@ -662,6 +687,7 @@ service cloud.firestore {
         'orderDiscountPercent',
         'total',
         'invoiced',
+        'paymentMethod',
         'fiscalInvoiceId',
         'fiscalReference',
         'fiscalIssuedAt',
@@ -671,7 +697,9 @@ service cloud.firestore {
         'updatedAt',
         'deletedAt',
         'deletedBy',
-        'deletedReason'
+        'deletedReason',
+        'resetAt',
+        'resetId'
       ];
     }
 
@@ -695,7 +723,9 @@ service cloud.firestore {
         'userId',
         'deletedAt',
         'deletedBy',
-        'deletedReason'
+        'deletedReason',
+        'resetAt',
+        'resetId'
       ];
     }
 
@@ -729,7 +759,7 @@ service cloud.firestore {
       allow list: if isAdmin();
       allow create: if validUserProfileCreate(userId) || isAdmin();
       allow update: if isAdmin() || (isOwner(userId) && validOwnerAutoDeactivate());
-      allow delete: if isAdmin();
+      allow delete: if false;
     }
 
     match /users/{userId}/fiscal_private/{document=**} {
@@ -744,42 +774,42 @@ service cloud.firestore {
       allow read: if canReadUserData(userId);
       allow create: if isAdmin() || (validOwnerCreate(userId, clientKeys()) && clientShape(userId));
       allow update: if isAdmin() || (validOwnerUpdate(userId, clientKeys()) && clientShape(userId));
-      allow delete: if isActiveOwner(userId) || isAdmin();
+      allow delete: if false;
     }
 
     match /users/{userId}/maintenances/{maintenanceId} {
       allow read: if canReadUserData(userId);
       allow create: if isAdmin() || (validOwnerCreate(userId, maintenanceKeys()) && maintenanceShape(userId));
       allow update: if isAdmin() || (validOwnerUpdate(userId, maintenanceKeys()) && maintenanceShape(userId));
-      allow delete: if isActiveOwner(userId) || isAdmin();
+      allow delete: if false;
     }
 
     match /users/{userId}/warranties/{warrantyId} {
       allow read: if canReadUserData(userId);
       allow create: if isAdmin() || (validOwnerCreate(userId, warrantyKeys()) && warrantyShape(userId));
       allow update: if isAdmin() || (validOwnerUpdate(userId, warrantyKeys()) && warrantyShape(userId));
-      allow delete: if isActiveOwner(userId) || isAdmin();
+      allow delete: if false;
     }
 
     match /users/{userId}/appointments/{appointmentId} {
       allow read: if canReadUserData(userId);
       allow create: if isAdmin() || (validOwnerCreate(userId, appointmentKeys()) && appointmentShape(userId));
       allow update: if isAdmin() || (validOwnerUpdate(userId, appointmentKeys()) && appointmentShape(userId));
-      allow delete: if isActiveOwner(userId) || isAdmin();
+      allow delete: if false;
     }
 
     match /users/{userId}/expenses/{expenseId} {
       allow read: if canReadUserData(userId);
       allow create: if isAdmin() || (validOwnerCreate(userId, expenseKeys()) && expenseShape(userId));
       allow update: if isAdmin() || (validOwnerUpdate(userId, expenseKeys()) && expenseShape(userId));
-      allow delete: if isActiveOwner(userId) || isAdmin();
+      allow delete: if false;
     }
 
     match /users/{userId}/products/{productId} {
       allow read: if canReadUserData(userId);
       allow create: if isAdmin() || (validOwnerCreate(userId, productKeys()) && productShape(userId, productId));
       allow update: if isAdmin() || (validOwnerUpdate(userId, productKeys()) && productShape(userId, productId));
-      allow delete: if isActiveOwner(userId) || isAdmin();
+      allow delete: if false;
     }
 
     match /users/{userId}/cash_launches/{launchId} {
@@ -796,7 +826,7 @@ service cloud.firestore {
           && !request.resource.data.diff(resource.data).affectedKeys().hasAny(cashFiscalFields())
           && cashLaunchShape(userId)
         );
-      allow delete: if isActiveOwner(userId) || isAdmin();
+      allow delete: if false;
     }
 
     match /users/{userId}/settings/{settingId} {
@@ -810,7 +840,7 @@ service cloud.firestore {
       allow read: if canReadUserData(userId);
       allow create: if isAdmin() || (validOwnerCreate(userId, messageLogKeys()) && messageLogShape(userId));
       allow update: if isAdmin() || (validOwnerUpdate(userId, messageLogKeys()) && messageLogShape(userId));
-      allow delete: if isActiveOwner(userId) || isAdmin();
+      allow delete: if false;
     }
 
     match /users/{userId}/operational_logs/{logId} {
@@ -838,7 +868,7 @@ service cloud.firestore {
       allow read: if canReadUserData(userId);
       allow create: if isAdmin() || (validOwnerCreate(userId, whatsappAutomationKeys()) && whatsappAutomationShape(userId));
       allow update: if isAdmin() || (validOwnerUpdate(userId, whatsappAutomationKeys()) && whatsappAutomationShape(userId));
-      allow delete: if isActiveOwner(userId) || isAdmin();
+      allow delete: if false;
     }
 
     match /users/{userId}/fiscal_companies/{companyId} {

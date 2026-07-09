@@ -36,6 +36,26 @@ export type WhatsAppAutomationResponse = {
   automation: WhatsAppAutomation;
 };
 
+export type WhatsAppReminderFailure = {
+  clientId: string;
+  clientName: string;
+  error: string;
+};
+
+export type WhatsAppReminderRunResult = {
+  checked: number;
+  eligible: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+  failures: WhatsAppReminderFailure[];
+  runAt: string;
+};
+
+export type WhatsAppReminderRunResponse = {
+  result: WhatsAppReminderRunResult;
+};
+
 export type WhatsAppApiClient = {
   connect: () => Promise<WhatsAppSessionResponse>;
   status: () => Promise<WhatsAppStatusResponse>;
@@ -47,4 +67,5 @@ export type WhatsAppApiClient = {
   contacts: (limit?: number) => Promise<WhatsAppContactsResponse>;
   automation: () => Promise<WhatsAppAutomationResponse>;
   updateAutomation: (input: Partial<Pick<WhatsAppAutomation, 'enabled' | 'aiEnabled' | 'autoReplyEnabled' | 'appointmentEnabled'>>) => Promise<WhatsAppAutomationResponse>;
+  sendDueReminders: (limit?: number) => Promise<WhatsAppReminderRunResponse>;
 };

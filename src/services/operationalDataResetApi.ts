@@ -1,10 +1,12 @@
 import { auth } from '../firebase';
 
 type OperationalDataResetResponse = {
-  deletedByCollection: Record<string, number>;
-  deletedTotal: number;
+  archivedByCollection: Record<string, number>;
+  archivedTotal: number;
   preservedCollections: string[];
+  resetAt: string;
   resetClients: number;
+  resetId: string;
 };
 
 type ApiResponse<T> = T & {

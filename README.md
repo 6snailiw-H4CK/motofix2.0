@@ -5,7 +5,9 @@ Sistema web para gestao de oficinas de motocicletas. O app centraliza clientes, 
 ## Documentacao
 
 - `DOCUMENTACAO.md`: memoria tecnica viva, plano de refatoracao e pendencias atuais.
-- `ANALISE_TECNICA_COMPLETA_APP.md`: analise tecnica ampla usada como referencia historica.
+- `OFFLINE_SYNC.md`: estrategia de uso offline, cache e sincronizacao.
+- `PLANO_VENDAS_MOTOFIX.md`: plano comercial atual.
+- `docs/archive/`: relatorios antigos, auditorias e planos historicos que sairam da raiz.
 - `README.md`: guia rapido para rodar e entender o projeto.
 
 ## Stack

@@ -1,4 +1,3 @@
-import type admin from "firebase-admin";
 import type {
   WhatsAppAutomationRecord,
   WhatsAppContactRecord,
@@ -52,6 +51,12 @@ const normalizeLimit = (limit?: number) => {
   if (!Number.isFinite(parsed)) return 50;
   return Math.min(Math.max(Math.trunc(parsed), 1), 200);
 };
+
+const isArchived = (value: unknown) => Boolean(
+  value
+  && typeof value === "object"
+  && (value as { deletedAt?: unknown }).deletedAt
+);
 
 const buildDefaultAutomation = (userId: string): WhatsAppAutomationRecord => {
   const now = nowIso();
@@ -121,6 +126,7 @@ export const whatsappStore = {
       .get();
 
     return snapshot.docs
+      .filter((doc) => !isArchived(doc.data()))
       .map((doc) => ({ id: doc.id, ...doc.data() } as WhatsAppMessageRecord))
       .reverse();
   },
@@ -152,7 +158,9 @@ export const whatsappStore = {
       .limit(normalizeLimit(limit))
       .get();
 
-    return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as WhatsAppContactRecord));
+    return snapshot.docs
+      .filter((doc) => !isArchived(doc.data()))
+      .map((doc) => ({ id: doc.id, ...doc.data() } as WhatsAppContactRecord));
   },
 
   async getAutomation(context: WhatsAppStoreContext, userId: string) {

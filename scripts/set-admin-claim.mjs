@@ -1,7 +1,9 @@
 import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
-import admin from "firebase-admin";
+import { cert, getApps, initializeApp } from "firebase-admin/app";
+import { getAuth } from "firebase-admin/auth";
+import { getFirestore } from "firebase-admin/firestore";
 
 const usage = `
 Uso:
@@ -38,17 +40,16 @@ if (!fs.existsSync(serviceAccountFilePath)) {
 
 const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountFilePath, "utf8"));
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
-}
+const app = getApps()[0] || initializeApp({
+  credential: cert(serviceAccount),
+});
 
-const db = admin.firestore();
+const auth = getAuth(app);
+const db = getFirestore(app);
 
 for (const email of emails) {
   try {
-    const user = await admin.auth().getUserByEmail(email);
+    const user = await auth.getUserByEmail(email);
     const currentClaims = user.customClaims || {};
     const nextClaims = { ...currentClaims };
 
@@ -58,7 +59,7 @@ for (const email of emails) {
       nextClaims.admin = true;
     }
 
-    await admin.auth().setCustomUserClaims(user.uid, nextClaims);
+    await auth.setCustomUserClaims(user.uid, nextClaims);
 
     const profilePatch = {
       uid: user.uid,

@@ -15,6 +15,7 @@ export const useProductActions = ({ user, onDeleted }: UseProductActionsParams) 
   const [isImportingProducts, setIsImportingProducts] = useState(false);
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
+  const [isDeletingProducts, setIsDeletingProducts] = useState(false);
 
   const importProductsWorkbook = useCallback(async (file: File) => {
     if (!user) return 0;
@@ -32,7 +33,7 @@ export const useProductActions = ({ user, onDeleted }: UseProductActionsParams) 
       return imported;
     } catch (error) {
       console.error('Erro ao importar mercadorias:', error);
-      sonnerToast.error('Nao foi possivel importar a planilha de mercadorias.');
+      sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel importar a planilha de mercadorias.');
       return 0;
     } finally {
       setIsImportingProducts(false);
@@ -87,11 +88,51 @@ export const useProductActions = ({ user, onDeleted }: UseProductActionsParams) 
     }
   }, [onDeleted, user]);
 
+  const deleteProducts = useCallback(async (productIds: string[]) => {
+    if (!user) return false;
+
+    const uniqueProductIds = Array.from(new Set(productIds.filter(Boolean)));
+    if (uniqueProductIds.length === 0) {
+      sonnerToast.error('Nenhuma mercadoria para apagar.');
+      return false;
+    }
+
+    setIsDeletingProducts(true);
+    try {
+      const deleted = await productRepository.deleteMany(
+        user.uid,
+        uniqueProductIds,
+        'Limpeza de mercadorias importadas solicitada pelo usuario'
+      );
+
+      sonnerToast.success(`${deleted} mercadoria(s) movida(s) para a lixeira.`, {
+        action: {
+          label: 'Desfazer',
+          onClick: () => void productRepository.restoreMany(user.uid, uniqueProductIds),
+        },
+      });
+      onDeleted?.();
+      return true;
+    } catch (error) {
+      sonnerToast.error('Nao foi possivel apagar as mercadorias.');
+      try {
+        handleFirestoreError(error, OperationType.DELETE, 'products');
+      } catch {
+        // O helper tambem registra o erro; mantemos o fluxo da tela sem quebrar.
+      }
+      return false;
+    } finally {
+      setIsDeletingProducts(false);
+    }
+  }, [onDeleted, user]);
+
   return {
     deleteProduct,
+    deleteProducts,
     deletingProductId,
     importProductsWorkbook,
     isImportingProducts,
+    isDeletingProducts,
     isSavingProduct,
     saveProduct,
   };

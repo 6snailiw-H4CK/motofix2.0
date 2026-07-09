@@ -34,6 +34,7 @@ import { useMaintenanceActions } from './hooks/useMaintenanceActions';
 import { useMaintenanceStats } from './hooks/useMaintenanceStats';
 import { useMessageLogActions } from './hooks/useMessageLogActions';
 import { useNotifications } from './hooks/useNotifications';
+import { useOfflineDataPreload } from './hooks/useOfflineDataPreload';
 import { useOfflineSyncStatus } from './hooks/useOfflineSyncStatus';
 import { useProductActions } from './hooks/useProductActions';
 import { useServiceTypeActions } from './hooks/useServiceTypeActions';
@@ -69,6 +70,7 @@ export default function App() {
     operationalLogs
   } = useUserCollections({ user, userProfile, isNewUser });
   const offlineSyncStatus = useOfflineSyncStatus();
+  useOfflineDataPreload({ user, userProfile });
   const {
     colorMode,
     expandedTopService,
@@ -333,4 +335,3 @@ export default function App() {
     </ErrorBoundary>
   );
 }
-

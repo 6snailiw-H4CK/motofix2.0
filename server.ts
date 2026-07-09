@@ -1,12 +1,17 @@
 import "dotenv/config";
-import fs from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import express, { NextFunction, Request, Response } from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Stripe from "stripe";
-import admin from "firebase-admin";
+import { registerBackupRoutes } from "./server/backupRoutes";
 import { registerDataResetRoutes } from "./server/dataResetRoutes";
+import {
+  adminAuth,
+  adminDb,
+  firebaseAdminInitialized,
+  firebaseAdminServiceAccountPath,
+} from "./server/firebaseAdmin";
 import { registerFiscalRoutes } from "./server/fiscal/fiscalRoutes";
 import { registerWhatsAppRoutes } from "./server/whatsapp/whatsappRoutes";
 import {
@@ -28,23 +33,11 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
   apiVersion: "2024-04-10",
 });
 
-// Inicializar Firebase Admin
-let db: any = null;
-let firebaseInitialized = false;
-
-const serviceAccountFile = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || "./firebase-service-account.json";
-const serviceAccountFilePath = path.resolve(process.cwd(), serviceAccountFile);
-try {
-  const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountFilePath, "utf8"));
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
-  db = admin.firestore();
-  db.settings({ ignoreUndefinedProperties: true });
-  firebaseInitialized = true;
-} catch (error) {
+const db = adminDb;
+const firebaseInitialized = firebaseAdminInitialized;
+if (!firebaseInitialized) {
   console.warn("⚠️ Firebase initialization failed. Webhook functionality may be limited.");
-  console.warn(`Ensure FIREBASE_SERVICE_ACCOUNT_PATH is set and points to a valid JSON file: ${serviceAccountFilePath}`);
+  console.warn(`Ensure FIREBASE_SERVICE_ACCOUNT_PATH is set and points to a valid JSON file: ${firebaseAdminServiceAccountPath}`);
 }
 
 const STRIPE_PRICE_ID = process.env.STRIPE_PRICE_ID || "price_monthly_49_90"; // Preço mensal R$ 49,90
@@ -63,7 +56,7 @@ type PaymentRequest = Request & {
 };
 
 const requirePaymentAuth = async (req: PaymentRequest, res: Response, next: NextFunction) => {
-  if (!firebaseInitialized) {
+  if (!firebaseInitialized || !adminAuth) {
     return res.status(503).json({ error: "Firebase Admin nao inicializado." });
   }
 
@@ -74,7 +67,7 @@ const requirePaymentAuth = async (req: PaymentRequest, res: Response, next: Next
   }
 
   try {
-    const decoded = await admin.auth().verifyIdToken(token);
+    const decoded = await adminAuth.verifyIdToken(token);
     req.paymentAuth = {
       uid: decoded.uid,
       email: decoded.email,
@@ -102,6 +95,7 @@ async function startServer() {
   app.use("/api/whatsapp/reconnect", scopedRateLimit({ name: "whatsapp-reconnect", windowMs: 10 * 60_000, maxRequests: intEnv("WHATSAPP_CONNECT_RATE_LIMIT_PER_10_MINUTES", 5) }));
   app.use("/api/whatsapp/reconnectentado", scopedRateLimit({ name: "whatsapp-reconnect-legacy", windowMs: 10 * 60_000, maxRequests: intEnv("WHATSAPP_CONNECT_RATE_LIMIT_PER_10_MINUTES", 5) }));
   app.use("/api/whatsapp/send", scopedRateLimit({ name: "whatsapp-send", windowMs: 60_000, maxRequests: intEnv("WHATSAPP_SEND_RATE_LIMIT_PER_MINUTE", 30) }));
+  app.use("/api/whatsapp/reminders/send-due", scopedRateLimit({ name: "whatsapp-reminders-send-due", windowMs: 60_000, maxRequests: intEnv("WHATSAPP_REMINDERS_RATE_LIMIT_PER_MINUTE", 5) }));
   app.use("/api/fiscal/companies", scopedRateLimit({
     name: "fiscal-company-write",
     windowMs: 10 * 60_000,
@@ -113,6 +107,7 @@ async function startServer() {
   app.use("/api/payments/create-checkout", scopedRateLimit({ name: "payments-checkout", windowMs: 15 * 60_000, maxRequests: intEnv("PAYMENTS_CHECKOUT_RATE_LIMIT_PER_15_MINUTES", 10) }));
   app.use("/api/payments/session", scopedRateLimit({ name: "payments-session", windowMs: 60_000, maxRequests: intEnv("PAYMENTS_SESSION_RATE_LIMIT_PER_MINUTE", 60) }));
   app.use("/api/data-reset/operational", scopedRateLimit({ name: "data-reset-operational", windowMs: 60 * 60_000, maxRequests: intEnv("DATA_RESET_RATE_LIMIT_PER_HOUR", 3) }));
+  app.use("/api/backup/full", scopedRateLimit({ name: "backup-full", windowMs: 60 * 60_000, maxRequests: intEnv("BACKUP_FULL_RATE_LIMIT_PER_HOUR", 12) }));
   app.use(bodyParser);
   app.use(express.urlencoded({ extended: false, limit: "64kb", parameterLimit: 100 }));
 
@@ -123,21 +118,28 @@ async function startServer() {
 
   registerFiscalRoutes({
     app,
-    admin,
+    auth: adminAuth,
     db,
     firebaseInitialized,
   });
 
   registerWhatsAppRoutes({
     app,
-    admin,
+    auth: adminAuth,
+    db,
+    firebaseInitialized,
+  });
+
+  registerBackupRoutes({
+    app,
+    auth: adminAuth,
     db,
     firebaseInitialized,
   });
 
   registerDataResetRoutes({
     app,
-    admin,
+    auth: adminAuth,
     db,
     firebaseInitialized,
   });

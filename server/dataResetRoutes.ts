@@ -1,7 +1,6 @@
 import type { Express, NextFunction, Request, Response } from "express";
-import type admin from "firebase-admin";
-
-type FirebaseAdminModule = typeof admin;
+import type { Auth, DecodedIdToken } from "firebase-admin/auth";
+import { FieldPath, type Firestore, type QueryDocumentSnapshot } from "firebase-admin/firestore";
 
 type DataResetRequest = Request & {
   dataResetAuth?: {
@@ -12,8 +11,8 @@ type DataResetRequest = Request & {
 
 type RegisterDataResetRoutesOptions = {
   app: Express;
-  admin: FirebaseAdminModule;
-  db: admin.firestore.Firestore | null;
+  auth: Auth | null;
+  db: Firestore | null;
   firebaseInitialized: boolean;
 };
 
@@ -43,7 +42,7 @@ const getErrorStatus = (error: unknown) => {
 
 const isAdminDataResetUser = async (
   options: RegisterDataResetRoutesOptions,
-  decoded: admin.auth.DecodedIdToken
+  decoded: DecodedIdToken
 ) => {
   if (!options.db) return false;
   if (decoded.admin === true) return true;
@@ -60,7 +59,7 @@ const requireDataResetAuth = (options: RegisterDataResetRoutesOptions) => async 
   res: Response,
   next: NextFunction
 ) => {
-  if (!options.firebaseInitialized || !options.db) {
+  if (!options.firebaseInitialized || !options.auth || !options.db) {
     return res.status(503).json({ error: "Firebase Admin nao inicializado." });
   }
 
@@ -71,7 +70,7 @@ const requireDataResetAuth = (options: RegisterDataResetRoutesOptions) => async 
   }
 
   try {
-    const decoded = await options.admin.auth().verifyIdToken(token);
+    const decoded = await options.auth.verifyIdToken(token);
 
     if (!(await isAdminDataResetUser(options, decoded))) {
       return res.status(403).json({ error: "Apenas administradores podem zerar dados operacionais." });
@@ -87,33 +86,58 @@ const requireDataResetAuth = (options: RegisterDataResetRoutesOptions) => async 
   }
 };
 
-const deleteCollection = async (
-  db: admin.firestore.Firestore,
+const buildResetArchiveMetadata = (
+  resetId: string,
+  resetAt: string,
+  deletedBy: string
+) => ({
+  deletedAt: resetAt,
+  deletedBy,
+  deletedReason: "Arquivado por zeragem operacional",
+  resetAt,
+  resetId,
+});
+
+const archiveCollection = async (
+  db: Firestore,
   userId: string,
-  collectionName: string
+  collectionName: string,
+  metadata: ReturnType<typeof buildResetArchiveMetadata>
 ) => {
   const collectionRef = db.collection("users").doc(userId).collection(collectionName);
-  let deletedCount = 0;
+  let archivedCount = 0;
+  let lastDocument: QueryDocumentSnapshot | null = null;
 
   while (true) {
-    const snapshot = await collectionRef.limit(BATCH_SIZE).get();
+    let query = collectionRef.orderBy(FieldPath.documentId()).limit(BATCH_SIZE);
+    if (lastDocument) {
+      query = query.startAfter(lastDocument);
+    }
+
+    const snapshot = await query.get();
     if (snapshot.empty) break;
 
     const batch = db.batch();
+    let pendingWrites = 0;
     snapshot.docs.forEach((documentSnapshot) => {
-      batch.delete(documentSnapshot.ref);
+      if (documentSnapshot.data()?.deletedAt) return;
+      batch.update(documentSnapshot.ref, metadata);
+      pendingWrites += 1;
     });
-    await batch.commit();
+    if (pendingWrites > 0) {
+      await batch.commit();
+    }
 
-    deletedCount += snapshot.size;
+    archivedCount += pendingWrites;
+    lastDocument = snapshot.docs[snapshot.docs.length - 1];
     if (snapshot.size < BATCH_SIZE) break;
   }
 
-  return deletedCount;
+  return archivedCount;
 };
 
 const resetClientOperationalFields = async (
-  db: admin.firestore.Firestore,
+  db: Firestore,
   userId: string
 ) => {
   const snapshot = await db.collection("users").doc(userId).collection("clients").get();
@@ -194,22 +218,31 @@ export const registerDataResetRoutes = (options: RegisterDataResetRoutesOptions)
       }
 
       const userId = req.dataResetAuth.uid;
-      const deletedByCollection: Record<string, number> = {};
-      let deletedTotal = 0;
+      const resetAt = new Date().toISOString();
+      const resetId = `reset-${resetAt.replace(/[^0-9]/g, "")}-${userId.slice(0, 8)}`;
+      const archiveMetadata = buildResetArchiveMetadata(
+        resetId,
+        resetAt,
+        req.dataResetAuth.email || userId
+      );
+      const archivedByCollection: Record<string, number> = {};
+      let archivedTotal = 0;
 
       for (const collectionName of operationalCollections) {
-        const deleted = await deleteCollection(options.db, userId, collectionName);
-        deletedByCollection[collectionName] = deleted;
-        deletedTotal += deleted;
+        const archived = await archiveCollection(options.db, userId, collectionName, archiveMetadata);
+        archivedByCollection[collectionName] = archived;
+        archivedTotal += archived;
       }
 
       const resetClients = await resetClientOperationalFields(options.db, userId);
 
       res.json({
-        deletedByCollection,
-        deletedTotal,
+        archivedByCollection,
+        archivedTotal,
         preservedCollections: ["clients", "products", "settings", "fiscal_companies"],
+        resetAt,
         resetClients,
+        resetId,
       });
     } catch (error) {
       sendDataResetError(res, error);

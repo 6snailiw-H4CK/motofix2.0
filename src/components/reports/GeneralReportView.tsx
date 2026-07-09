@@ -4,9 +4,11 @@ import type { ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import { DEFAULT_SERVICE_TYPES } from '../../constants/appDefaults';
 import { getServiceTypeKey, getServiceTypeLabel, normalizeServiceTypeOptions } from '../../lib/serviceTypes';
-import type { AppView, Appointment, CashRegisterLaunch, Client, ExpenseRecord, MaintenanceRecord, Settings, Warranty } from '../../types';
+import { cn } from '../../lib/utils';
+import type { AppView, Appointment, CashPaymentMethod, CashRegisterLaunch, Client, ExpenseRecord, MaintenanceRecord, Settings, Warranty } from '../../types';
 
 type PaymentStatusFilter = 'all' | 'Pago' | 'Pendente' | 'Parcial';
+type CashPaymentMethodFilter = 'all' | 'missing' | CashPaymentMethod;
 
 type GeneralReportViewProps = {
   cashLaunches: CashRegisterLaunch[];
@@ -87,6 +89,10 @@ const isCashLaunchReceivable = (launch: CashRegisterLaunch) => (
 
 const getCashLaunchDate = (launch: CashRegisterLaunch) => launch.openingDate || launch.createdAt;
 
+const cashPaymentMethodOptions: CashPaymentMethod[] = ['Pix', 'Dinheiro', 'Debito', 'Credito'];
+
+const getCashPaymentMethodLabel = (launch: CashRegisterLaunch) => launch.paymentMethod || 'Nao informado';
+
 const getClientSearchText = (client?: Client) => `${client?.name || ''} ${client?.bikeModel || ''} ${client?.contact || ''}`.toLowerCase();
 
 const reportControlClass =
@@ -108,6 +114,7 @@ export const GeneralReportView = ({
   const [clientQuery, setClientQuery] = useState('');
   const [serviceTypeFilter, setServiceTypeFilter] = useState('all');
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatusFilter>('all');
+  const [cashPaymentMethodFilter, setCashPaymentMethodFilter] = useState<CashPaymentMethodFilter>('all');
   const [isAbcOpen, setIsAbcOpen] = useState(false);
 
   const clientsById = useMemo(() => new Map(clients.map(client => [client.id, client])), [clients]);
@@ -173,11 +180,18 @@ export const GeneralReportView = ({
       if (paymentStatus === 'Pago' && !isCashLaunchPaid(launch)) return false;
       if (paymentStatus === 'Pendente' && !isCashLaunchReceivable(launch)) return false;
       if (paymentStatus === 'Parcial') return false;
+      if (cashPaymentMethodFilter !== 'all') {
+        if (!isCashLaunchPaid(launch)) return false;
+        const matchesPaymentMethod = cashPaymentMethodFilter === 'missing'
+          ? !launch.paymentMethod
+          : launch.paymentMethod === cashPaymentMethodFilter;
+        if (!matchesPaymentMethod) return false;
+      }
 
       if (!normalizedClientQuery) return true;
-      return `${launch.orderNumber} ${launch.clientName} ${launch.bikeModel || ''} ${launch.status}`.toLowerCase().includes(normalizedClientQuery);
+      return `${launch.orderNumber} ${launch.clientName} ${launch.bikeModel || ''} ${launch.status} ${isCashLaunchPaid(launch) ? launch.paymentMethod || '' : ''}`.toLowerCase().includes(normalizedClientQuery);
     });
-  }, [cashLaunches, endDate, normalizedClientQuery, paymentStatus, serviceTypeFilter, startDate]);
+  }, [cashLaunches, cashPaymentMethodFilter, endDate, normalizedClientQuery, paymentStatus, serviceTypeFilter, startDate]);
 
   const summary = useMemo(() => {
     const serviceGrossRevenue = filteredMaintenances.reduce((sum, maintenance) => sum + toNumber(maintenance.serviceValue), 0);
@@ -406,6 +420,30 @@ export const GeneralReportView = ({
     );
   }, [abcBreakdown]);
 
+  const cashPaymentMethodBreakdown = useMemo(() => {
+    const rows = new Map<CashPaymentMethod | 'missing', { count: number; total: number }>();
+    cashPaymentMethodOptions.forEach((option) => rows.set(option, { count: 0, total: 0 }));
+    rows.set('missing', { count: 0, total: 0 });
+
+    filteredCashLaunches
+      .filter(isCashLaunchPaid)
+      .forEach((launch) => {
+        const method = launch.paymentMethod || 'missing';
+        const current = rows.get(method) || { count: 0, total: 0 };
+        current.count += 1;
+        current.total += toNumber(launch.total);
+        rows.set(method, current);
+      });
+
+    return Array.from(rows.entries())
+      .filter(([method, values]) => method !== 'missing' || values.count > 0)
+      .map(([method, values]) => ({
+        method,
+        label: method === 'missing' ? 'Nao informado' : method,
+        ...values,
+      }));
+  }, [filteredCashLaunches]);
+
   const setCurrentMonth = () => {
     setStartDate(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
     setEndDate(format(new Date(), 'yyyy-MM-dd'));
@@ -421,6 +459,7 @@ export const GeneralReportView = ({
     setClientQuery('');
     setServiceTypeFilter('all');
     setPaymentStatus('all');
+    setCashPaymentMethodFilter('all');
   };
 
   const scrollToSection = (sectionId: string) => {
@@ -539,7 +578,7 @@ export const GeneralReportView = ({
           <Filter className="h-4 w-4 text-primary" />
           <h3 className="text-sm font-bold">Filtros</h3>
         </div>
-        <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-6">
           <label className="space-y-1">
             <span className="px-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">Inicio</span>
             <input
@@ -593,6 +632,20 @@ export const GeneralReportView = ({
               <option value="Parcial">Parcial</option>
             </select>
           </label>
+          <label className="space-y-1">
+            <span className="px-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">Forma caixa</span>
+            <select
+              value={cashPaymentMethodFilter}
+              onChange={(event) => setCashPaymentMethodFilter(event.target.value as CashPaymentMethodFilter)}
+              className={reportControlClass}
+            >
+              <option value="all">Todas</option>
+              {cashPaymentMethodOptions.map(option => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+              <option value="missing">Nao informado</option>
+            </select>
+          </label>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" onClick={setCurrentMonth} className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-bold hover:bg-slate-600">
@@ -617,6 +670,29 @@ export const GeneralReportView = ({
           <Metric title="Atendimentos" value={String(summary.operationsCount)} tone="text-white" compact onClick={() => scrollToSection('report-services-detail')} />
           <Metric title="Receita recorrente" value={toCurrency(summary.recurringRevenue)} tone="text-sky-400" compact onClick={() => scrollToSection('report-services-summary')} />
           <Metric title="Agenda / garantias" value={`${filteredAppointments.length} / ${filteredWarranties.length}`} tone="text-white" compact onClick={() => scrollToSection('report-appointments')} />
+        </div>
+        <div className="mt-3">
+          <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-slate-500">Recebido por forma de pagamento</p>
+          <div className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            {cashPaymentMethodBreakdown.map((row) => {
+              const selected = cashPaymentMethodFilter === row.method;
+              return (
+                <button
+                  key={row.method}
+                  type="button"
+                  onClick={() => setCashPaymentMethodFilter(row.method)}
+                  className={cn(
+                    'rounded-xl border p-3 text-left transition hover:border-primary/50 hover:bg-slate-900/70 focus:outline-none focus:ring-2 focus:ring-primary/40',
+                    selected ? 'border-primary/60 bg-primary/10' : 'border-slate-700/70 bg-slate-900/45'
+                  )}
+                >
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{row.label}</p>
+                  <p className="mt-1 text-lg font-black text-emerald-300">{toCurrency(row.total)}</p>
+                  <p className="text-xs text-slate-500">{row.count} lancamento(s)</p>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </section>
 
@@ -944,7 +1020,7 @@ export const GeneralReportView = ({
 
       <Panel id="report-cash-detail" title="Lancamentos caixa detalhados" icon={WalletCards}>
         <div className="max-w-full overflow-x-auto">
-          <table className="w-full min-w-[700px] text-left text-xs">
+          <table className="w-full min-w-[780px] text-left text-xs">
             <thead className="text-[10px] uppercase tracking-widest text-slate-500">
               <tr>
                 <th className="py-2">O.S.</th>
@@ -953,6 +1029,7 @@ export const GeneralReportView = ({
                 <th>Abertura</th>
                 <th>Status</th>
                 <th>Faturado</th>
+                <th>Forma</th>
                 <th className="text-right">Total</th>
                 <th className="text-right">Recebido</th>
                 <th className="text-right">Aberto</th>
@@ -972,6 +1049,7 @@ export const GeneralReportView = ({
                     <td>{formatDate(getCashLaunchDate(launch))}</td>
                     <td>{launch.status}</td>
                     <td>{launch.invoiced ? 'Sim' : 'Nao'}</td>
+                    <td>{isCashLaunchPaid(launch) ? getCashPaymentMethodLabel(launch) : '-'}</td>
                     <td className="text-right">{toCurrency(total)}</td>
                     <td className="text-right text-emerald-400">{toCurrency(received)}</td>
                     <td className="text-right text-amber-400">{toCurrency(receivable)}</td>
@@ -980,7 +1058,7 @@ export const GeneralReportView = ({
               })}
               {filteredCashLaunches.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="py-6 text-center text-slate-500">Nenhum lancamento caixa no filtro atual.</td>
+                  <td colSpan={10} className="py-6 text-center text-slate-500">Nenhum lancamento caixa no filtro atual.</td>
                 </tr>
               )}
             </tbody>

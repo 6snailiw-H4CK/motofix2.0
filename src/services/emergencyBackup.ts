@@ -117,6 +117,7 @@ export const exportCashLaunchesCsv = (cashLaunches: CashRegisterLaunch[]) => {
     descontos: launch.discountTotal,
     total: launch.total,
     faturada: launch.invoiced ? 'sim' : 'nao',
+    formaPagamento: launch.invoiced ? launch.paymentMethod || '' : '',
     criadaEm: launch.createdAt,
     atualizadaEm: launch.updatedAt,
   })));

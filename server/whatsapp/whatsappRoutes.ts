@@ -1,10 +1,9 @@
 import type { Express, NextFunction, Request, Response } from "express";
-import type admin from "firebase-admin";
+import type { Auth, DecodedIdToken } from "firebase-admin/auth";
+import type { Firestore } from "firebase-admin/firestore";
 import { whatsappStore } from "./whatsappStore";
 import { whatsAppSessionService } from "./WhatsAppSessionService";
 import type { AuthenticatedWhatsAppRequest, WhatsAppStoreContext } from "./types";
-
-type FirebaseAdminModule = typeof admin;
 
 type WhatsAppRequest = Request & {
   whatsappAuth?: AuthenticatedWhatsAppRequest;
@@ -12,8 +11,8 @@ type WhatsAppRequest = Request & {
 
 type RegisterWhatsAppRoutesOptions = {
   app: Express;
-  admin: FirebaseAdminModule;
-  db: admin.firestore.Firestore | null;
+  auth: Auth | null;
+  db: Firestore | null;
   firebaseInitialized: boolean;
 };
 
@@ -67,9 +66,252 @@ const normalizeText = (value: unknown, label: string, maxLength = MAX_MESSAGE_LE
   return text;
 };
 
+type ReminderClient = {
+  id: string;
+  userId?: string;
+  name?: string;
+  bikeModel?: string;
+  contact?: string;
+  phone?: string;
+  whatsapp?: string;
+  status?: string;
+  nextMaintenanceDate?: string;
+  lastAlertDate?: string;
+  notificacaoStatus?: string;
+  deletedAt?: string | null;
+  automation?: {
+    lastAlertDate?: string;
+    lastSendAt?: string;
+    lastSendStatus?: "pending" | "opened_whatsapp" | "sent" | "failed";
+    lastSendChannel?: "whatsapp" | "email" | "manual";
+    sendAttempts?: number;
+    nextSendEligibleAt?: string;
+    lastError?: string | null;
+  };
+};
+
+type ReminderFailure = {
+  clientId: string;
+  clientName: string;
+  error: string;
+};
+
+const DEFAULT_WHATSAPP_TEMPLATE = "Ola {client}, sua {bike} esta agendada para manutencao em {date}. Nos vemos la!";
+
+const stripUndefined = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(stripUndefined);
+  if (!value || typeof value !== "object") return value;
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .map(([key, entryValue]) => [key, stripUndefined(entryValue)])
+  );
+};
+
+const dateOnly = (date = new Date()) => date.toISOString().slice(0, 10);
+
+const parseReminderDate = (value?: string | null) => {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const parsed = new Date(raw.length <= 10 ? `${raw}T00:00:00.000Z` : raw);
+  if (!Number.isFinite(parsed.getTime())) return null;
+
+  return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
+};
+
+const isSameReminderDay = (value: string | undefined, day: string) => {
+  const parsed = parseReminderDate(value);
+  return parsed ? dateOnly(parsed) === day : false;
+};
+
+const formatReminderDate = (value?: string) => {
+  const parsed = parseReminderDate(value);
+  if (!parsed) return "em breve";
+  return new Intl.DateTimeFormat("pt-BR", { timeZone: "UTC" }).format(parsed);
+};
+
+const buildReminderMessage = (template: string, client: ReminderClient) => (
+  template
+    .replace(/{client}/g, client.name || "cliente")
+    .replace(/{bike}/g, client.bikeModel || "moto")
+    .replace(/{date}/g, formatReminderDate(client.nextMaintenanceDate))
+);
+
+const getReminderPhone = (client: ReminderClient) => (
+  client.contact || client.phone || client.whatsapp || ""
+);
+
+const getLastReminderDate = (client: ReminderClient) => (
+  client.automation?.lastAlertDate || client.lastAlertDate
+);
+
+const isReminderEligible = (client: ReminderClient, today: string) => {
+  if (client.deletedAt) return false;
+  if (client.notificacaoStatus === "concluido" && isSameReminderDay(getLastReminderDate(client), today)) return false;
+  if (client.status !== "WARNING" && client.status !== "OVERDUE") return false;
+  if (isSameReminderDay(getLastReminderDate(client), today)) return false;
+
+  const nextEligibleAt = parseReminderDate(client.automation?.nextSendEligibleAt);
+  if (nextEligibleAt && dateOnly(nextEligibleAt) > today) return false;
+
+  return true;
+};
+
+const loadReminderTemplate = async (context: WhatsAppStoreContext, userId: string) => {
+  const snapshot = await context.db.collection("users").doc(userId).collection("settings").doc("config").get();
+  const template = snapshot.data()?.whatsappTemplate;
+  return typeof template === "string" && template.trim() ? template.trim() : DEFAULT_WHATSAPP_TEMPLATE;
+};
+
+const loadReminderClients = async (context: WhatsAppStoreContext, userId: string) => {
+  const snapshot = await context.db.collection("users").doc(userId).collection("clients").get();
+  return snapshot.docs.map((clientDoc) => ({
+    id: clientDoc.id,
+    ...clientDoc.data(),
+  } as ReminderClient));
+};
+
+const saveReminderLog = async (
+  context: WhatsAppStoreContext,
+  userId: string,
+  client: ReminderClient,
+  message: string,
+  status: "sent" | "failed",
+  error?: string
+) => {
+  const now = new Date().toISOString();
+  const payload = stripUndefined({
+    clientId: client.id,
+    clientName: client.name || "Cliente sem nome",
+    bikeModel: client.bikeModel,
+    phone: getReminderPhone(client),
+    channel: "whatsapp",
+    status,
+    trigger: "scheduled",
+    message,
+    createdAt: now,
+    sentAt: status === "sent" ? now : undefined,
+    error: error || null,
+    userId,
+  }) as Record<string, unknown>;
+
+  await context.db.collection("users").doc(userId).collection("message_logs").doc().set(payload);
+};
+
+const updateReminderSuccess = async (
+  context: WhatsAppStoreContext,
+  userId: string,
+  client: ReminderClient,
+  sentAt: string
+) => {
+  const sentDate = dateOnly(new Date(sentAt));
+  const sendAttempts = Number(client.automation?.sendAttempts || 0) + 1;
+  const payload = stripUndefined({
+    lastAlertDate: sentDate,
+    notificacao_enviada: true,
+    notificacaoStatus: "concluido",
+    automation: {
+      ...client.automation,
+      lastAlertDate: sentDate,
+      lastSendAt: sentAt,
+      lastSendStatus: "sent",
+      lastSendChannel: "whatsapp",
+      sendAttempts,
+      lastError: null,
+    },
+  }) as Record<string, unknown>;
+
+  await context.db.collection("users").doc(userId).collection("clients").doc(client.id).update(payload);
+};
+
+const updateReminderFailure = async (
+  context: WhatsAppStoreContext,
+  userId: string,
+  client: ReminderClient,
+  failedAt: string,
+  error: string
+) => {
+  const sendAttempts = Number(client.automation?.sendAttempts || 0) + 1;
+  const payload = stripUndefined({
+    notificacao_enviada: false,
+    notificacaoStatus: "pendente",
+    automation: {
+      ...client.automation,
+      lastSendAt: failedAt,
+      lastSendStatus: "failed",
+      lastSendChannel: "whatsapp",
+      sendAttempts,
+      lastError: error,
+    },
+  }) as Record<string, unknown>;
+
+  await context.db.collection("users").doc(userId).collection("clients").doc(client.id).update(payload);
+};
+
+const sendDueReminders = async (
+  context: WhatsAppStoreContext & { userId: string },
+  limit: number
+) => {
+  const automation = await whatsappStore.getAutomation(context, context.userId);
+  if (!automation.enabled || !automation.appointmentEnabled) {
+    throw httpError(409, "Automacao de agenda e retornos precisa estar ativa para enviar lembretes.");
+  }
+
+  const runAt = new Date().toISOString();
+  const today = dateOnly(new Date(runAt));
+  const template = await loadReminderTemplate(context, context.userId);
+  const clients = await loadReminderClients(context, context.userId);
+  const eligibleClients = clients
+    .filter((client) => isReminderEligible(client, today))
+    .sort((a, b) => String(a.nextMaintenanceDate || "").localeCompare(String(b.nextMaintenanceDate || "")));
+  const limitedClients = eligibleClients.slice(0, limit);
+  const failures: ReminderFailure[] = [];
+  let sent = 0;
+
+  for (const client of limitedClients) {
+    const clientName = client.name || "Cliente sem nome";
+    const phone = getReminderPhone(client);
+    const message = buildReminderMessage(template, client);
+
+    if (!phone.trim()) {
+      const error = "Telefone nao informado.";
+      failures.push({ clientId: client.id, clientName, error });
+      await saveReminderLog(context, context.userId, client, message, "failed", error);
+      await updateReminderFailure(context, context.userId, client, runAt, error);
+      continue;
+    }
+
+    try {
+      await whatsAppSessionService.sendMessage(context, context.userId, { to: phone, text: message });
+      await saveReminderLog(context, context.userId, client, message, "sent");
+      await updateReminderSuccess(context, context.userId, client, runAt);
+      sent += 1;
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : "Falha ao enviar lembrete.";
+      failures.push({ clientId: client.id, clientName, error: messageText });
+      await saveReminderLog(context, context.userId, client, message, "failed", messageText);
+      await updateReminderFailure(context, context.userId, client, runAt, messageText);
+    }
+  }
+
+  const failed = failures.length;
+
+  return {
+    checked: clients.length,
+    eligible: eligibleClients.length,
+    sent,
+    failed,
+    skipped: Math.max(0, clients.length - sent - failed),
+    failures,
+    runAt,
+  };
+};
+
 const isActiveWhatsAppUser = async (
   options: RegisterWhatsAppRoutesOptions,
-  decoded: admin.auth.DecodedIdToken
+  decoded: DecodedIdToken
 ) => {
   if (!options.db) return false;
   if (decoded.admin === true) return true;
@@ -82,7 +324,7 @@ const isActiveWhatsAppUser = async (
 };
 
 const requireWhatsAppAuth = (options: RegisterWhatsAppRoutesOptions) => async (req: WhatsAppRequest, res: Response, next: NextFunction) => {
-  if (!options.firebaseInitialized || !options.db) {
+  if (!options.firebaseInitialized || !options.auth || !options.db) {
     return res.status(503).json({ error: "Firebase Admin nao inicializado. Configure FIREBASE_SERVICE_ACCOUNT_PATH." });
   }
 
@@ -94,7 +336,7 @@ const requireWhatsAppAuth = (options: RegisterWhatsAppRoutesOptions) => async (r
   }
 
   try {
-    const decoded = await options.admin.auth().verifyIdToken(token);
+    const decoded = await options.auth.verifyIdToken(token);
 
     if (!(await isActiveWhatsAppUser(options, decoded))) {
       return res.status(403).json({ error: "Usuario sem permissao ativa para acessar o modulo WhatsApp." });
@@ -201,6 +443,16 @@ export const registerWhatsAppRoutes = (options: RegisterWhatsAppRoutesOptions) =
       const text = normalizeText(req.body?.text, "Mensagem");
       const message = await whatsAppSessionService.sendMessage(context, context.userId, { to, text });
       return res.json({ message });
+    } catch (error) {
+      return sendWhatsAppError(res, error);
+    }
+  });
+
+  options.app.post("/api/whatsapp/reminders/send-due", auth, async (req: WhatsAppRequest, res: Response) => {
+    try {
+      const context = getWhatsAppContext(req, options);
+      const result = await sendDueReminders(context, normalizeLimit(req.body?.limit));
+      return res.json({ result });
     } catch (error) {
       return sendWhatsAppError(res, error);
     }

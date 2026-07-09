@@ -1,13 +1,13 @@
 import { auth } from '../../../firebase';
 import type { WhatsAppApiClient } from '../interfaces';
-import type { WhatsAppSendInput } from '../types';
+import type { WhatsAppContact, WhatsAppMessage, WhatsAppSendInput } from '../types';
 
 type ApiResponse<T> = T & {
   error?: string;
   details?: unknown;
 };
 
-const whatsappBaseUrl = import.meta.env.VITE_WHATSAPP_API_URL || '';
+const whatsappBaseUrl = (import.meta.env.VITE_WHATSAPP_API_URL || '').replace(/\/+$/, '');
 
 const buildUrl = (path: string) => `${whatsappBaseUrl}${path}`;
 
@@ -25,12 +25,32 @@ const getAuthHeaders = async () => {
 };
 
 const parseResponse = async <T>(response: Response): Promise<T> => {
+  const contentType = response.headers.get('content-type') || '';
+  const isJson = contentType.toLowerCase().includes('application/json');
+  if (!isJson) {
+    const body = await response.text().catch(() => '');
+    const looksLikeSpaFallback = response.ok && /<html|<!doctype/i.test(body);
+    throw new Error(
+      looksLikeSpaFallback
+        ? 'Modulo WhatsApp nao esta apontando para o servidor da API. Configure VITE_WHATSAPP_API_URL ou uma rewrite /api/whatsapp para o backend.'
+        : 'Modulo WhatsApp retornou uma resposta invalida.'
+    );
+  }
+
   const payload = await response.json().catch(() => ({})) as ApiResponse<T>;
   if (!response.ok) {
     throw new Error(payload.error || 'Erro ao comunicar com o modulo WhatsApp.');
   }
   return payload as T;
 };
+
+const normalizeMessagesResponse = (payload: { messages?: unknown }) => ({
+  messages: Array.isArray(payload.messages) ? payload.messages as WhatsAppMessage[] : [],
+});
+
+const normalizeContactsResponse = (payload: { contacts?: unknown }) => ({
+  contacts: Array.isArray(payload.contacts) ? payload.contacts as WhatsAppContact[] : [],
+});
 
 const withLimit = (path: string, limit?: number) => {
   if (!limit) return path;
@@ -93,14 +113,14 @@ export const whatsappApi: WhatsAppApiClient = {
     const response = await fetch(buildUrl(withLimit('/api/whatsapp/messages', limit)), {
       headers: await getAuthHeaders(),
     });
-    return parseResponse(response);
+    return normalizeMessagesResponse(await parseResponse(response));
   },
 
   async contacts(limit?: number) {
     const response = await fetch(buildUrl(withLimit('/api/whatsapp/contacts', limit)), {
       headers: await getAuthHeaders(),
     });
-    return parseResponse(response);
+    return normalizeContactsResponse(await parseResponse(response));
   },
 
   async automation() {
@@ -115,6 +135,15 @@ export const whatsappApi: WhatsAppApiClient = {
       method: 'PUT',
       headers: await getAuthHeaders(),
       body: JSON.stringify(input),
+    });
+    return parseResponse(response);
+  },
+
+  async sendDueReminders(limit?: number) {
+    const response = await fetch(buildUrl('/api/whatsapp/reminders/send-due'), {
+      method: 'POST',
+      headers: await getAuthHeaders(),
+      body: JSON.stringify({ limit }),
     });
     return parseResponse(response);
   },

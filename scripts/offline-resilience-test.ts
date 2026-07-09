@@ -131,6 +131,33 @@ assert.equal(
   'deve identificar descritor persistido como retry seguro'
 );
 
+const replayableBatchWrite = deferred();
+const replayableBatchPromise = queue.queueFirestoreVoidWrite(
+  () => replayableBatchWrite.promise,
+  'Teste retry batch seguro',
+  queue.createFirestoreBatchReplayDescriptor([
+    {
+      operation: 'set',
+      path: ['users', 'test-user', 'products', 'produto-1'],
+      data: { userId: 'test-user', description: 'Produto teste' },
+      merge: true,
+    },
+    {
+      operation: 'update',
+      path: ['users', 'test-user', 'products', 'produto-2'],
+      data: { deletedAt: new Date().toISOString() },
+    },
+  ])
+);
+replayableBatchWrite.reject(new Error('falha batch corrigivel simulada'));
+await assert.rejects(replayableBatchPromise, /falha batch corrigivel simulada/);
+await delay(10);
+assert.equal(
+  queue.getFailedWrites().find((write) => write.context === 'Teste retry batch seguro')?.canRetry,
+  true,
+  'deve identificar descritor de batch persistido como retry seguro'
+);
+
 installBrowserEnvironment(false);
 let offlineWaitWasCalled = false;
 const confirmedWhileOffline = await queue.confirmPendingWriteCheckpointRemotely(
@@ -166,4 +193,4 @@ drafts.clearLocalDraft('test:expense');
 drafts.clearLocalDraft('test:warranty');
 assert.equal(drafts.getLocalDraftCount(), 0, 'deve limpar drafts apos conclusao segura');
 
-console.log('Offline resilience tests passed: 10 scenarios.');
+console.log('Offline resilience tests passed: 11 scenarios.');

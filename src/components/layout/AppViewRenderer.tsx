@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState, type Dispatch, type SetStateAction } from 'react';
+import { toast as sonnerToast } from 'sonner';
 import type {
   AppView,
   Appointment,
@@ -39,9 +40,9 @@ import {
   exportCashLaunchesCsv,
   exportClientsCsv,
   exportMotorcyclesCsv,
-  exportOperationalBackupJson,
   exportWarrantiesCsv,
 } from '../../services/emergencyBackup';
+import { systemBackupApi } from '../../services/systemBackupApi';
 
 const AdminView = lazy(() => import('../admin/AdminView').then((module) => ({ default: module.AdminView })));
 const AppointmentsView = lazy(() => import('../appointments/AppointmentsView').then((module) => ({ default: module.AppointmentsView })));
@@ -265,7 +266,36 @@ export const AppViewRenderer = ({
     + messageLogs.length
     + warranties.length
   );
+  const fullBackupItemsCount = (
+    operationalDataCount
+    + clients.length
+    + productCatalog.length
+    + fiscalCompanies.length
+    + operationalLogs.length
+    + 1
+  );
   const [cashLaunchToOpenId, setCashLaunchToOpenId] = useState<string | null>(null);
+
+  const exportFullBackup = async () => {
+    try {
+      const result = await systemBackupApi.downloadFullBackup();
+      sonnerToast.success(`Backup geral exportado: ${result.filename}`);
+    } catch (error) {
+      sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel exportar o backup geral.');
+    }
+  };
+
+  const importFullBackup = async (file: File) => {
+    try {
+      const result = await systemBackupApi.restoreFullBackup(file);
+      sonnerToast.success(`Backup geral restaurado: ${result.restoredTotal} item(ns).`);
+      if (result.skippedDocuments > 0) {
+        sonnerToast.warning(`${result.skippedDocuments} documento(s) foram ignorados por ID invalido.`);
+      }
+    } catch (error) {
+      sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel restaurar o backup geral.');
+    }
+  };
 
   const renderedView = (() => {
     if (view === 'dashboard') {
@@ -443,6 +473,7 @@ export const AppViewRenderer = ({
         <ProductsView
           products={productCatalog}
           isSavingProduct={productActions.isSavingProduct}
+          isDeletingProducts={productActions.isDeletingProducts}
           deletingProductId={productActions.deletingProductId}
           deleteConfirmId={getDeleteConfirmId('product')}
           onSaveProduct={productActions.saveProduct}
@@ -451,6 +482,7 @@ export const AppViewRenderer = ({
               void productActions.deleteProduct(product.id);
             });
           }}
+          onDeleteAllProductsClick={productActions.deleteProducts}
         />
       );
     }
@@ -544,6 +576,7 @@ export const AppViewRenderer = ({
       return (
         <HistoryView
           maintenances={maintenances}
+          cashLaunches={cashLaunches}
           messageLogs={messageLogs}
           messageLogDeleteConfirmId={getDeleteConfirmId('messageLog')}
           serviceTypeOptions={historyServiceTypeOptions}
@@ -556,6 +589,10 @@ export const AppViewRenderer = ({
           }}
           onDeleteMessageLogClick={(log) => {
             confirmOrRequestDelete('messageLog', log.id, () => messageLogActions.deleteMessageLog(log.id));
+          }}
+          onOpenCashLaunch={(launch) => {
+            setCashLaunchToOpenId(launch.id);
+            setView('cash-register');
           }}
           onOpenGeneralReport={() => setView('general-report')}
         />
@@ -646,6 +683,7 @@ export const AppViewRenderer = ({
       return (
         <SettingsView
           clientsCount={clients.length}
+          fullBackupItemsCount={fullBackupItemsCount}
           operationalDataCount={operationalDataCount}
           productsCount={productCatalog.length}
           userEmail={userEmail}
@@ -662,17 +700,8 @@ export const AppViewRenderer = ({
           onExportMotorcyclesEmergencyCsv={() => exportMotorcyclesCsv(clients)}
           onExportCashLaunchesEmergencyCsv={() => exportCashLaunchesCsv(cashLaunches)}
           onExportWarrantiesEmergencyCsv={() => exportWarrantiesCsv(warranties)}
-          onExportOperationalBackup={() => exportOperationalBackupJson({
-            appointments,
-            cashLaunches,
-            clients,
-            expenses: expenseEntries,
-            fiscalInvoices,
-            fiscalLogs,
-            maintenances,
-            messageLogs,
-            warranties,
-          })}
+          onExportFullBackup={exportFullBackup}
+          onImportFullBackup={importFullBackup}
           onImportClientsBackup={clientActions.importClientsBackup}
           isImportingClients={clientActions.isImportingClients}
           onExportProductsBackup={() => downloadProductsWorkbook(productCatalog)}

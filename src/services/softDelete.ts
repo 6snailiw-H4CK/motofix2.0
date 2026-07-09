@@ -2,6 +2,8 @@ export type SoftDeleteMetadata = {
   deletedAt: string | null;
   deletedBy: string | null;
   deletedReason: string | null;
+  resetAt?: string | null;
+  resetId?: string | null;
 };
 
 export const createSoftDeleteMetadata = (

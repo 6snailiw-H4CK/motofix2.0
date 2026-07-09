@@ -86,7 +86,7 @@ export const useSettingsActions = ({ user, settings, setSettings }: UseSettingsA
     try {
       const result = await operationalDataResetApi.resetOperationalData();
       sonnerToast.success(
-        `Zeragem concluida: ${result.deletedTotal} registro(s) removido(s) e ${result.resetClients} cliente(s) preservado(s).`
+        `Zeragem concluida: ${result.archivedTotal} registro(s) arquivado(s) e ${result.resetClients} cliente(s) preservado(s).`
       );
       return true;
     } catch (error) {

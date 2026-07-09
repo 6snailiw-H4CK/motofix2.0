@@ -30,6 +30,7 @@ import type { ColorMode, OperationalLog, Settings, UserProfile } from '../../typ
 
 type SettingsViewProps = {
   clientsCount: number;
+  fullBackupItemsCount: number;
   operationalDataCount: number;
   productsCount: number;
   userEmail?: string | null;
@@ -46,7 +47,8 @@ type SettingsViewProps = {
   onExportMotorcyclesEmergencyCsv: () => void;
   onExportCashLaunchesEmergencyCsv: () => void;
   onExportWarrantiesEmergencyCsv: () => void;
-  onExportOperationalBackup: () => void;
+  onExportFullBackup: () => Promise<void> | void;
+  onImportFullBackup: (file: File) => Promise<void> | void;
   onImportClientsBackup: (file: File) => Promise<void> | void;
   isImportingClients: boolean;
   onExportProductsBackup: () => void;
@@ -61,6 +63,7 @@ type SettingsViewProps = {
 
 export const SettingsView = ({
   clientsCount,
+  fullBackupItemsCount,
   operationalDataCount,
   productsCount,
   userEmail,
@@ -77,7 +80,8 @@ export const SettingsView = ({
   onExportMotorcyclesEmergencyCsv,
   onExportCashLaunchesEmergencyCsv,
   onExportWarrantiesEmergencyCsv,
-  onExportOperationalBackup,
+  onExportFullBackup,
+  onImportFullBackup,
   onImportClientsBackup,
   isImportingClients,
   onExportProductsBackup,
@@ -95,6 +99,9 @@ export const SettingsView = ({
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetConfirmation, setResetConfirmation] = useState('');
   const [resetBackupReady, setResetBackupReady] = useState(false);
+  const [isExportingFullBackup, setIsExportingFullBackup] = useState(false);
+  const [isImportingFullBackup, setIsImportingFullBackup] = useState(false);
+  const fullBackupInputRef = useRef<HTMLInputElement | null>(null);
   const clientImportInputRef = useRef<HTMLInputElement | null>(null);
   const productImportInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -210,6 +217,40 @@ export const SettingsView = ({
     }
   };
 
+  const handleExportFullBackup = async () => {
+    if (isExportingFullBackup) return;
+    setIsExportingFullBackup(true);
+    try {
+      await onExportFullBackup();
+    } finally {
+      setIsExportingFullBackup(false);
+    }
+  };
+
+  const handleFullBackupImportFile = async (file?: File) => {
+    if (!file || isImportingFullBackup) return;
+
+    const confirmed = window.confirm(
+      'Restaurar backup geral vai recriar/atualizar os dados do arquivo no banco atual. Documentos extras nao serao apagados. Deseja continuar?'
+    );
+    if (!confirmed) {
+      if (fullBackupInputRef.current) {
+        fullBackupInputRef.current.value = '';
+      }
+      return;
+    }
+
+    setIsImportingFullBackup(true);
+    try {
+      await onImportFullBackup(file);
+    } finally {
+      setIsImportingFullBackup(false);
+      if (fullBackupInputRef.current) {
+        fullBackupInputRef.current.value = '';
+      }
+    }
+  };
+
   const handleResetOperationalData = async () => {
     if (resetConfirmation !== 'ZERAR' || !resetBackupReady) return;
     const completed = await onResetOperationalData();
@@ -238,9 +279,48 @@ export const SettingsView = ({
                 <h3 className="text-base font-bold text-white">Backups e restauracao</h3>
               </div>
             </div>
-            <p className="text-xs leading-relaxed text-slate-400">Salve copias em XLSX ou restaure dados de clientes e mercadorias sem sair das configuracoes.</p>
+            <p className="text-xs leading-relaxed text-slate-400">Salve uma copia geral em JSON para restauracao completa e mantenha os backups pontuais em XLSX/CSV quando precisar.</p>
 
-            <div className="mt-4 grid gap-3 xl:grid-cols-2">
+            <div className="mt-4 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 w-full min-w-0">
+              <div className="grid gap-3 xl:grid-cols-[1fr_22rem] xl:items-center">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-200">
+                    <DatabaseBackup className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className="text-sm font-bold text-white">Backup geral do sistema</h4>
+                      <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-emerald-300">
+                        {fullBackupItemsCount} item(ns)
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs leading-relaxed text-emerald-100/80">
+                      Clientes, mercadorias, configuracoes, O.S., caixa, trocas de oleo, agenda, garantias, gastos, fiscal, WhatsApp e logs.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleExportFullBackup()}
+                    disabled={isExportingFullBackup}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/15 px-3 text-xs font-bold text-emerald-100 transition-all hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Download className="h-4 w-4" /> {isExportingFullBackup ? 'Exportando...' : 'Exportar geral'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fullBackupInputRef.current?.click()}
+                    disabled={isImportingFullBackup}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-primary/25 bg-primary/15 px-3 text-xs font-bold text-primary transition-all hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Upload className="h-4 w-4" /> {isImportingFullBackup ? 'Restaurando...' : 'Restaurar geral'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-3 xl:grid-cols-2">
               <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 px-4 py-3 w-full min-w-0">
                 <div className="grid gap-3">
                   <div className="min-w-0">
@@ -375,6 +455,13 @@ export const SettingsView = ({
         </div>
       )}
 
+      <input
+        ref={fullBackupInputRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={(event) => void handleFullBackupImportFile(event.target.files?.[0])}
+      />
       <input
         ref={clientImportInputRef}
         type="file"

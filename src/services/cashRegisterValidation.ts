@@ -1,4 +1,6 @@
-import type { CashRegisterLaunch } from '../types';
+import type { CashPaymentMethod, CashRegisterLaunch } from '../types';
+
+const cashPaymentMethods: CashPaymentMethod[] = ['Debito', 'Credito', 'Pix', 'Dinheiro'];
 
 export function validateCashLaunchData(data: Partial<CashRegisterLaunch>) {
   // Business rule: when a launch is not in 'Em Lancamento', it must contain merchandise
@@ -10,5 +12,13 @@ export function validateCashLaunchData(data: Partial<CashRegisterLaunch>) {
     if (items.length === 0 || merchandiseTotal <= 0) {
       throw new Error('O.S. sem mercadoria nao permitida para status finalizado ou pendente.');
     }
+  }
+
+  if (data.paymentMethod && !cashPaymentMethods.includes(data.paymentMethod)) {
+    throw new Error('Forma de pagamento invalida para faturamento da O.S.');
+  }
+
+  if (data.invoiced && !data.paymentMethod) {
+    throw new Error('Informe a forma de pagamento antes de faturar a O.S.');
   }
 }

@@ -1,4 +1,4 @@
-import type admin from "firebase-admin";
+import type { Firestore } from "firebase-admin/firestore";
 
 export type WhatsAppSessionStatus =
   | "disconnected"
@@ -17,7 +17,7 @@ export type AuthenticatedWhatsAppRequest = {
 };
 
 export type WhatsAppStoreContext = {
-  db: admin.firestore.Firestore;
+  db: Firestore;
 };
 
 export type WhatsAppSessionRecord = {

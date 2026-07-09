@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
+  BellRing,
   Bot,
   CheckCircle2,
   CircleAlert,
@@ -112,19 +113,23 @@ export const WhatsAppView = () => {
     refreshQrCode,
     refreshStatus,
     sendMessage,
+    sendDueReminders,
     session,
     updateAutomation,
   } = useWhatsAppConnection({ autoLoad: true });
   const [testPhone, setTestPhone] = useState('');
   const [testMessage, setTestMessage] = useState('Ola! Esta e uma mensagem de teste do MotoFix.');
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [isSendingReminders, setIsSendingReminders] = useState(false);
 
   const meta = getSessionSummary(session?.status);
   const isConnected = session?.connected && session.status === 'connected';
   const shouldPollQr = session?.status === 'connecting' || session?.status === 'qr' || session?.status === 'reconnecting';
   const visibleError = error || (session?.status === 'error' ? session.error : null);
 
-  const sortedMessages = useMemo(() => [...messages].slice(-20).reverse(), [messages]);
+  const safeMessages = Array.isArray(messages) ? messages : [];
+  const safeContacts = Array.isArray(contacts) ? contacts : [];
+  const sortedMessages = useMemo(() => [...safeMessages].slice(-20).reverse(), [safeMessages]);
 
   useEffect(() => {
     void refreshMessages(30).catch(() => null);
@@ -192,6 +197,21 @@ export const WhatsAppView = () => {
     } catch {
       setFeedback(null);
       await refreshMessages(30, { clearError: false }).catch(() => null);
+    }
+  };
+
+  const handleSendDueReminders = async () => {
+    setFeedback(null);
+    setIsSendingReminders(true);
+    try {
+      const result = await sendDueReminders(50);
+      setFeedback(`Lembretes verificados: ${result.checked}. Enviados: ${result.sent}. Falhas: ${result.failed}.`);
+      await refreshMessages(50, { clearError: false }).catch(() => null);
+      await refreshContacts(30).catch(() => null);
+    } catch {
+      setFeedback(null);
+    } finally {
+      setIsSendingReminders(false);
     }
   };
 
@@ -367,9 +387,26 @@ export const WhatsAppView = () => {
                     disabled={!automation?.enabled}
                     icon={PhoneCall}
                     label="Agenda e retornos"
-                    description="Reservado para lembretes automaticos."
+                    description="Envia lembretes de oleo vencendo."
                     onChange={(appointmentEnabled) => void handleAutomationChange({ appointmentEnabled })}
                   />
+                </div>
+                <div className="mt-4 flex flex-col gap-2 rounded-2xl border border-slate-800 bg-slate-950/40 p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-black text-white">Lembretes automaticos</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Com a sessao conectada e Agenda e retornos ativo, o servidor verifica clientes vencendo e registra cada tentativa.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleSendDueReminders()}
+                    disabled={!isConnected || !automation?.enabled || !automation?.appointmentEnabled || loading || isSendingReminders}
+                    className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-xs font-black text-primary transition hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isSendingReminders ? <Loader2 className="h-4 w-4 animate-spin" /> : <BellRing className="h-4 w-4" />}
+                    Enviar agora
+                  </button>
                 </div>
               </div>
 
@@ -416,14 +453,14 @@ export const WhatsAppView = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-500">Contatos</p>
-                <h3 className="text-lg font-black text-white">{contacts.length}</h3>
+                <h3 className="text-lg font-black text-white">{safeContacts.length}</h3>
               </div>
               <Users className="h-5 w-5 text-slate-500" />
             </div>
             <div className="mt-4 max-h-80 space-y-2 overflow-y-auto pr-1">
-              {contacts.length === 0 ? (
+              {safeContacts.length === 0 ? (
                 <p className="rounded-2xl border border-dashed border-slate-800 p-4 text-sm text-slate-500">Nenhum contato recebido ainda.</p>
-              ) : contacts.slice(0, 12).map((contact) => (
+              ) : safeContacts.slice(0, 12).map((contact) => (
                 <div key={contact.id || contact.phone} className="rounded-2xl border border-slate-800 bg-slate-900/40 p-3">
                   <p className="truncate text-sm font-black text-white">{contact.name || formatWhatsAppPhoneForDisplay(contact.phone)}</p>
                   <p className="mt-1 truncate text-xs text-slate-500">{formatWhatsAppPhoneForDisplay(contact.phone)}</p>

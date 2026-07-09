@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { PackagePlus, Pencil, Plus, Save, Search, Trash2, X } from 'lucide-react';
 import { cn, safeFormat } from '../../lib/utils';
 import type { ProductCatalogFormInput, ProductCatalogItem, ProductCatalogVariation } from '../../types';
@@ -6,15 +6,19 @@ import type { ProductCatalogFormInput, ProductCatalogItem, ProductCatalogVariati
 type ProductsViewProps = {
   products: ProductCatalogItem[];
   isSavingProduct: boolean;
+  isDeletingProducts: boolean;
   deletingProductId?: string | null;
   deleteConfirmId?: string | null;
   onSaveProduct: (input: ProductCatalogFormInput, productId?: string) => Promise<boolean> | boolean;
   onDeleteProductClick: (product: ProductCatalogItem) => void;
+  onDeleteAllProductsClick: (productIds: string[]) => Promise<boolean> | boolean;
 };
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
 const inputClass = 'w-full rounded-xl border border-slate-700/70 bg-slate-950/50 px-3 py-2.5 text-sm font-bold text-slate-100 outline-none transition focus:border-primary/60 focus:ring-1 focus:ring-primary/50';
 const labelClass = 'text-[10px] font-black uppercase tracking-[0.2em] text-slate-500';
+const INITIAL_VISIBLE_PRODUCTS = 120;
+const VISIBLE_PRODUCTS_STEP = 120;
 
 const emptyForm: ProductCatalogFormInput = {
   sourceCode: '',
@@ -42,10 +46,12 @@ const makeVariationId = (name: string) => (
 export const ProductsView = ({
   products,
   isSavingProduct,
+  isDeletingProducts,
   deletingProductId,
   deleteConfirmId,
   onSaveProduct,
   onDeleteProductClick,
+  onDeleteAllProductsClick,
 }: ProductsViewProps) => {
   const [search, setSearch] = useState('');
   const [editingProductId, setEditingProductId] = useState<string | undefined>();
@@ -54,27 +60,58 @@ export const ProductsView = ({
   const [isVariationFormOpen, setIsVariationFormOpen] = useState(false);
   const [variationName, setVariationName] = useState('');
   const [variationPriceInput, setVariationPriceInput] = useState('');
+  const [isDeleteAllConfirming, setIsDeleteAllConfirming] = useState(false);
+  const [visibleLimit, setVisibleLimit] = useState(INITIAL_VISIBLE_PRODUCTS);
+  const deferredSearch = useDeferredValue(search);
+
+  const productSearchRows = useMemo(() => (
+    products.map((product) => ({
+      product,
+      searchText: [
+        product.description,
+        product.variation,
+        product.sourceCode,
+        product.ncm,
+        ...(product.variations || []).flatMap((variation) => [
+          variation.name,
+          String(variation.salePrice || 0),
+        ]),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase(),
+    }))
+  ), [products]);
 
   const filteredProducts = useMemo(() => {
-    const term = search.trim().toLowerCase();
+    const term = deferredSearch.trim().toLowerCase();
     if (!term) return products;
 
-    return products.filter((product) => (
-      product.description.toLowerCase().includes(term)
-      || (product.variation || '').toLowerCase().includes(term)
-      || (product.variations || []).some((variation) => (
-        variation.name.toLowerCase().includes(term)
-        || String(variation.salePrice || 0).includes(term)
-      ))
-      || product.sourceCode.toLowerCase().includes(term)
-      || product.ncm.toLowerCase().includes(term)
-    ));
-  }, [products, search]);
+    return productSearchRows
+      .filter(({ searchText }) => searchText.includes(term))
+      .map(({ product }) => product);
+  }, [deferredSearch, productSearchRows, products]);
 
-  const averagePrice = products.length
-    ? products.reduce((sum, product) => sum + Number(product.salePrice || 0), 0) / products.length
-    : 0;
-  const selectedProduct = products.find((product) => product.id === editingProductId);
+  const visibleProducts = useMemo(
+    () => filteredProducts.slice(0, visibleLimit),
+    [filteredProducts, visibleLimit]
+  );
+  const hiddenProductsCount = Math.max(filteredProducts.length - visibleProducts.length, 0);
+  const isSearchPending = search !== deferredSearch;
+
+  const averagePrice = useMemo(() => (
+    products.length
+      ? products.reduce((sum, product) => sum + Number(product.salePrice || 0), 0) / products.length
+      : 0
+  ), [products]);
+  const selectedProduct = useMemo(
+    () => products.find((product) => product.id === editingProductId),
+    [editingProductId, products]
+  );
+
+  useEffect(() => {
+    setVisibleLimit(INITIAL_VISIBLE_PRODUCTS);
+  }, [deferredSearch, products.length]);
 
   const updateForm = (patch: Partial<ProductCatalogFormInput>) => {
     setForm((current) => ({ ...current, ...patch }));
@@ -91,6 +128,7 @@ export const ProductsView = ({
     setForm(emptyForm);
     setSalePriceInput('');
     resetVariationDraft();
+    setIsDeleteAllConfirming(false);
   };
 
   const startEditProduct = (product: ProductCatalogItem) => {
@@ -146,6 +184,21 @@ export const ProductsView = ({
     }
   };
 
+  const handleDeleteAllProducts = async () => {
+    if (products.length === 0 || isDeletingProducts) return;
+
+    if (!isDeleteAllConfirming) {
+      setIsDeleteAllConfirming(true);
+      return;
+    }
+
+    const deleted = await onDeleteAllProductsClick(products.map((product) => product.id));
+    if (deleted) {
+      startNewProduct();
+      setSearch('');
+    }
+  };
+
   return (
     <div className="light-readable-view space-y-5">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -156,6 +209,20 @@ export const ProductsView = ({
         </div>
 
         <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => void handleDeleteAllProducts()}
+            disabled={products.length === 0 || isDeletingProducts}
+            className={cn(
+              'inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black shadow-lg transition disabled:cursor-not-allowed disabled:opacity-50',
+              isDeleteAllConfirming
+                ? 'bg-red-500 text-white shadow-red-500/20 hover:bg-red-600'
+                : 'border border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/20'
+            )}
+          >
+            <Trash2 className="h-4 w-4" />
+            {isDeletingProducts ? 'Apagando...' : isDeleteAllConfirming ? 'Confirmar apagar' : 'Apagar importadas'}
+          </button>
           <button
             type="button"
             onClick={startNewProduct}
@@ -358,7 +425,7 @@ export const ProductsView = ({
                         Nenhuma mercadoria encontrada.
                       </td>
                     </tr>
-                  ) : filteredProducts.map((product) => {
+                  ) : visibleProducts.map((product) => {
                     const isEditing = product.id === editingProductId;
                     const isConfirmingDelete = deleteConfirmId === product.id;
                     const isDeleting = deletingProductId === product.id;
@@ -442,6 +509,25 @@ export const ProductsView = ({
               </table>
             </div>
           </div>
+
+          {filteredProducts.length > 0 && (
+            <div className="mt-3 flex flex-col gap-2 rounded-2xl border border-slate-800 bg-slate-950/35 px-3 py-3 text-xs font-bold text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+              <span>
+                {isSearchPending
+                  ? 'Atualizando busca...'
+                  : `Mostrando ${visibleProducts.length} de ${filteredProducts.length} mercadoria(s).`}
+              </span>
+              {hiddenProductsCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setVisibleLimit((current) => current + VISIBLE_PRODUCTS_STEP)}
+                  className="inline-flex items-center justify-center rounded-xl border border-primary/30 bg-primary/10 px-4 py-2 text-xs font-black text-primary transition hover:bg-primary hover:text-white"
+                >
+                  Mostrar mais {Math.min(VISIBLE_PRODUCTS_STEP, hiddenProductsCount)}
+                </button>
+              )}
+            </div>
+          )}
         </section>
       </div>
 

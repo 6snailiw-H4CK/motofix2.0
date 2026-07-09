@@ -1,7 +1,12 @@
 import { collection, doc, setDoc, updateDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { ProductCatalogFormInput, ProductCatalogItem } from '../types';
-import { createFirestoreReplayDescriptor, queueFirestoreVoidWrite } from './firestoreOfflineQueue';
+import {
+  createFirestoreBatchReplayDescriptor,
+  createFirestoreReplayDescriptor,
+  queueFirestoreVoidWrite,
+  type FirestoreReplayMutation
+} from './firestoreOfflineQueue';
 import { createRestoreMetadata, createSoftDeleteMetadata } from './softDelete';
 
 type ProductWriteData = Omit<ProductCatalogItem, 'id' | 'userId' | 'importedAt' | 'createdAt' | 'updatedAt'>;
@@ -62,20 +67,32 @@ export const productRepository = {
     for (let start = 0; start < products.length; start += 400) {
       const batch = writeBatch(db);
       const chunk = products.slice(start, start + 400);
+      const replayWrites: FirestoreReplayMutation[] = [];
 
       chunk.forEach((product) => {
         const productId = buildProductId(product.sourceCode, product.description, product.variation);
         const ref = doc(productCollectionPath(userId), productId);
-        batch.set(ref, {
+        const data = {
           ...product,
           id: productId,
           userId,
           importedAt,
           updatedAt: importedAt,
-        }, { merge: true });
+        };
+        batch.set(ref, data, { merge: true });
+        replayWrites.push({
+          operation: 'set',
+          path: productReplayPath(userId, productId),
+          data,
+          merge: true,
+        });
       });
 
-      await queueFirestoreVoidWrite(() => batch.commit(), 'Importar mercadorias');
+      await queueFirestoreVoidWrite(
+        () => batch.commit(),
+        'Importar mercadorias',
+        createFirestoreBatchReplayDescriptor(replayWrites)
+      );
       imported += chunk.length;
     }
 
@@ -126,6 +143,38 @@ export const productRepository = {
     );
   },
 
+  async deleteMany(userId: string, productIds: string[], reason?: string) {
+    const uniqueProductIds = Array.from(new Set(productIds.filter(Boolean)));
+    if (uniqueProductIds.length === 0) return 0;
+
+    const metadata = createSoftDeleteMetadata(userId, reason);
+    let deleted = 0;
+
+    for (let start = 0; start < uniqueProductIds.length; start += 400) {
+      const batch = writeBatch(db);
+      const chunk = uniqueProductIds.slice(start, start + 400);
+      const replayWrites: FirestoreReplayMutation[] = [];
+
+      chunk.forEach((productId) => {
+        batch.update(productDocPath(userId, productId), metadata);
+        replayWrites.push({
+          operation: 'update',
+          path: productReplayPath(userId, productId),
+          data: metadata,
+        });
+      });
+
+      await queueFirestoreVoidWrite(
+        () => batch.commit(),
+        'Arquivar mercadorias',
+        createFirestoreBatchReplayDescriptor(replayWrites)
+      );
+      deleted += chunk.length;
+    }
+
+    return deleted;
+  },
+
   async restore(userId: string, productId: string) {
     const metadata = createRestoreMetadata();
     await queueFirestoreVoidWrite(
@@ -133,5 +182,37 @@ export const productRepository = {
       'Restaurar mercadoria',
       createFirestoreReplayDescriptor('update', productReplayPath(userId, productId), metadata)
     );
+  },
+
+  async restoreMany(userId: string, productIds: string[]) {
+    const uniqueProductIds = Array.from(new Set(productIds.filter(Boolean)));
+    if (uniqueProductIds.length === 0) return 0;
+
+    const metadata = createRestoreMetadata();
+    let restored = 0;
+
+    for (let start = 0; start < uniqueProductIds.length; start += 400) {
+      const batch = writeBatch(db);
+      const chunk = uniqueProductIds.slice(start, start + 400);
+      const replayWrites: FirestoreReplayMutation[] = [];
+
+      chunk.forEach((productId) => {
+        batch.update(productDocPath(userId, productId), metadata);
+        replayWrites.push({
+          operation: 'update',
+          path: productReplayPath(userId, productId),
+          data: metadata,
+        });
+      });
+
+      await queueFirestoreVoidWrite(
+        () => batch.commit(),
+        'Restaurar mercadorias',
+        createFirestoreBatchReplayDescriptor(replayWrites)
+      );
+      restored += chunk.length;
+    }
+
+    return restored;
   },
 };

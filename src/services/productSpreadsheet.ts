@@ -147,10 +147,15 @@ const normalizeDocId = (value: string) =>
     .slice(0, 90);
 
 const parseMoney = (value?: string) => {
-  if (!value) return 0;
-  const normalized = value.trim().replace(/\./g, '').replace(',', '.');
+  if (!value?.trim()) return Number.NaN;
+  const normalized = value
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/[^0-9.,-]+/g, '')
+    .replace(/\.(?=.*\.)/g, '')
+    .replace(',', '.');
   const parsed = Number.parseFloat(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
 };
 
 const splitCodeDescription = (value: string, fallbackIndex: number) => {
@@ -184,13 +189,13 @@ const parseVariations = (value?: string): ProductCatalogVariation[] => {
 
       const match = cleaned.match(/^(.+?)(?:\s*[:=-]\s*|\s+)([\d.,]+)$/);
       const name = (match?.[1] || cleaned).trim();
-      const salePrice = parseMoney(match?.[2] || '');
+      const parsedSalePrice = parseMoney(match?.[2] || '');
       if (!name) return null;
 
       return {
         id: `${normalizeDocId(name) || 'variacao'}-${index + 1}`,
         name,
-        salePrice,
+        salePrice: Number.isFinite(parsedSalePrice) ? parsedSalePrice : 0,
       };
     })
     .filter((variation): variation is ProductCatalogVariation => Boolean(variation));
@@ -286,6 +291,230 @@ const dosDateTime = () => {
   const dosTime = (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
   const dosDate = ((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
   return { dosDate, dosTime };
+};
+
+const normalizeHeader = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+
+const findHeaderIndex = (headers: string[], candidates: string[]) =>
+  headers.findIndex((header) =>
+    candidates.some((candidate) => header.includes(normalizeHeader(candidate)))
+  );
+
+const findHeaderRowIndex = (rows: string[][], candidates: string[]) =>
+  rows.findIndex((row) =>
+    row.filter((cell) =>
+      candidates.some((candidate) => normalizeHeader(cell || '').includes(normalizeHeader(candidate)))
+    ).length >= 2
+  );
+
+const inferDescriptionIndex = (row: string[]) =>
+  row.findIndex((cell) => {
+    const value = String(cell || '').trim();
+    return value.length > 0 && /[A-Za-zÀ-ÿ]/.test(value) && !/^\s*R?\$?\s*[\d.,]+\s*$/.test(value);
+  });
+
+const inferSalePriceIndex = (row: string[]) =>
+  row.reduce((candidateIndex, cell, index) => {
+    const value = String(cell || '').trim();
+    const compact = value.replace(/\s+/g, '');
+    const digits = compact.replace(/\D/g, '');
+
+    if (!value) return candidateIndex;
+    if (/^\d{8}$/.test(digits) && !/[,.]/.test(compact)) return candidateIndex;
+    if (!/^(R?\$\s*)?-?[\d.]+(,[\d]{1,2})?$/.test(compact)) return candidateIndex;
+
+    return index;
+  }, -1);
+
+const inferNcmIndex = (row: string[]) =>
+  row.findIndex((cell) => {
+    const value = String(cell || '').replace(/\D/g, '');
+    return value.length === 8;
+  });
+
+const readCell = (row: string[], index: number) => (
+  index >= 0 ? String(row[index] || '').trim() : ''
+);
+
+const indexWithValueOrFallback = (
+  row: string[],
+  headerIndex: number,
+  inferIndex: (row: string[]) => number
+) => {
+  if (headerIndex >= 0 && readCell(row, headerIndex)) return headerIndex;
+  return inferIndex(row);
+};
+
+const worksheetPathFromTarget = (target: string | null) => {
+  if (!target) return null;
+  const normalized = target.replace(/^\/+/, '');
+  return normalized.startsWith('xl/') ? normalized : `xl/${normalized}`;
+};
+
+const getWorksheetPaths = (files: Map<string, Uint8Array>) => {
+  const workbookDoc = readXml(files, 'xl/workbook.xml');
+  const relsDoc = readXml(files, 'xl/_rels/workbook.xml.rels');
+  const paths: string[] = [];
+
+  if (workbookDoc && relsDoc) {
+    const relationships = new Map(
+      Array.from(relsDoc.getElementsByTagName('Relationship')).map((relationship) => [
+        relationship.getAttribute('Id') || '',
+        relationship.getAttribute('Target') || '',
+      ])
+    );
+
+    Array.from(workbookDoc.getElementsByTagName('sheet')).forEach((sheet) => {
+      const relationshipId = sheet.getAttribute('r:id') || sheet.getAttribute('id') || '';
+      const path = worksheetPathFromTarget(relationships.get(relationshipId) || null);
+      if (path && files.has(path) && !paths.includes(path)) {
+        paths.push(path);
+      }
+    });
+  }
+
+  Array.from(files.keys())
+    .filter(name => name.startsWith('xl/worksheets/sheet'))
+    .sort()
+    .forEach((path) => {
+      if (!paths.includes(path)) paths.push(path);
+    });
+
+  return paths;
+};
+
+const parseRowsFromSheet = (sheetDoc: Document, sharedStrings: string[]) => (
+  Array.from(sheetDoc.getElementsByTagName('row')).map((row) => {
+    const values: string[] = [];
+    Array.from(row.getElementsByTagName('c')).forEach((cell) => {
+      const ref = cell.getAttribute('r') || '';
+      values[columnIndexFromRef(ref)] = cellValue(cell, sharedStrings).trim();
+    });
+    return values;
+  })
+);
+
+const parseProductsFromRows = (parsedRows: string[][]): ProductImportRow[] => {
+  const headerCandidates = [
+    'descricao',
+    'descriÃ§Ã£o',
+    'description',
+    'produto',
+    'nome',
+    'item',
+    'mercadoria',
+  ];
+
+  const headerRowIndex = findHeaderRowIndex(parsedRows, [
+    ...headerCandidates,
+    'codigo',
+    'codigo barras',
+    'ncm',
+    'venda',
+    'preco',
+    'valor',
+  ]);
+
+  const fallbackHeaderRowIndex = parsedRows.findIndex((row) =>
+    row.some((cell) =>
+      headerCandidates.some((candidate) =>
+        normalizeHeader(cell || '').includes(normalizeHeader(candidate))
+      )
+    )
+  );
+  const resolvedHeaderRowIndex = headerRowIndex >= 0 ? headerRowIndex : fallbackHeaderRowIndex;
+
+  const headers = parsedRows[resolvedHeaderRowIndex >= 0 ? resolvedHeaderRowIndex : 0] || [];
+  const normalizedHeaders = headers.map((cell) => normalizeHeader(cell || ''));
+
+  const descriptionIndex = findHeaderIndex(normalizedHeaders, [
+    'descricao',
+    'descriÃ§Ã£o',
+    'description',
+    'descricao do produto',
+    'descriÃ§Ã£o do produto',
+    'nome do produto',
+    'nome do item',
+    'produto',
+    'item',
+  ]);
+  const ncmIndex = findHeaderIndex(normalizedHeaders, ['ncm']);
+  const salePriceIndex = findHeaderIndex(normalizedHeaders, [
+    'venda r$',
+    'venda rs',
+    'venda',
+    'valor venda',
+    'valor',
+    'preco',
+    'preÃ§o',
+    'price',
+    'sale price',
+    'sale',
+  ]);
+  const sourceCodeIndex = findHeaderIndex(normalizedHeaders, [
+    'codigo barras',
+    'cÃ³digo barras',
+    'codigo',
+    'cÃ³digo',
+    'code',
+    'source code',
+    'sku',
+    'ean',
+  ]);
+  const variationIndex = findHeaderIndex(normalizedHeaders, [
+    'variaÃ§Ã£o',
+    'variacao',
+    'referencia',
+    'ref',
+    'emb',
+    'embalagem',
+    'tamanho',
+  ]);
+  const variationsIndex = findHeaderIndex(normalizedHeaders, ['variaÃ§Ãµes', 'variacoes', 'variations']);
+  const dataRows = parsedRows.slice(resolvedHeaderRowIndex >= 0 ? resolvedHeaderRowIndex + 1 : 1);
+
+  const products = dataRows.flatMap((row, index) => {
+    const rowDescriptionIndex = indexWithValueOrFallback(row, descriptionIndex, inferDescriptionIndex);
+    const rowSalePriceIndex = indexWithValueOrFallback(row, salePriceIndex, inferSalePriceIndex);
+    const rowNcmIndex = indexWithValueOrFallback(row, ncmIndex, inferNcmIndex);
+    const rowVariationIndex = variationIndex >= 0 && readCell(row, variationIndex) ? variationIndex : -1;
+    const rowVariationsIndex = variationsIndex >= 0 && readCell(row, variationsIndex) ? variationsIndex : -1;
+
+    const rawDescription = readCell(row, rowDescriptionIndex);
+    const variation = readCell(row, rowVariationIndex);
+    const ncm = readCell(row, rowNcmIndex);
+    const salePrice = parseMoney(readCell(row, rowSalePriceIndex));
+    const variations = rowVariationsIndex >= 0 ? parseVariations(row[rowVariationsIndex]) : [];
+
+    if (!rawDescription || !Number.isFinite(salePrice)) return [];
+
+    const rawSourceCode = readCell(row, sourceCodeIndex);
+    const sourceCodeLooksLikeNcm = Boolean(rawSourceCode) && sourceCodeIndex === rowNcmIndex;
+    const { sourceCode, description } = rawSourceCode && !sourceCodeLooksLikeNcm
+      ? { sourceCode: rawSourceCode, description: rawDescription }
+      : splitCodeDescription(rawDescription, index + 1);
+    if (!description) return [];
+
+    return [{
+      id: `produto-${normalizeDocId(sourceCode || description) || index + 1}`,
+      sourceCode,
+      description,
+      variation,
+      variations,
+      ncm,
+      salePrice,
+    }];
+  });
+
+  const unique = new Map<string, ProductImportRow>();
+  products.forEach(product => unique.set(product.id, product));
+  return Array.from(unique.values());
 };
 
 const zipStore = (files: Record<string, string>) => {
@@ -410,7 +639,7 @@ export const downloadProductsWorkbook = (products: ProductCatalogItem[]) => {
   URL.revokeObjectURL(url);
 };
 
-export const parseProductsWorkbook = async (file: File): Promise<ProductImportRow[]> => {
+const parseProductsWorkbookLegacy = async (file: File): Promise<ProductImportRow[]> => {
   const files = await readZipFiles(file);
   const sheetPath = files.has('xl/worksheets/sheet1.xml')
     ? 'xl/worksheets/sheet1.xml'
@@ -434,16 +663,94 @@ export const parseProductsWorkbook = async (file: File): Promise<ProductImportRo
     return values;
   });
 
-  const products = parsedRows.flatMap((row, index) => {
-    const rawDescription = row[0] || '';
-    const variation = row[4] || '';
-    const ncm = row[5] || '';
-    const salePrice = parseMoney(row[11]);
-    const variations = parseVariations(row[13]);
+  const headerCandidates = [
+    'descricao',
+    'descrição',
+    'description',
+    'produto',
+    'nome',
+    'item',
+    'mercadoria',
+  ];
 
-    if (!rawDescription.match(/^\s*\d+\s*-/) || !Number.isFinite(salePrice)) return [];
+  const headerRowIndex = parsedRows.findIndex((row) =>
+    row.some((cell) =>
+      headerCandidates.some((candidate) =>
+        normalizeHeader(cell || '').includes(normalizeHeader(candidate))
+      )
+    )
+  );
 
-    const { sourceCode, description } = splitCodeDescription(rawDescription, index + 1);
+  const headers = parsedRows[headerRowIndex >= 0 ? headerRowIndex : 0] || [];
+  const normalizedHeaders = headers.map((cell) => normalizeHeader(cell || ''));
+
+  const descriptionIndex = findHeaderIndex(normalizedHeaders, [
+    'descricao',
+    'descrição',
+    'description',
+    'descricao do produto',
+    'descrição do produto',
+    'nome do produto',
+    'nome do item',
+    'produto',
+    'item',
+  ]);
+  const ncmIndex = findHeaderIndex(normalizedHeaders, ['ncm']);
+  const salePriceIndex = findHeaderIndex(normalizedHeaders, [
+    'venda r$',
+    'venda rs',
+    'venda',
+    'valor venda',
+    'valor',
+    'preco',
+    'preço',
+    'price',
+    'sale price',
+    'sale',
+  ]);
+  const sourceCodeIndex = findHeaderIndex(normalizedHeaders, [
+    'codigo barras',
+    'código barras',
+    'codigo',
+    'código',
+    'code',
+    'source code',
+    'sku',
+    'ean',
+  ]);
+  const variationIndex = findHeaderIndex(normalizedHeaders, [
+    'variação',
+    'variacao',
+    'variacao',
+    'referencia',
+    'ref',
+    'emb',
+    'embalagem',
+    'tamanho',
+  ]);
+  const variationsIndex = findHeaderIndex(normalizedHeaders, ['variações', 'variacoes', 'variations']);
+
+  const dataRows = parsedRows.slice(headerRowIndex >= 0 ? headerRowIndex + 1 : 1);
+
+  const products = dataRows.flatMap((row, index) => {
+    const rowDescriptionIndex = descriptionIndex >= 0 ? descriptionIndex : inferDescriptionIndex(row);
+    const rowSalePriceIndex = salePriceIndex >= 0 ? salePriceIndex : inferSalePriceIndex(row);
+    const rowNcmIndex = ncmIndex >= 0 ? ncmIndex : inferNcmIndex(row);
+    const rowVariationIndex = variationIndex >= 0 ? variationIndex : inferDescriptionIndex(row.slice(1)) + 1;
+    const rowSourceCodeIndex = sourceCodeIndex >= 0 ? sourceCodeIndex : -1;
+    const rowVariationsIndex = variationsIndex >= 0 ? variationsIndex : -1;
+
+    const rawDescription = rowDescriptionIndex >= 0 ? row[rowDescriptionIndex] || '' : '';
+    const variation = rowVariationIndex >= 0 ? row[rowVariationIndex] || '' : '';
+    const ncm = rowNcmIndex >= 0 ? row[rowNcmIndex] || '' : '';
+    const salePrice = parseMoney(rowSalePriceIndex >= 0 ? row[rowSalePriceIndex] : '');
+    const variations = rowVariationsIndex >= 0 ? parseVariations(row[rowVariationsIndex]) : parseVariations('');
+
+    if (!rawDescription.trim() || !Number.isFinite(salePrice)) return [];
+
+    const { sourceCode, description } = rowSourceCodeIndex >= 0 && row[rowSourceCodeIndex]
+      ? { sourceCode: row[rowSourceCodeIndex].trim(), description: rawDescription.trim() }
+      : splitCodeDescription(rawDescription, index + 1);
     if (!description) return [];
 
     return [{
@@ -457,7 +764,65 @@ export const parseProductsWorkbook = async (file: File): Promise<ProductImportRo
     }];
   });
 
+  if (products.length === 0) {
+    console.warn('parseProductsWorkbook: nenhum produto encontrado', {
+      headers,
+      normalizedHeaders,
+      headerRowIndex,
+      descriptionIndex,
+      salePriceIndex,
+      ncmIndex,
+      sourceCodeIndex,
+      variationIndex,
+      variationsIndex,
+      rowCount: dataRows.length,
+      firstRows: dataRows.slice(0, 5),
+    });
+  }
+
   const unique = new Map<string, ProductImportRow>();
   products.forEach(product => unique.set(product.id, product));
   return Array.from(unique.values());
+};
+
+export const parseProductsWorkbook = async (file: File): Promise<ProductImportRow[]> => {
+  const files = await readZipFiles(file);
+  const sharedStringsDoc = readXml(files, 'xl/sharedStrings.xml');
+  const sharedStrings = sharedStringsDoc
+    ? Array.from(sharedStringsDoc.getElementsByTagName('si')).map(node => node.textContent || '')
+    : [];
+
+  const sheetPaths = getWorksheetPaths(files);
+  if (sheetPaths.length === 0) throw new Error('A planilha nao possui aba de mercadorias.');
+
+  const parsedSheets = sheetPaths.flatMap((sheetPath) => {
+    const sheetDoc = readXml(files, sheetPath);
+    if (!sheetDoc) return [];
+
+    const rows = parseRowsFromSheet(sheetDoc, sharedStrings);
+    const products = parseProductsFromRows(rows);
+    const pricedProducts = products.filter(product => Number(product.salePrice) > 0).length;
+    return [{ sheetPath, products, pricedProducts, rowCount: rows.length }];
+  });
+
+  const bestSheet = parsedSheets.sort((a, b) =>
+    b.pricedProducts - a.pricedProducts
+    || b.products.length - a.products.length
+    || b.rowCount - a.rowCount
+  )[0];
+
+  const products = bestSheet?.products || [];
+
+  if (products.length === 0) {
+    console.warn('parseProductsWorkbook: nenhum produto encontrado', {
+      sheets: parsedSheets.map(sheet => ({
+        sheetPath: sheet.sheetPath,
+        products: sheet.products.length,
+        pricedProducts: sheet.pricedProducts,
+        rowCount: sheet.rowCount,
+      })),
+    });
+  }
+
+  return products;
 };

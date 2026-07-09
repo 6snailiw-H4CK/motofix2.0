@@ -1,14 +1,16 @@
 import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
-import admin from 'firebase-admin';
+import { cert, initializeApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
 
 const env = process.env;
 const serviceAccountPath = path.resolve(process.cwd(), env.FIREBASE_SERVICE_ACCOUNT_PATH || './firebase-service-account.json');
 const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
-admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-const auth = admin.auth();
-const db = admin.firestore();
+const app = initializeApp({ credential: cert(serviceAccount) });
+const auth = getAuth(app);
+const db = getFirestore(app);
 db.settings({ ignoreUndefinedProperties: true });
 
 const testUid = `cliente-removido-test-${Date.now()}`;

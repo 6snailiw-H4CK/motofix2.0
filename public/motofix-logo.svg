@@ -1,31 +1,6 @@
-﻿<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="orangeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#fb923c" />
-      <stop offset="100%" stop-color="#f97316" />
-    </linearGradient>
-    <linearGradient id="whiteGlow" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#f8fafc" stop-opacity="0.95" />
-      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.20" />
-    </linearGradient>
-    <radialGradient id="bgGlow" cx="50%" cy="50%" r="55%">
-      <stop offset="0%" stop-color="#f97316" stop-opacity="0.20" />
-      <stop offset="100%" stop-color="#0f172a" stop-opacity="0" />
-    </radialGradient>
-  </defs>
-
-  <rect width="256" height="256" rx="48" fill="#0f172a" />
-  <circle cx="128" cy="128" r="92" fill="#111827" />
-  <circle cx="128" cy="128" r="92" fill="url(#bgGlow)" />
-  <circle cx="128" cy="128" r="78" fill="#0f172a" stroke="url(#orangeGradient)" stroke-width="10" />
-
-  <path d="M84 164 L106 104 L126 162 L146 104 L168 164" fill="none" stroke="url(#orangeGradient)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" />
-  <path d="M88 146 L88 118 L116 118" stroke="url(#whiteGlow)" stroke-width="8" stroke-linecap="round" />
-  <path d="M168 146 L168 118 L140 118" stroke="url(#whiteGlow)" stroke-width="8" stroke-linecap="round" />
-
-  <circle cx="128" cy="128" r="16" fill="url(#orangeGradient)" />
-  <path d="M128 112 L128 152" stroke="#ffffff" stroke-width="8" stroke-linecap="round" opacity="0.35" />
-  <path d="M112 128 L144 128" stroke="#ffffff" stroke-width="8" stroke-linecap="round" opacity="0.35" />
-
-  <text x="128" y="196" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="30" font-weight="700" fill="#f8fafc">MotoFix</text>
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 120" width="400" height="120" role="img" aria-labelledby="title">
+  <title id="title">MotoFix</title>
+  <rect x="8" y="8" width="104" height="104" rx="22" fill="#f97316" />
+  <text x="60" y="78" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-weight="800" font-size="56" fill="#fff">MF</text>
+  <text x="150" y="78" font-family="Inter, Arial, sans-serif" font-weight="700" font-size="40" fill="#f8fafc">MotoFix</text>
 </svg>

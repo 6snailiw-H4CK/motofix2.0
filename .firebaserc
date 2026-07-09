@@ -1,5 +1,7 @@
 {
   "projects": {
-    "default": "motofix-2-local"
-  }
+    "default": "appmotofix"
+  },
+  "targets": {},
+  "etags": {}
 }

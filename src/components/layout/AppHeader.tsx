@@ -25,9 +25,7 @@ export const AppHeader = ({
 }: AppHeaderProps) => (
   <header className="app-header sticky top-0 z-50 flex items-center justify-between border-b border-primary/10 bg-background-dark/80 px-4 py-3 backdrop-blur-md">
     <div className="flex items-center gap-2">
-      <div className="bg-primary/20 p-1.5 rounded-lg">
-        <Bike className="text-primary w-5 h-5" />
-      </div>
+      <img src="/motofix-icon.svg" alt="MotoFix" className="h-9 w-9 rounded-lg shadow-lg shadow-primary/20" />
       <h1 className="text-lg font-bold tracking-tight">MotoFix</h1>
     </div>
     <div className="flex items-center gap-2">
