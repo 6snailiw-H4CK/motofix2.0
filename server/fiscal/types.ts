@@ -1,4 +1,4 @@
-import type admin from "firebase-admin";
+import type { Firestore } from "firebase-admin/firestore";
 
 export type FiscalEnvironment = "homologation" | "production";
 export type FiscalDocumentModel = "nfse" | "nfe" | "nfce";
@@ -133,6 +133,5 @@ export type FocusRequestContext = {
 };
 
 export type FiscalStoreContext = {
-  db: admin.firestore.Firestore;
+  db: Firestore;
 };
-

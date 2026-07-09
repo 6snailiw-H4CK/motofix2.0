@@ -33,7 +33,20 @@ Arquivo: `src/firebase.ts`
 - O cache usa `CACHE_SIZE_UNLIMITED` para reduzir o risco de descarte de dados locais importantes.
 - Se o cache persistente nao estiver disponivel no navegador, a aplicacao cai para o cache em memoria e registra aviso no console.
 
-### 2. Escritas offline nao travam a interface
+### 2. Pre-carga automatica dos dados do usuario
+
+Arquivos novos/alterados:
+
+- `src/services/offlineDataPreload.ts`
+- `src/hooks/useOfflineDataPreload.ts`
+- `src/App.tsx`
+
+- Depois do primeiro login com internet, o app busca explicitamente perfil, configuracoes e colecoes principais do usuario para preencher o IndexedDB do Firestore.
+- A pre-carga roda novamente quando a conexao volta, quando a aba ganha foco e quando o cache fica com mais de 24 horas.
+- Para administradores ativos, a colecao de usuarios tambem entra na pre-carga.
+- Se uma colecao falhar, as demais continuam sendo armazenadas e a falha fica registrada no console para diagnostico.
+
+### 3. Escritas offline nao travam a interface
 
 Arquivo novo: `src/services/firestoreOfflineQueue.ts`
 
@@ -43,7 +56,7 @@ Arquivo novo: `src/services/firestoreOfflineQueue.ts`
 - Quando o Firebase confirmar a escrita, a pendencia sai do contador.
 - Se o servidor rejeitar depois (por regra de seguranca, permissao ou dado invalido), o erro fica registrado no estado de sincronizacao.
 
-### 3. IDs locais para novos documentos
+### 4. IDs locais para novos documentos
 
 Arquivos alterados:
 
@@ -57,7 +70,7 @@ Arquivos alterados:
 
 Antes, muitos cadastros usavam `addDoc`, que so devolve o ID depois da escrita. Agora o ID e criado localmente com `doc(collection)` e a escrita e feita com `setDoc`. Isso permite que o fluxo continue offline.
 
-### 4. Lotes e atualizacoes tambem entram na fila
+### 5. Lotes e atualizacoes tambem entram na fila
 
 Arquivos alterados:
 
@@ -69,7 +82,7 @@ Arquivos alterados:
 
 Importacoes de mercadorias, ajustes, perfil de usuario, logs e exclusoes tambem usam a fila offline.
 
-### 5. Login e perfil com fallback offline
+### 6. Login e perfil com fallback offline
 
 Arquivo: `src/hooks/useAuthProfile.ts`
 
@@ -78,22 +91,26 @@ Arquivo: `src/hooks/useAuthProfile.ts`
 - O perfil do usuario tenta leitura normal e cai para `getDocFromCache` quando esta offline ou quando a rede demora.
 - O papel `admin` salvo no perfil nao e rebaixado automaticamente quando a claim nao puder ser renovada offline.
 
-Importante: o primeiro login ainda precisa de internet. Depois que usuario, perfil e colecoes ja foram carregados nesse navegador, o uso offline fica disponivel.
+Importante: o primeiro login ainda precisa de internet. Depois que usuario, perfil e colecoes ja foram carregados automaticamente nesse navegador, o uso offline fica disponivel.
 
-### 6. App abre offline depois de ter sido carregado uma vez
+### 7. App abre offline depois de ter sido carregado uma vez
 
-Arquivo: `public/sw.js`
+Arquivos alterados:
+
+- `public/sw.js`
+- `src/services/serviceWorkerRegistration.ts`
 
 - O service worker passou a cachear a casca da aplicacao (`/`, `index.html`, `manifest.json`, logo).
 - Navegacao usa estrategia network-first com fallback para `index.html` em cache.
 - Assets locais usam cache-first com atualizacao em segundo plano.
+- O registro do service worker acontece mais cedo e aciona uma pre-carga reforcada dos assets offline.
 - O comportamento de notificacoes push foi mantido.
 
 Arquivo: `public/manifest.json`
 
-- Os icones deixaram de depender de CDN externa e passaram a usar `/motofix-logo.svg`.
+- Os icones deixaram de depender de CDN externa e passaram a usar `/motofix-icon.svg`.
 
-### 7. Indicador visual de sincronizacao
+### 8. Indicador visual de sincronizacao
 
 Arquivos novos/alterados:
 
@@ -132,12 +149,12 @@ O topo da aplicacao mostra um badge apenas quando necessario:
 ## Como testar manualmente
 
 1. Abra a aplicacao com internet e faca login.
-2. Navegue pelos modulos principais para preencher o cache inicial.
+2. Aguarde o primeiro carregamento concluir; o app prepara o cache de dados automaticamente.
 3. Desconecte a internet do computador.
 4. Crie um cliente, um servico, um gasto ou um agendamento.
 5. Confira que a tela nao fica presa em "salvando" e que aparece o status offline/pendente.
 6. Reconecte a internet.
-7. Aguarde o badge sumir.
+7. Aguarde o badge sumir e a pre-carga de dados atualizar em segundo plano.
 8. Confira no Firebase/Firestore se os documentos foram enviados.
 
 ## Fase 2 - reforco para o piloto de 60 dias
@@ -160,6 +177,7 @@ Status em andamento em 19/06/2026.
 - Checkpoint da fila conciliado com `waitForPendingWrites` depois da reconexao.
 - Contador persistente de falhas de sincronizacao no painel interno.
 - Feedback operacional especifico para gravacoes offline em clientes, O.S., garantias, despesas e agendamentos.
+- Pre-carga automatica de perfil, configuracoes e colecoes principais para uso offline no primeiro carregamento.
 - Parser monetario BR centralizado e aplicado aos fluxos operacionais corrigidos.
 
 ### Em implementacao
@@ -208,5 +226,5 @@ Riscos remanescentes:
 - O navegador integrado nao estava disponivel para validacao visual autenticada nesta sessao.
 - Limpar dados do site apaga drafts em `localStorage` e pode apagar o cache/pendencias do Firestore em IndexedDB.
 - Uma rejeicao por regras/permissao continua impedindo o envio ao servidor; agora ela fica visivel no painel e no contador de falhas.
-- O primeiro login e o carregamento inicial do cache continuam exigindo internet.
+- O primeiro login e a primeira pre-carga automatica do cache continuam exigindo internet.
 - A alteracao de `firestore.rules` precisa ser publicada junto com a Fase 2 para habilitar os logs operacionais em producao.

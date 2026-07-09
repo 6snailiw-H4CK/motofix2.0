@@ -165,9 +165,7 @@ export const SidebarNav = ({
       <div className="flex h-full flex-col">
         <div className="border-b border-slate-800/80 px-4 py-4">
           <div className="flex items-center gap-2.5">
-            <div className="grid h-9 w-9 place-items-center rounded-lg bg-primary text-white shadow-lg shadow-primary/20">
-              <span className="text-sm font-black">M</span>
-            </div>
+            <img src="/motofix-icon.svg" alt="MotoFix" className="h-9 w-9 rounded-lg bg-slate-950 object-cover shadow-lg shadow-primary/20" />
             <div className="min-w-0">
               <p className="text-sm font-black leading-none text-white">MotoFix</p>
               <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.2em] text-primary">Oficina SaaS</p>

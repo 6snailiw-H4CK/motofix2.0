@@ -109,9 +109,11 @@ export const bodyParser = (req: Request, res: Response, next: NextFunction) => {
     return express.raw({ type: "application/json", limit: process.env.WEBHOOK_BODY_LIMIT || "2mb" })(req, res, next);
   }
 
-  const jsonLimit = req.path.startsWith("/api/fiscal/companies")
-    ? process.env.FISCAL_BODY_LIMIT || "6mb"
-    : process.env.JSON_BODY_LIMIT || "512kb";
+  const jsonLimit = req.path.startsWith("/api/backup/")
+    ? process.env.BACKUP_BODY_LIMIT || "50mb"
+    : req.path.startsWith("/api/fiscal/companies")
+      ? process.env.FISCAL_BODY_LIMIT || "6mb"
+      : process.env.JSON_BODY_LIMIT || "512kb";
 
   return express.json({ limit: jsonLimit, strict: true })(req, res, (error) => {
     if (!error) return next();

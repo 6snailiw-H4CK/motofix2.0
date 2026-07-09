@@ -104,7 +104,9 @@ export function useAuthProfile() {
       } catch (error) {
         console.error('Failed to load user profile:', error);
         if (isMounted) {
-          setUserProfile(null);
+          setUserProfile((currentProfile) => (
+            currentProfile?.uid === firebaseUser.uid ? currentProfile : null
+          ));
           setIsNewUser(false);
           setLoading(false);
         }

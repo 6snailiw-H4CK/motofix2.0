@@ -1,5 +1,6 @@
 import { format } from 'date-fns';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { toast as sonnerToast } from 'sonner';
 import {
   Activity,
   ArrowLeft,
@@ -25,6 +26,7 @@ import { cn, safeFormat } from '../../lib/utils';
 import type { CashRegisterDraft } from '../../hooks/useCashRegisterActions';
 import { clearLocalDraft, loadLocalDraft, saveLocalDraft } from '../../services/localDrafts';
 import type {
+  CashPaymentMethod,
   CashRegisterItem,
   CashRegisterLaunch,
   Client,
@@ -61,6 +63,7 @@ type CashRegisterViewProps = {
 
 type MainTab = 'control' | 'history' | 'monitoring';
 type WorkTab = 'opening' | 'items' | 'fiscal';
+type HistoryStatusFilter = 'all' | CashRegisterLaunch['status'];
 type MonitoringStatusFilter = 'all' | CashRegisterLaunch['status'];
 type FiscalKind = 'nfce' | 'nfse';
 type FiscalHistoryFilter = 'all' | 'pending' | 'issued' | 'cancelled';
@@ -78,6 +81,7 @@ type CashRegisterLocalDraft = {
   bikeModel: string;
   status: CashRegisterLaunch['status'];
   isInvoiced: boolean;
+  paymentMethod?: CashPaymentMethod | '';
   openingDate: string;
   expectedDate: string;
   observation: string;
@@ -89,6 +93,13 @@ type CashRegisterLocalDraft = {
 };
 
 const statusOptions: CashRegisterLaunch['status'][] = ['Em Lancamento', 'Finalizado', 'Pendente'];
+const historyStatusOptions: Array<{ value: HistoryStatusFilter; label: string }> = [
+  { value: 'all', label: 'Todos os status' },
+  { value: 'Finalizado', label: 'Finalizado' },
+  { value: 'Pendente', label: 'Pendente' },
+  { value: 'Em Lancamento', label: 'Em lancamento' },
+];
+const cashPaymentMethodOptions: CashPaymentMethod[] = ['Debito', 'Credito', 'Pix', 'Dinheiro'];
 const fiscalStatusOptions: ManualFiscalDocumentStatus[] = ['Nao emitida', 'Emitida', 'Cancelada'];
 const fiscalAttachmentMaxBytes = 180 * 1024;
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -228,6 +239,7 @@ export const CashRegisterView = ({
   const [bikeModel, setBikeModel] = useState('');
   const [status, setStatus] = useState<CashRegisterLaunch['status']>('Em Lancamento');
   const [isInvoiced, setIsInvoiced] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<CashPaymentMethod | ''>('');
   const [openingDate, setOpeningDate] = useState(today());
   const [expectedDate, setExpectedDate] = useState(today());
   const [observation, setObservation] = useState('');
@@ -239,12 +251,14 @@ export const CashRegisterView = ({
   const [productSearch, setProductSearch] = useState('');
   const [isProductPickerOpen, setIsProductPickerOpen] = useState(false);
   const [historySearch, setHistorySearch] = useState('');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<HistoryStatusFilter>('all');
   const [monitoringStatusFilter, setMonitoringStatusFilter] = useState<MonitoringStatusFilter>('all');
-  const [invoiceSuccess, setInvoiceSuccess] = useState<{ orderNumber: string; total: number } | null>(null);
+  const [invoiceSuccess, setInvoiceSuccess] = useState<{ orderNumber: string; paymentMethod: CashPaymentMethod; total: number } | null>(null);
   const [isQuickClientOpen, setIsQuickClientOpen] = useState(false);
   const [isSavingQuickClient, setIsSavingQuickClient] = useState(false);
   const [quickClientForm, setQuickClientForm] = useState<QuickClientInput>({ name: '', contact: '', bikeModel: '' });
   const [isDraftHydrated, setIsDraftHydrated] = useState(false);
+  const productSearchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!draftStorageKey || initialLaunchId) {
@@ -261,6 +275,7 @@ export const CashRegisterView = ({
       setBikeModel(draft.data.bikeModel || '');
       setStatus(draft.data.status || 'Em Lancamento');
       setIsInvoiced(Boolean(draft.data.isInvoiced));
+      setPaymentMethod(draft.data.paymentMethod || '');
       setOpeningDate(draft.data.openingDate || today());
       setExpectedDate(draft.data.expectedDate || today());
       setObservation(draft.data.observation || '');
@@ -301,12 +316,15 @@ export const CashRegisterView = ({
 
   const filteredLaunches = useMemo(() => {
     const search = normalizeSearch(historySearch.trim());
-    if (!search) return cashLaunches;
     return cashLaunches.filter((launch) => {
-      const haystack = normalizeSearch(`${launch.orderNumber} ${launch.clientName} ${launch.status} ${launch.total}`);
+      const matchesStatus = historyStatusFilter === 'all' || launch.status === historyStatusFilter;
+      if (!matchesStatus) return false;
+      if (!search) return true;
+      const launchPaymentMethod = launch.status === 'Finalizado' && launch.invoiced ? launch.paymentMethod || '' : '';
+      const haystack = normalizeSearch(`${launch.orderNumber} ${launch.clientName} ${launch.status} ${launchPaymentMethod} ${launch.total}`);
       return haystack.includes(search);
     });
-  }, [cashLaunches, historySearch]);
+  }, [cashLaunches, historySearch, historyStatusFilter]);
 
   const monitoredLaunches = useMemo(() => (
     monitoringStatusFilter === 'all'
@@ -320,6 +338,17 @@ export const CashRegisterView = ({
     const timer = window.setTimeout(() => setInvoiceSuccess(null), 7000);
     return () => window.clearTimeout(timer);
   }, [invoiceSuccess]);
+
+  useEffect(() => {
+    if (!isProductPickerOpen) return undefined;
+
+    const animationFrameId = window.requestAnimationFrame(() => {
+      productSearchInputRef.current?.focus();
+      productSearchInputRef.current?.select();
+    });
+
+    return () => window.cancelAnimationFrame(animationFrameId);
+  }, [isProductPickerOpen]);
 
   const totals = useMemo(() => {
     const merchandiseGross = items.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0);
@@ -516,38 +545,26 @@ export const CashRegisterView = ({
     const variationName = variation?.name || product.variation || '';
     const salePrice = parsePositiveMoney(variation?.salePrice ?? product.salePrice);
 
-    setItems((current) => {
-      const existing = current.find((item) => (
-        item.productId === product.id
-        && (item.variationId || '') === variationId
-      ));
-      if (existing) {
-        return current.map((item) => (
-          item.id === existing.id ? calculateItem({ ...item, quantity: item.quantity + 1 }) : item
-        ));
-      }
-
-      return [
-        ...current,
-        calculateItem({
-          id: makeId(),
-          productId: product.id,
-          variationId,
-          sourceCode: product.sourceCode,
-          description: product.description,
-          variation: variationName,
-          ncm: product.ncm,
-          quantity: 1,
-          unitPrice: salePrice,
-          discountValue: 0,
-          discountPercent: 0,
-          netUnitPrice: salePrice,
-          total: salePrice,
-          date: openingDate,
-          note: '',
-        }),
-      ];
-    });
+    setItems((current) => [
+      ...current,
+      calculateItem({
+        id: makeId(),
+        productId: product.id,
+        variationId,
+        sourceCode: product.sourceCode,
+        description: product.description,
+        variation: variationName,
+        ncm: product.ncm,
+        quantity: 1,
+        unitPrice: salePrice,
+        discountValue: 0,
+        discountPercent: 0,
+        netUnitPrice: salePrice,
+        total: salePrice,
+        date: openingDate,
+        note: '',
+      }),
+    ]);
     setWorkTab('items');
     setIsProductPickerOpen(false);
   };
@@ -571,6 +588,7 @@ export const CashRegisterView = ({
     setBikeModel(launch.bikeModel || '');
     setStatus(launch.status);
     setIsInvoiced(launch.status === 'Finalizado' && Boolean(launch.invoiced));
+    setPaymentMethod(launch.paymentMethod || '');
     setOpeningDate(launch.openingDate || today());
     setExpectedDate(launch.expectedDate || today());
     setObservation(launch.observation || '');
@@ -601,6 +619,7 @@ export const CashRegisterView = ({
     setBikeModel('');
     setStatus('Em Lancamento');
     setIsInvoiced(false);
+    setPaymentMethod('');
     setOpeningDate(today());
     setExpectedDate(today());
     setObservation('');
@@ -625,6 +644,7 @@ export const CashRegisterView = ({
     setStatus(nextStatus);
     if (nextStatus !== 'Finalizado') {
       setIsInvoiced(false);
+      setPaymentMethod('');
     }
   };
 
@@ -650,6 +670,7 @@ export const CashRegisterView = ({
       orderDiscountPercent: totals.orderDiscountPercent,
       total: totals.total,
       invoiced: finalInvoiced,
+      ...(finalInvoiced && paymentMethod ? { paymentMethod } : {}),
     };
   };
 
@@ -667,6 +688,7 @@ export const CashRegisterView = ({
       || items.length > 0
       || orderDiscountValueInput.trim()
       || orderDiscountPercentInput.trim()
+      || paymentMethod
     );
 
     if (!hasContent) {
@@ -682,6 +704,7 @@ export const CashRegisterView = ({
       bikeModel,
       status,
       isInvoiced,
+      paymentMethod,
       openingDate,
       expectedDate,
       observation,
@@ -691,18 +714,28 @@ export const CashRegisterView = ({
       orderDiscountValueInput,
       orderDiscountPercentInput,
     });
-  }, [bikeModel, clientName, draftStorageKey, editingLaunchId, editingOrderNumber, expectedDate, isDraftHydrated, isInvoiced, items, observation, openingDate, orderDiscountPercentInput, orderDiscountValueInput, request, selectedClientId, servicesExecuted, status]);
+  }, [bikeModel, clientName, draftStorageKey, editingLaunchId, editingOrderNumber, expectedDate, isDraftHydrated, isInvoiced, items, observation, openingDate, orderDiscountPercentInput, orderDiscountValueInput, paymentMethod, request, selectedClientId, servicesExecuted, status]);
 
   const handleSave = async (statusOverride?: CashRegisterLaunch['status'], invoiced = false) => {
     const isInvoiceAction = statusOverride === 'Finalizado' && invoiced;
+    const finalStatus = statusOverride || status;
+    const finalInvoiced = finalStatus === 'Finalizado' && (invoiced || isInvoiced);
+
+    if (finalInvoiced && !paymentMethod) {
+      sonnerToast.error('Informe a forma de pagamento antes de faturar a O.S.');
+      return;
+    }
+
+    const invoicePaymentMethod = finalInvoiced && paymentMethod ? paymentMethod : null;
     const successOrderNumber = editingOrderNumber || 'Novo lancamento';
     const successTotal = totals.total;
     const shouldAutoIssueFiscal = Boolean(invoiced && statusOverride === 'Finalizado' && fiscalAutoIssueEnabled && editingLaunchId);
     const saved = await Promise.resolve(onSaveLaunch(buildDraft(statusOverride, invoiced), editingLaunchId || undefined));
     if (saved) {
-      if (isInvoiceAction) {
+      if (isInvoiceAction && invoicePaymentMethod) {
         setInvoiceSuccess({
           orderNumber: successOrderNumber,
+          paymentMethod: invoicePaymentMethod,
           total: successTotal,
         });
       }
@@ -748,7 +781,7 @@ export const CashRegisterView = ({
             <div>
               <p className="font-black text-white">Faturamento confirmado</p>
               <p className="mt-0.5 text-xs text-emerald-100/80">
-                {invoiceSuccess.orderNumber} foi faturada com sucesso no valor de {compactCurrency(invoiceSuccess.total)}.
+                {invoiceSuccess.orderNumber} foi faturada com sucesso no valor de {compactCurrency(invoiceSuccess.total)} via {invoiceSuccess.paymentMethod}.
               </p>
             </div>
           </div>
@@ -1083,7 +1116,23 @@ export const CashRegisterView = ({
                 </p>
               </div>
 
-              <div className="hidden xl:block" />
+              {status === 'Finalizado' ? (
+                <label className="rounded-lg border border-slate-700/50 bg-slate-950/40 p-2.5">
+                  <span className={labelClass}>Forma de pagamento</span>
+                  <select
+                    value={paymentMethod}
+                    onChange={(event) => setPaymentMethod(event.target.value as CashPaymentMethod | '')}
+                    className={cn(fieldClass, 'mt-1.5')}
+                  >
+                    <option value="">Selecione</option>
+                    {cashPaymentMethodOptions.map((option) => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <div className="hidden xl:block" />
+              )}
 
               <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
                 {status === 'Finalizado' && (
@@ -1106,14 +1155,26 @@ export const CashRegisterView = ({
                 <h3 className="text-lg font-black text-white">{filteredLaunches.length} lancamento(s)</h3>
                 <p className="text-xs text-slate-500">Clique em uma linha para editar, dar baixa ou finalizar.</p>
               </div>
-              <div className="relative w-full lg:w-96">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                <input value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Pesquisar por OS, cliente, status..." className={cn(fieldClass, 'pl-9')} />
+              <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto lg:min-w-[520px]">
+                <select
+                  value={historyStatusFilter}
+                  onChange={(event) => setHistoryStatusFilter(event.target.value as HistoryStatusFilter)}
+                  className={cn(fieldClass, 'sm:w-52')}
+                  aria-label="Filtrar lancamentos por status"
+                >
+                  {historyStatusOptions.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+                <div className="relative min-w-0 flex-1">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                  <input value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder="Pesquisar por OS, cliente, status..." className={cn(fieldClass, 'pl-9')} />
+                </div>
               </div>
             </div>
 
             <div className="overflow-x-auto rounded-xl border border-slate-700/50">
-              <table className="min-w-[1000px] w-full table-fixed text-left text-[13px]">
+              <table className="min-w-[1100px] w-full table-fixed text-left text-[13px]">
                 <thead className="bg-primary/90 text-white">
                   <tr>
                     <th className="w-24 px-2.5 py-1.5">O.S.</th>
@@ -1124,13 +1185,14 @@ export const CashRegisterView = ({
                     <th className="w-28 px-2.5 py-1.5">Placa/Moto</th>
                     <th className="w-28 px-2.5 py-1.5 text-right">Total R$</th>
                     <th className="w-20 px-2.5 py-1.5 text-center">Faturado</th>
+                    <th className="w-28 px-2.5 py-1.5">Forma</th>
                     <th className="w-40 px-2.5 py-1.5 text-right">Acao</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800 bg-slate-950/40">
                   {filteredLaunches.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-3 py-8 text-center text-slate-500">Nenhum lancamento salvo ainda.</td>
+                      <td colSpan={10} className="px-3 py-8 text-center text-slate-500">Nenhum lancamento salvo ainda.</td>
                     </tr>
                   ) : (
                     filteredLaunches.map((launch) => (
@@ -1152,6 +1214,7 @@ export const CashRegisterView = ({
                         <td className="truncate px-2.5 py-1.5 text-slate-400">{launch.bikeModel || '-'}</td>
                         <td className="px-2.5 py-1.5 text-right font-black text-white">{compactCurrency(launch.total)}</td>
                         <td className="px-2.5 py-1.5 text-center">{launch.status === 'Finalizado' && launch.invoiced ? <Check className="mx-auto h-4 w-4 text-emerald-400" /> : '-'}</td>
+                        <td className="px-2.5 py-1.5 text-slate-300">{launch.status === 'Finalizado' && launch.invoiced ? launch.paymentMethod || '-' : '-'}</td>
                         <td className="px-2.5 py-1.5 text-right">
                           <div className="flex justify-end gap-2">
                             <button
@@ -1342,7 +1405,7 @@ export const CashRegisterView = ({
                 <label className={labelClass}>Pesquisa</label>
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                  <input autoFocus value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="Ex: PATIN, filtro, oleo..." className={cn(fieldClass, 'pl-9')} />
+                  <input ref={productSearchInputRef} autoFocus value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="Ex: PATIN, filtro, oleo..." className={cn(fieldClass, 'pl-9')} />
                 </div>
               </div>
               <button type="button" onClick={() => setProductSearch('')} className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-slate-300 hover:bg-slate-800">

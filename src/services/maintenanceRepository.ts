@@ -1,6 +1,12 @@
 import { collection, doc, getDocs, getDocsFromCache, query, setDoc, updateDoc, where, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
-import { createFirestoreReplayDescriptor, queueFirestoreVoidWrite, readFirestoreWithCacheFallback } from './firestoreOfflineQueue';
+import {
+  createFirestoreBatchReplayDescriptor,
+  createFirestoreReplayDescriptor,
+  queueFirestoreVoidWrite,
+  readFirestoreWithCacheFallback,
+  type FirestoreReplayMutation
+} from './firestoreOfflineQueue';
 import { createRestoreMetadata, createSoftDeleteMetadata, isSoftDeleted } from './softDelete';
 
 export type MaintenanceWriteData = Record<string, unknown>;
@@ -59,8 +65,20 @@ export const maintenanceRepository = {
 
     const metadata = createSoftDeleteMetadata(userId, reason || 'Historico do cliente arquivado');
     const batch = writeBatch(db);
-    activeMaintenances.forEach((maintenanceDoc) => batch.update(maintenanceDoc.ref, metadata));
-    await queueFirestoreVoidWrite(() => batch.commit(), 'Arquivar manutencoes do cliente');
+    const replayWrites: FirestoreReplayMutation[] = [];
+    activeMaintenances.forEach((maintenanceDoc) => {
+      batch.update(maintenanceDoc.ref, metadata);
+      replayWrites.push({
+        operation: 'update',
+        path: maintenanceReplayPath(userId, maintenanceDoc.id),
+        data: metadata,
+      });
+    });
+    await queueFirestoreVoidWrite(
+      () => batch.commit(),
+      'Arquivar manutencoes do cliente',
+      createFirestoreBatchReplayDescriptor(replayWrites)
+    );
     return activeMaintenances.length;
   },
 };

@@ -2,6 +2,7 @@ import { format, parseISO } from 'date-fns';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast as sonnerToast } from 'sonner';
 import { AlertService } from '../services/alertService';
+import { getMotoFixServiceWorkerRegistration } from '../services/serviceWorkerRegistration';
 import type { Client } from '../types';
 
 type UseNotificationsParams = {
@@ -35,7 +36,7 @@ const playNotificationSound = () => {
 const showTestNotification = async (registration: ServiceWorkerRegistration | null) => {
   const notificationOptions: NotificationOptions = {
     body: 'As notificacoes do MotoFix estao funcionando neste navegador.',
-    icon: '/motofix-logo.svg',
+    icon: '/motofix-icon.svg',
     tag: 'motofix-test-notification',
     data: { url: '/' },
   };
@@ -64,33 +65,15 @@ export const useNotifications = ({ clients }: UseNotificationsParams) => {
       setNotificationPermission(window.Notification.permission);
     }
 
-    if (import.meta.env.DEV && 'serviceWorker' in navigator) {
-      void Promise.all([
-        navigator.serviceWorker.getRegistrations()
-          .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister()))),
-        'caches' in window
-          ? window.caches.keys().then((cacheNames) => Promise.all(
-            cacheNames
-              .filter((cacheName) => cacheName.startsWith('motofix-'))
-              .map((cacheName) => window.caches.delete(cacheName))
-          ))
-          : Promise.resolve([]),
-      ]).catch((error) => {
-        console.warn('Falha ao limpar o cache de desenvolvimento:', error);
+    let isCurrent = true;
+    getMotoFixServiceWorkerRegistration()
+      .then((registration) => {
+        if (isCurrent) setSwRegistration(registration);
       });
-      return;
-    }
 
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js')
-        .then((registration) => {
-          setSwRegistration(registration);
-          console.log('Service worker registrado em:', registration.scope);
-        })
-        .catch((error) => {
-          console.warn('Falha ao registrar service worker:', error);
-        });
-    }
+    return () => {
+      isCurrent = false;
+    };
   }, []);
 
   const requestNotificationPermission = useCallback(async () => {
@@ -145,7 +128,7 @@ export const useNotifications = ({ clients }: UseNotificationsParams) => {
     const nextDate = client.nextMaintenanceDate ? format(parseISO(client.nextMaintenanceDate), 'dd/MM/yyyy') : 'em breve';
     const notificationOptions: NotificationOptions & { renotify?: boolean } = {
       body: `Cliente ${client.name} tem manuten\u00e7\u00e3o agendada para ${nextDate}.`,
-      icon: '/motofix-logo.svg',
+      icon: '/motofix-icon.svg',
       tag: `motofix-reminder-${client.id}`,
       renotify: true,
       data: { url: '/' },

@@ -79,21 +79,30 @@ export const useWhatsAppConnection = (options: UseWhatsAppConnectionOptions = {}
 
   const sendMessage = useCallback(async (input: WhatsAppSendInput) => run(async () => {
     const response = await whatsappApi.send(input);
-    setMessages((current) => [...current, response.message]);
+    setMessages((current) => [...(Array.isArray(current) ? current : []), response.message]);
     return response.message;
   }), [run]);
 
   const refreshMessages = useCallback(async (limit?: number, runOptions?: RunOptions) => run(async () => {
     const response = await whatsappApi.messages(limit);
-    setMessages(response.messages);
+    setMessages(Array.isArray(response.messages) ? response.messages : []);
     return response.messages;
   }, runOptions), [run]);
 
   const refreshContacts = useCallback(async (limit?: number) => run(async () => {
     const response = await whatsappApi.contacts(limit);
-    setContacts(response.contacts);
+    setContacts(Array.isArray(response.contacts) ? response.contacts : []);
     return response.contacts;
   }), [run]);
+
+  const sendDueReminders = useCallback(async (limit?: number) => run(async () => {
+    const response = await whatsappApi.sendDueReminders(limit);
+    await Promise.all([
+      refreshMessages(30, { clearError: false }).catch(() => null),
+      refreshContacts(30).catch(() => null),
+    ]);
+    return response.result;
+  }), [refreshContacts, refreshMessages, run]);
 
   const updateAutomation = useCallback(async (input: Partial<Pick<WhatsAppAutomation, 'enabled' | 'aiEnabled' | 'autoReplyEnabled' | 'appointmentEnabled'>>) => run(async () => {
     const response = await whatsappApi.updateAutomation(input);
@@ -121,6 +130,7 @@ export const useWhatsAppConnection = (options: UseWhatsAppConnectionOptions = {}
     refreshQrCode,
     refreshStatus,
     sendMessage,
+    sendDueReminders,
     session,
     updateAutomation,
   };

@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
-import { endOfMonth, format, isWithinInterval, parseISO, startOfMonth } from 'date-fns';
+import { endOfMonth, format, isValid, isWithinInterval, parseISO, startOfMonth } from 'date-fns';
 import { CheckCircle, CheckCircle2, ChevronRight, DollarSign, FileText, Filter, MessageCircle, RefreshCw, Trash2, Wrench } from 'lucide-react';
 import { cn, safeFormat } from '../../lib/utils';
-import type { MaintenanceRecord, MessageLog } from '../../types';
+import type { CashRegisterLaunch, MaintenanceRecord, MessageLog } from '../../types';
 
 type HistoryFilters = {
   startDate: string;
@@ -14,9 +14,33 @@ type HistoryFilters = {
 
 type HistorySection = 'recorrentes' | 'eventuais';
 type TopPanel = 'filters' | 'messageLogs' | null;
+type HistoryRecordSource = 'maintenance' | 'cashLaunch';
+
+type HistoryRecord = {
+  id: string;
+  source: HistoryRecordSource;
+  sourceLabel: string;
+  clientName: string;
+  bikeModel?: string;
+  date: string;
+  serviceType: string;
+  serviceValue: number;
+  isRecurringRevenue: boolean;
+  statusPagamento?: MaintenanceRecord['statusPagamento'];
+  valorPago?: number;
+  saldoDevedor?: number;
+  detailText?: string;
+  orderNumber?: string;
+  cashStatus?: CashRegisterLaunch['status'];
+  paymentMethod?: CashRegisterLaunch['paymentMethod'];
+  itemCount?: number;
+  maintenance?: MaintenanceRecord;
+  cashLaunch?: CashRegisterLaunch;
+};
 
 type HistoryViewProps = {
   maintenances: MaintenanceRecord[];
+  cashLaunches: CashRegisterLaunch[];
   messageLogs: MessageLog[];
   messageLogDeleteConfirmId?: string | null;
   serviceTypeOptions: string[];
@@ -26,8 +50,11 @@ type HistoryViewProps = {
   onConfirmPayment: (record: MaintenanceRecord) => Promise<void> | void;
   onDeleteMaintenanceClick: (record: MaintenanceRecord) => void;
   onDeleteMessageLogClick: (log: MessageLog) => void;
+  onOpenCashLaunch: (launch: CashRegisterLaunch) => void;
   onOpenGeneralReport: () => void;
 };
+
+const CASH_LAUNCH_SERVICE_TYPE = 'Lancamento Caixa';
 
 const initialFilters = (): HistoryFilters => ({
   startDate: format(startOfMonth(new Date()), 'yyyy-MM-dd'),
@@ -37,8 +64,96 @@ const initialFilters = (): HistoryFilters => ({
   isRecurring: 'all',
 });
 
+const parseHistoryDate = (value: string) => {
+  const parsed = parseISO(value);
+  return isValid(parsed) ? parsed : null;
+};
+
+const isHistoryDateWithinRange = (value: string, startDate: string, endDate: string) => {
+  const recordDate = parseHistoryDate(value);
+  const start = parseHistoryDate(startDate);
+  const end = parseHistoryDate(endDate);
+
+  return Boolean(recordDate && start && end && isWithinInterval(recordDate, { start, end }));
+};
+
+const compactText = (value: string, maxLength = 80) => (
+  value.length > maxLength ? `${value.slice(0, maxLength - 3)}...` : value
+);
+
+const getCashLaunchDate = (launch: CashRegisterLaunch) => launch.openingDate || launch.createdAt;
+
+const getCashLaunchServiceType = (launch: CashRegisterLaunch) => {
+  const serviceText = [launch.servicesExecuted, launch.request]
+    .map((value) => String(value || '').trim())
+    .find(Boolean);
+
+  if (serviceText) return compactText(serviceText);
+
+  const itemDescriptions = Array.from(new Set(
+    (launch.items || [])
+      .map((item) => String(item.description || '').trim())
+      .filter(Boolean)
+  )).slice(0, 2);
+
+  return itemDescriptions.length > 0 ? compactText(itemDescriptions.join(', ')) : CASH_LAUNCH_SERVICE_TYPE;
+};
+
+const getCashLaunchDetailText = (launch: CashRegisterLaunch) => {
+  const items = (launch.items || [])
+    .map((item) => `${item.quantity}x ${item.description}`)
+    .filter(Boolean)
+    .slice(0, 3);
+
+  if (items.length > 0) return compactText(items.join(' | '), 120);
+  return compactText(launch.observation || launch.request || launch.servicesExecuted || 'Ordem de servico sem itens detalhados.', 120);
+};
+
+const getCashLaunchPaymentStatus = (launch: CashRegisterLaunch): MaintenanceRecord['statusPagamento'] | undefined => {
+  if (launch.invoiced) return 'Pago';
+  if (launch.status === 'Pendente' || launch.status === 'Finalizado') return 'Pendente';
+  return undefined;
+};
+
+const toMaintenanceHistoryRecord = (record: MaintenanceRecord): HistoryRecord => ({
+  id: record.id,
+  source: 'maintenance',
+  sourceLabel: 'Servico/Oleo',
+  clientName: record.clientName || 'Cliente sem nome',
+  bikeModel: record.bikeModel,
+  date: record.date,
+  serviceType: record.serviceType || 'Servico',
+  serviceValue: Number(record.serviceValue) || 0,
+  isRecurringRevenue: Boolean(record.isRecurringRevenue),
+  statusPagamento: record.statusPagamento,
+  valorPago: record.valorPago,
+  saldoDevedor: record.saldoDevedor,
+  detailText: record.notes,
+  maintenance: record,
+});
+
+const toCashLaunchHistoryRecord = (launch: CashRegisterLaunch): HistoryRecord => ({
+  id: launch.id,
+  source: 'cashLaunch',
+  sourceLabel: CASH_LAUNCH_SERVICE_TYPE,
+  clientName: launch.clientName || 'Cliente sem nome',
+  bikeModel: launch.bikeModel,
+  date: getCashLaunchDate(launch),
+  serviceType: getCashLaunchServiceType(launch),
+  serviceValue: Number(launch.total) || 0,
+  isRecurringRevenue: false,
+  statusPagamento: getCashLaunchPaymentStatus(launch),
+  detailText: getCashLaunchDetailText(launch),
+  orderNumber: launch.orderNumber,
+  cashStatus: launch.status,
+  paymentMethod: launch.paymentMethod,
+  itemCount: launch.items?.length || 0,
+  cashLaunch: launch,
+});
+
 export const HistoryView = ({
   maintenances,
+  cashLaunches,
   messageLogs,
   messageLogDeleteConfirmId,
   serviceTypeOptions,
@@ -48,6 +163,7 @@ export const HistoryView = ({
   onConfirmPayment,
   onDeleteMaintenanceClick,
   onDeleteMessageLogClick,
+  onOpenCashLaunch,
   onOpenGeneralReport,
 }: HistoryViewProps) => {
   const [filters, setFilters] = useState<HistoryFilters>(initialFilters);
@@ -55,15 +171,34 @@ export const HistoryView = ({
   const [serviceSection, setServiceSection] = useState<Record<string, HistorySection>>({});
   const [openTopPanel, setOpenTopPanel] = useState<TopPanel>(null);
 
+  const allServiceTypeOptions = useMemo(() => {
+    const cashOptions = cashLaunches.flatMap((launch) => [
+      CASH_LAUNCH_SERVICE_TYPE,
+      getCashLaunchServiceType(launch),
+      ...(launch.items || []).map((item) => item.description),
+    ]);
+
+    return Array.from(new Set(
+      [...serviceTypeOptions, ...cashOptions]
+        .map((option) => String(option || '').trim())
+        .filter(Boolean)
+    )).sort((a, b) => a.localeCompare(b));
+  }, [cashLaunches, serviceTypeOptions]);
+
   const groupedHistory = useMemo(() => {
-    const filtered = maintenances
+    const records = [
+      ...maintenances.map(toMaintenanceHistoryRecord),
+      ...cashLaunches.map(toCashLaunchHistoryRecord),
+    ];
+
+    const filtered = records
       .filter((record) => {
-        const recordDate = parseISO(record.date);
-        const start = parseISO(filters.startDate);
-        const end = parseISO(filters.endDate);
-        const matchesDate = isWithinInterval(recordDate, { start, end });
+        const matchesDate = isHistoryDateWithinRange(record.date, filters.startDate, filters.endDate);
         const matchesClient = record.clientName.toLowerCase().includes(filters.clientName.toLowerCase());
-        const matchesType = filters.serviceType === 'all' || record.serviceType === filters.serviceType;
+        const matchesType = filters.serviceType === 'all'
+          || record.serviceType === filters.serviceType
+          || record.sourceLabel === filters.serviceType
+          || Boolean(record.cashLaunch?.items?.some((item) => item.description === filters.serviceType));
         const matchesRecurring =
           filters.isRecurring === 'all' ||
           (filters.isRecurring === 'yes' && record.isRecurringRevenue) ||
@@ -73,7 +208,7 @@ export const HistoryView = ({
       })
       .sort((a, b) => b.date.localeCompare(a.date));
 
-    const grouped = new Map<string, MaintenanceRecord[]>();
+    const grouped = new Map<string, HistoryRecord[]>();
     filtered.forEach((record) => {
       if (!grouped.has(record.clientName)) {
         grouped.set(record.clientName, []);
@@ -84,16 +219,18 @@ export const HistoryView = ({
     return Array.from(grouped.entries())
       .map(([clientName, services]) => ({ clientName, services }))
       .sort((a, b) => a.clientName.localeCompare(b.clientName));
-  }, [filters, maintenances]);
+  }, [cashLaunches, filters, maintenances]);
+
+  const totalHistoryRecords = useMemo(
+    () => groupedHistory.reduce((sum, group) => sum + group.services.length, 0),
+    [groupedHistory]
+  );
 
   const filteredMessageLogs = useMemo(() => {
     return messageLogs
       .filter((log) => {
         if (!log.createdAt) return false;
-        const createdAt = parseISO(log.createdAt);
-        const start = parseISO(filters.startDate);
-        const end = parseISO(filters.endDate);
-        const matchesDate = isWithinInterval(createdAt, { start, end });
+        const matchesDate = isHistoryDateWithinRange(log.createdAt, filters.startDate, filters.endDate);
         const matchesClient = (log.clientName || '').toLowerCase().includes(filters.clientName.toLowerCase());
         return matchesDate && matchesClient;
       })
@@ -140,7 +277,7 @@ export const HistoryView = ({
           >
             <p className="text-[10px] uppercase text-slate-400 tracking-widest font-bold">Historico filtrado</p>
             <p className="text-sm font-bold text-white">{groupedHistory.length} cliente(s)</p>
-            <p className="text-[9px] text-slate-500 mt-1">Servicos no periodo</p>
+            <p className="text-[9px] text-slate-500 mt-1">{totalHistoryRecords} registro(s)</p>
           </button>
 
           <button
@@ -225,7 +362,7 @@ export const HistoryView = ({
                 className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-1.5 text-[10px] focus:ring-1 focus:ring-primary outline-none"
               >
                 <option value="all">Todos</option>
-                {serviceTypeOptions.map((option) => (
+                {allServiceTypeOptions.map((option) => (
                   <option key={option} value={option}>{option}</option>
                 ))}
               </select>
@@ -325,7 +462,7 @@ export const HistoryView = ({
       <div className="space-y-2">
         {groupedHistory.length === 0 ? (
           <div className="text-center py-8 bg-slate-800/10 rounded-xl border border-dashed border-slate-700/30">
-            <p className="text-[10px] text-slate-600">Nenhum servico registrado no periodo.</p>
+            <p className="text-[10px] text-slate-600">Nenhum registro encontrado no periodo.</p>
           </div>
         ) : (
           groupedHistory.map(({ clientName, services }) => {
@@ -358,7 +495,7 @@ export const HistoryView = ({
                     <ChevronRight className={cn('w-5 h-5 transition-transform', isExpanded ? 'rotate-90' : '')} />
                     <div>
                       <p className="font-bold text-sm">{clientName}</p>
-                      <p className="text-[9px] text-slate-500">{services.length} servico(s)</p>
+                      <p className="text-[9px] text-slate-500">{services.length} registro(s)</p>
                     </div>
                   </div>
                   <div className="text-right">
@@ -401,19 +538,25 @@ export const HistoryView = ({
                         </div>
                       ) : (
                         sectionItems.map((record) => {
-                          const isProcessing = processingId === record.id;
-                          const isConfirmingDelete = deleteConfirmId === record.id;
+                          const isMaintenance = record.source === 'maintenance' && record.maintenance;
+                          const isCashLaunch = record.source === 'cashLaunch' && record.cashLaunch;
+                          const isProcessing = isMaintenance && processingId === record.id;
+                          const isConfirmingDelete = isMaintenance && deleteConfirmId === record.id;
 
                           return (
-                            <div key={record.id} className="px-4 py-3 flex items-center justify-between group hover:bg-slate-800/30 transition-all rounded-2xl">
+                            <div key={`${record.source}-${record.id}`} className="px-4 py-3 flex items-center justify-between group hover:bg-slate-800/30 transition-all rounded-2xl">
                               <div className="flex items-center gap-3 flex-1">
-                                <div className={cn('p-2 rounded-lg', record.isRecurringRevenue ? 'bg-primary/10 text-primary' : 'bg-slate-700/50 text-slate-400')}>
-                                  {record.isRecurringRevenue ? <RefreshCw className="w-4 h-4" /> : <Wrench className="w-4 h-4" />}
+                                <div className={cn('p-2 rounded-lg', record.isRecurringRevenue ? 'bg-primary/10 text-primary' : isCashLaunch ? 'bg-sky-500/10 text-sky-400' : 'bg-slate-700/50 text-slate-400')}>
+                                  {record.isRecurringRevenue ? <RefreshCw className="w-4 h-4" /> : isCashLaunch ? <FileText className="w-4 h-4" /> : <Wrench className="w-4 h-4" />}
                                 </div>
-                                <div>
+                                <div className="min-w-0">
                                   <div className="flex items-center gap-2">
-                                    <p className="font-bold text-xs">{record.serviceType || 'Servico'}</p>
-                                    {record.isRecurringRevenue ? (
+                                    <p className="font-bold text-xs">{record.serviceType || record.sourceLabel}</p>
+                                    {isCashLaunch ? (
+                                      <span className="text-[7px] bg-sky-500/20 text-sky-300 px-1 rounded uppercase font-bold">
+                                        {record.orderNumber || 'OS Caixa'}
+                                      </span>
+                                    ) : record.isRecurringRevenue ? (
                                       <span className="text-[7px] bg-primary/20 text-primary px-1 rounded uppercase font-bold">Recorrente</span>
                                     ) : (
                                       <span className="text-[7px] bg-slate-700/30 text-slate-300 px-1 rounded uppercase font-bold">Eventual</span>
@@ -424,7 +567,11 @@ export const HistoryView = ({
                                   </div>
                                   <p className="text-[9px] text-slate-500">
                                     {record.bikeModel || 'N/A'} - R$ {(record.serviceValue || 0).toFixed(2)}
+                                    {record.paymentMethod ? ` - ${record.paymentMethod}` : ''}
                                   </p>
+                                  {record.detailText ? (
+                                    <p className="mt-0.5 max-w-[34rem] truncate text-[9px] text-slate-500">{record.detailText}</p>
+                                  ) : null}
                                 </div>
                               </div>
                               <div className="flex items-center gap-2">
@@ -444,12 +591,15 @@ export const HistoryView = ({
                                       {record.statusPagamento}
                                     </p>
                                   )}
+                                  {record.cashStatus && !record.statusPagamento ? (
+                                    <p className="text-[8px] font-bold tracking-widest text-sky-400">{record.cashStatus}</p>
+                                  ) : null}
                                 </div>
                                 <div className="flex items-center gap-1">
-                                  {record.statusPagamento === 'Parcial' && record.saldoDevedor && record.saldoDevedor > 0 ? (
+                                  {isMaintenance && record.statusPagamento === 'Parcial' && record.saldoDevedor && record.saldoDevedor > 0 ? (
                                     <button
                                       type="button"
-                                      onClick={() => void onSettleDebt(record)}
+                                      onClick={() => record.maintenance && void onSettleDebt(record.maintenance)}
                                       disabled={isProcessing}
                                       className="p-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50 flex items-center gap-1"
                                       title={`Quitar R$ ${record.saldoDevedor?.toFixed(2) || '0'} de debito`}
@@ -457,10 +607,10 @@ export const HistoryView = ({
                                       {isProcessing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <DollarSign className="w-4 h-4" />}
                                     </button>
                                   ) : null}
-                                  {record.statusPagamento === 'Pendente' || (record.statusPagamento === 'Parcial' && (record.valorPago || 0) === 0) ? (
+                                  {isMaintenance && (record.statusPagamento === 'Pendente' || (record.statusPagamento === 'Parcial' && (record.valorPago || 0) === 0)) ? (
                                     <button
                                       type="button"
-                                      onClick={() => void onConfirmPayment(record)}
+                                      onClick={() => record.maintenance && void onConfirmPayment(record.maintenance)}
                                       disabled={isProcessing}
                                       className="p-2 rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 transition-all opacity-0 group-hover:opacity-100 disabled:opacity-50 flex items-center gap-1"
                                       title="Confirmar pagamento completo"
@@ -468,18 +618,30 @@ export const HistoryView = ({
                                       {isProcessing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                                     </button>
                                   ) : null}
-                                  <button
-                                    type="button"
-                                    onClick={() => onDeleteMaintenanceClick(record)}
-                                    className={cn(
-                                      'p-2 rounded-lg transition-colors opacity-0 group-hover:opacity-100',
-                                      isConfirmingDelete
-                                        ? 'bg-red-500 text-white animate-pulse opacity-100'
-                                        : 'bg-red-500/10 text-red-500 hover:bg-red-500/20'
-                                    )}
-                                  >
-                                    {isConfirmingDelete ? <CheckCircle className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
-                                  </button>
+                                  {isMaintenance ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => record.maintenance && onDeleteMaintenanceClick(record.maintenance)}
+                                      className={cn(
+                                        'p-2 rounded-lg transition-colors opacity-0 group-hover:opacity-100',
+                                        isConfirmingDelete
+                                          ? 'bg-red-500 text-white animate-pulse opacity-100'
+                                          : 'bg-red-500/10 text-red-500 hover:bg-red-500/20'
+                                      )}
+                                    >
+                                      {isConfirmingDelete ? <CheckCircle className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                                    </button>
+                                  ) : null}
+                                  {isCashLaunch ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => record.cashLaunch && onOpenCashLaunch(record.cashLaunch)}
+                                      className="rounded-lg bg-sky-500/10 p-2 text-sky-300 opacity-0 transition-colors hover:bg-sky-500/20 group-hover:opacity-100"
+                                      title="Abrir lancamento caixa"
+                                    >
+                                      <ChevronRight className="h-4 w-4" />
+                                    </button>
+                                  ) : null}
                                 </div>
                               </div>
                             </div>

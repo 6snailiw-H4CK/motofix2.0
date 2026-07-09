@@ -5,6 +5,7 @@ build/
 coverage/
 backups/
 backup-current/
+backup refatoracao atttsx/
 .env
 .env.*
 !.env.example
@@ -25,12 +26,17 @@ serviceAccountKey.json
 *.p12
 *.pfx
 *.key
+*.bak
+*.bak2
 *.backup
+*.zip
 *.log
 *.tmp
+metadata.json
 fix_new_client.js
 replace_new_client.py
 test-oil-ranking.js
+test-firestore-rules.js
 start-process-test.tmp
 .DS_Store
 Thumbs.db

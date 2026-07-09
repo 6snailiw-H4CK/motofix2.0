@@ -111,7 +111,6 @@ export function useUserCollections({
       setClients(clientsData);
     }, (error) => {
       console.error('Clients listener error:', error);
-      setClients([]);
     });
 
     const maintenanceQuery = query(collection(db, 'users', user.uid, 'maintenances'));
@@ -120,7 +119,6 @@ export function useUserCollections({
       setMaintenances(maintenanceData.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
     }, (error) => {
       console.error('Maintenances listener error:', error);
-      setMaintenances([]);
     });
 
     const warrantyQuery = query(collection(db, 'users', user.uid, 'warranties'));
@@ -129,7 +127,6 @@ export function useUserCollections({
       setWarranties(warrantyData.sort((a, b) => b.warrantyNumber - a.warrantyNumber));
     }, (error) => {
       console.error('Warranties listener error:', error);
-      setWarranties([]);
     });
 
     const appointmentsQuery = query(collection(db, 'users', user.uid, 'appointments'));
@@ -138,7 +135,6 @@ export function useUserCollections({
       setAppointments(appointmentData.sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate)));
     }, (error) => {
       console.error('Appointments listener error:', error);
-      setAppointments([]);
     });
 
     const expensesQuery = query(collection(db, 'users', user.uid, 'expenses'));
@@ -147,7 +143,6 @@ export function useUserCollections({
       setExpenseEntries(expensesData.sort((a, b) => b.date.localeCompare(a.date)));
     }, (error) => {
       console.error('Expenses listener error:', error);
-      setExpenseEntries([]);
     });
 
     const productsQuery = query(collection(db, 'users', user.uid, 'products'));
@@ -156,7 +151,6 @@ export function useUserCollections({
       setProductCatalog(productsData.sort((a, b) => a.description.localeCompare(b.description)));
     }, (error) => {
       console.error('Products listener error:', error);
-      setProductCatalog([]);
     });
 
     const cashLaunchesQuery = query(collection(db, 'users', user.uid, 'cash_launches'));
@@ -165,7 +159,6 @@ export function useUserCollections({
       setCashLaunches(launchesData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     }, (error) => {
       console.error('Cash launches listener error:', error);
-      setCashLaunches([]);
     });
 
     const fiscalCompaniesQuery = query(collection(db, 'users', user.uid, 'fiscal_companies'));
@@ -174,25 +167,22 @@ export function useUserCollections({
       setFiscalCompanies(companiesData.sort((a, b) => a.legalName.localeCompare(b.legalName)));
     }, (error) => {
       console.error('Fiscal companies listener error:', error);
-      setFiscalCompanies([]);
     });
 
     const fiscalInvoicesQuery = query(collection(db, 'users', user.uid, 'fiscal_invoices'));
     const unsubscribeFiscalInvoices = onSnapshot(fiscalInvoicesQuery, (snapshot) => {
-      const invoicesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FiscalInvoice));
+      const invoicesData = mapActiveDocuments<FiscalInvoice>(snapshot.docs);
       setFiscalInvoices(invoicesData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     }, (error) => {
       console.error('Fiscal invoices listener error:', error);
-      setFiscalInvoices([]);
     });
 
     const fiscalLogsQuery = query(collection(db, 'users', user.uid, 'fiscal_logs'));
     const unsubscribeFiscalLogs = onSnapshot(fiscalLogsQuery, (snapshot) => {
-      const logsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FiscalLog));
+      const logsData = mapActiveDocuments<FiscalLog>(snapshot.docs);
       setFiscalLogs(logsData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     }, (error) => {
       console.error('Fiscal logs listener error:', error);
-      setFiscalLogs([]);
     });
 
     const operationalLogsQuery = query(collection(db, 'users', user.uid, 'operational_logs'));
@@ -201,7 +191,6 @@ export function useUserCollections({
       setOperationalLogs(logsData.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 50));
     }, (error) => {
       console.error('Operational logs listener error:', error);
-      setOperationalLogs([]);
     });
 
     const settingsDoc = doc(db, 'users', user.uid, 'settings', 'config');
@@ -234,12 +223,16 @@ export function useUserCollections({
       }
     }, (error) => {
       console.error('Settings listener error:', error);
-      setSettings({
-        ...DEFAULT_SETTINGS,
-        userId: user.uid,
-        businessName: '',
-        isProfileComplete: false
-      });
+      setSettings((currentSettings) => (
+        currentSettings.userId === user.uid
+          ? currentSettings
+          : {
+            ...DEFAULT_SETTINGS,
+            userId: user.uid,
+            businessName: '',
+            isProfileComplete: false
+          }
+      ));
       setSettingsLoaded(true);
     });
 
@@ -251,7 +244,6 @@ export function useUserCollections({
         setAllUsers(usersData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
       }, (error) => {
         console.error('Admin users listener error:', error);
-        setAllUsers([]);
       });
     }
 
@@ -261,7 +253,6 @@ export function useUserCollections({
       setMessageLogs(logsData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     }, (error) => {
       console.error('Message logs listener error:', error);
-      setMessageLogs([]);
     });
 
     return () => {

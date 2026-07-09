@@ -5,6 +5,7 @@ export const whatsappApiRoutes = {
   disconnect: '/api/whatsapp/disconnect',
   reconnect: '/api/whatsapp/reconnect',
   send: '/api/whatsapp/send',
+  sendDueReminders: '/api/whatsapp/reminders/send-due',
   messages: '/api/whatsapp/messages',
   contacts: '/api/whatsapp/contacts',
   automations: '/api/whatsapp/automations',

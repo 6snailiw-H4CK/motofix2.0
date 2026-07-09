@@ -191,6 +191,8 @@ export interface CashRegisterItem {
   note?: string;
 }
 
+export type CashPaymentMethod = 'Debito' | 'Credito' | 'Pix' | 'Dinheiro';
+
 export type ManualFiscalDocumentStatus = 'Nao emitida' | 'Emitida' | 'Cancelada';
 
 export interface ManualFiscalAttachment {
@@ -239,6 +241,7 @@ export interface CashRegisterLaunch extends SoftDeletable {
   orderDiscountPercent?: number;
   total: number;
   invoiced?: boolean;
+  paymentMethod?: CashPaymentMethod;
   fiscalInvoiceId?: string;
   fiscalReference?: string;
   fiscalIssuedAt?: string;

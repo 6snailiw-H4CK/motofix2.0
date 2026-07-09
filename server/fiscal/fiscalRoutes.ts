@@ -1,5 +1,6 @@
 import type { Express, NextFunction, Request, Response } from "express";
-import type admin from "firebase-admin";
+import type { Auth, DecodedIdToken } from "firebase-admin/auth";
+import type { Firestore } from "firebase-admin/firestore";
 import {
   extractFocusDocumentUrls,
   focusClient,
@@ -21,16 +22,14 @@ import type {
   FocusRequestContext,
 } from "./types";
 
-type FirebaseAdminModule = typeof admin;
-
 type FiscalRequest = Request & {
   fiscalAuth?: AuthenticatedFiscalRequest;
 };
 
 type RegisterFiscalRoutesOptions = {
   app: Express;
-  admin: FirebaseAdminModule;
-  db: admin.firestore.Firestore | null;
+  auth: Auth | null;
+  db: Firestore | null;
   firebaseInitialized: boolean;
 };
 
@@ -132,7 +131,7 @@ const validateFiscalAmount = (value: unknown, label: string) => {
 
 const isActiveFiscalUser = async (
   options: RegisterFiscalRoutesOptions,
-  decoded: admin.auth.DecodedIdToken
+  decoded: DecodedIdToken
 ) => {
   if (!options.db) return false;
   if (decoded.admin === true) return true;
@@ -145,7 +144,7 @@ const isActiveFiscalUser = async (
 };
 
 const requireFiscalAuth = (options: RegisterFiscalRoutesOptions) => async (req: FiscalRequest, res: Response, next: NextFunction) => {
-  if (!options.firebaseInitialized || !options.db) {
+  if (!options.firebaseInitialized || !options.auth || !options.db) {
     return res.status(503).json({ error: "Firebase Admin nao inicializado. Configure FIREBASE_SERVICE_ACCOUNT_PATH." });
   }
 
@@ -157,7 +156,7 @@ const requireFiscalAuth = (options: RegisterFiscalRoutesOptions) => async (req: 
   }
 
   try {
-    const decoded = await options.admin.auth().verifyIdToken(token);
+    const decoded = await options.auth.verifyIdToken(token);
 
     if (!(await isActiveFiscalUser(options, decoded))) {
       return res.status(403).json({ error: "Usuario sem permissao ativa para acessar o modulo fiscal." });

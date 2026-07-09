@@ -10,12 +10,19 @@ export const QUEUE_STORAGE_KEY = 'motofix:firestore-offline-queue-state';
 
 const canUseWindow = () => typeof window !== 'undefined';
 
-export type FirestoreReplayDescriptor = {
-  version: 1;
+export type FirestoreReplayMutation = {
   operation: 'set' | 'update';
   path: string[];
   data: Record<string, unknown>;
   merge?: boolean;
+};
+
+export type FirestoreReplayDescriptor = (
+  { version: 1 } & FirestoreReplayMutation
+) | {
+  version: 1;
+  operation: 'batch';
+  writes: FirestoreReplayMutation[];
 };
 
 type PersistedWrite = {
@@ -84,16 +91,27 @@ const emptySnapshot = (): PersistedQueueSnapshot => ({
   lastPersistenceError: null,
 });
 
-const isReplayDescriptor = (value: unknown): value is FirestoreReplayDescriptor => {
+const isReplayMutation = (value: unknown): value is FirestoreReplayMutation => {
   if (!value || typeof value !== 'object') return false;
-  const candidate = value as Partial<FirestoreReplayDescriptor>;
-  return candidate.version === 1
-    && (candidate.operation === 'set' || candidate.operation === 'update')
+  const candidate = value as Partial<FirestoreReplayMutation>;
+  return (candidate.operation === 'set' || candidate.operation === 'update')
     && Array.isArray(candidate.path)
     && candidate.path.every((part) => typeof part === 'string' && part.length > 0)
     && Boolean(candidate.data)
     && typeof candidate.data === 'object'
     && !Array.isArray(candidate.data);
+};
+
+const isReplayDescriptor = (value: unknown): value is FirestoreReplayDescriptor => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<FirestoreReplayDescriptor>;
+  if (candidate.version !== 1) return false;
+  if (candidate.operation === 'batch') {
+    return Array.isArray(candidate.writes)
+      && candidate.writes.length > 0
+      && candidate.writes.every(isReplayMutation);
+  }
+  return isReplayMutation(candidate);
 };
 
 const normalizeWrites = (value: unknown): PersistedWrite[] => {
@@ -310,11 +328,15 @@ type QueuedWriteResult<T> = {
 };
 
 export const createFirestoreReplayDescriptor = (
-  operation: FirestoreReplayDescriptor['operation'],
+  operation: FirestoreReplayMutation['operation'],
   path: string[],
   data: Record<string, unknown>,
   merge = false
 ): FirestoreReplayDescriptor => ({ version: 1, operation, path, data, merge });
+
+export const createFirestoreBatchReplayDescriptor = (
+  writes: FirestoreReplayMutation[]
+): FirestoreReplayDescriptor => ({ version: 1, operation: 'batch', writes });
 
 export async function queueFirestoreWrite<T>(
   operation: () => Promise<T>,
@@ -440,8 +462,20 @@ const validateReplayPath = (path: string[]) => {
   }
 };
 
-const replayFirestoreWrite = async (descriptor: FirestoreReplayDescriptor) => {
+const validateReplayDescriptor = (descriptor: FirestoreReplayDescriptor) => {
+  if (descriptor.operation === 'batch') {
+    if (descriptor.writes.length === 0) {
+      throw new Error('Batch de retry vazio.');
+    }
+    descriptor.writes.forEach((write) => validateReplayPath(write.path));
+    return;
+  }
+
   validateReplayPath(descriptor.path);
+};
+
+const replayFirestoreWrite = async (descriptor: FirestoreReplayDescriptor) => {
+  validateReplayDescriptor(descriptor);
   const replayModule = await import('./firestoreWriteReplay');
   await replayModule.replayFirestoreWrite(descriptor);
 };

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title">
+  <title id="title">MotoFix</title>
+  <rect width="256" height="256" rx="48" fill="#f97316" />
+  <g fill="#ffffff" font-family="Inter, Arial, sans-serif" font-weight="800" text-anchor="middle">
+    <text x="50%" y="55%" font-size="110">MF</text>
+  </g>
+</svg>

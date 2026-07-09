@@ -150,7 +150,7 @@ export const AuthScreen = () => {
       <header className="fixed top-0 left-0 right-0 z-50 border-b border-white/10 bg-slate-950/95 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5 lg:px-8">
           <div className="flex items-center gap-3 cursor-pointer" onClick={() => setAuthView('landing')}>
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-red-600 text-base font-bold text-white shadow-lg shadow-red-600/20">MF</div>
+            <img src="/motofix-icon.svg" alt="MotoFix" className="h-11 w-11 rounded-2xl object-cover shadow-lg shadow-red-600/20" />
             <div>
               <p className="text-sm font-semibold tracking-wide text-white">MotoFix</p>
               <p className="text-[11px] uppercase tracking-[0.3em] text-slate-400">Gestão automotiva</p>
@@ -164,7 +164,7 @@ export const AuthScreen = () => {
               <button onClick={() => navigateToSection('plans')} className="transition hover:text-white">Planos</button>
               <button onClick={() => navigateToSection('contact')} className="transition hover:text-white">Contato</button>
             </nav>
-            <button type="button" onClick={() => setAuthView('login')} className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 transition hover:border-white/20">Login</button>
+            <button type="button" onClick={handleGoogleLogin} className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-slate-100 transition hover:border-white/20">Login</button>
             <button type="button" onClick={() => setAuthView('sales')} className="rounded-full bg-gradient-to-r from-red-500 to-orange-500 px-5 py-2 text-sm font-semibold text-white shadow-lg shadow-red-500/20 transition hover:opacity-95">Conheça o MotoFix</button>
           </div>
         </div>
@@ -172,7 +172,7 @@ export const AuthScreen = () => {
 
       <div className="md:hidden fixed bottom-4 left-0 right-0 z-40 px-4">
         <div className="mx-auto flex max-w-3xl flex-col gap-3 rounded-3xl bg-slate-900/90 p-3 shadow-2xl shadow-slate-950/40 backdrop-blur-xl">
-          <button onClick={() => setAuthView('login')} className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10">Login</button>
+          <button onClick={handleGoogleLogin} className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10">Login</button>
           <button onClick={() => setAuthView('sales')} className="w-full rounded-2xl bg-red-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-red-500">Demo</button>
         </div>
       </div>
@@ -183,52 +183,30 @@ export const AuthScreen = () => {
             {/* HERO SECTION */}
             <section className="grid gap-12 xl:grid-cols-[1fr_1fr] items-center scroll-reveal pb-12 border-b border-white/10">
               <div className="space-y-8">
-                {/* Badge */}
-                <div className="inline-flex items-center gap-2 rounded-full border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-300">
-                  <span className="h-2 w-2 rounded-full bg-red-400 animate-pulse" />
-                  Transformando oficinas desde 2023
-                </div>
-
                 {/* Headline */}
-                <div className="space-y-6">
-                  <h1 className="text-6xl font-black tracking-tight text-white leading-tight">
-                    Sua oficina <span className="bg-gradient-to-r from-red-500 via-red-400 to-orange-500 bg-clip-text text-transparent">merece mais</span> que planilhas.
+                <div className="space-y-4">
+                  <h1 className="text-5xl sm:text-6xl font-black tracking-tight text-white leading-tight">
+                    Sua oficina <span className="text-red-500">merece mais</span> que planilhas.
                   </h1>
-                  <p className="text-xl text-slate-300 leading-relaxed max-w-xl">
-                    MotoFix é a plataforma de gestão completa que transforma a forma como sua oficina trabalha. Agende com precisão, controle financeiro e fidelize clientes como nunca antes.
+                  <p className="text-lg text-slate-300 leading-relaxed max-w-xl">
+                    MotoFix é a plataforma de gestão que transforma como sua oficina trabalha. Agende com precisão, controle financeiro e fidelize clientes.
                   </p>
                 </div>
 
                 {/* CTA Buttons */}
                 <div className="flex flex-col sm:flex-row gap-4 pt-4">
                   <button 
-                    onClick={() => setAuthView('login')}
-                    className="px-8 py-4 rounded-full bg-white text-slate-950 font-bold shadow-xl shadow-white/20 transition hover:shadow-white/30 hover:scale-105"
+                    onClick={() => window.open(whatsappSalesUrl, '_blank')}
+                    className="px-8 py-4 rounded-full bg-gradient-to-r from-red-500 to-orange-500 text-white font-bold shadow-xl shadow-red-500/20 transition hover:shadow-red-500/30 hover:scale-105"
                   >
-                    Acessar minha conta
+                    Ver demo pelo WhatsApp
                   </button>
                   <button 
-                    onClick={() => setAuthView('sales')} 
-                    className="px-8 py-4 rounded-full border-2 border-red-500 text-white font-bold bg-red-500/10 transition hover:bg-red-500/20 hover:border-red-400"
+                    onClick={handleGoogleLogin}
+                    className="px-8 py-4 rounded-full border-2 border-white/10 text-white font-bold bg-white/5 transition hover:bg-white/10 hover:border-white/20"
                   >
-                    Ver demonstração
+                    Entrar no sistema
                   </button>
-                </div>
-
-                {/* Trust Indicators */}
-                <div className="grid grid-cols-3 gap-4 pt-4">
-                  <div className="space-y-1">
-                    <p className="text-3xl font-bold text-white">500+</p>
-                    <p className="text-sm text-slate-400">Oficinas ativas</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-3xl font-bold text-white">99.8%</p>
-                    <p className="text-sm text-slate-400">Disponibilidade</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-3xl font-bold text-white">4.9★</p>
-                    <p className="text-sm text-slate-400">Avaliação média</p>
-                  </div>
                 </div>
               </div>
 
@@ -239,24 +217,24 @@ export const AuthScreen = () => {
                     {/* Stats Cards */}
                     <div className="grid grid-cols-2 gap-4">
                       <div className="rounded-xl bg-slate-900/80 border border-white/10 p-4">
-                        <p className="text-xs text-slate-400 uppercase tracking-wide">Agendamentos hoje</p>
-                        <p className="text-2xl font-bold text-white mt-2">24</p>
-                        <p className="text-xs text-green-400 mt-2">↑ 18% vs ontem</p>
+                        <p className="text-xs text-slate-400 uppercase tracking-wide">Clientes</p>
+                        <p className="text-2xl font-bold text-white mt-2">Controle em um só lugar</p>
+                        <p className="text-xs text-green-400 mt-2">Cadastro rápido e completo</p>
                       </div>
                       <div className="rounded-xl bg-slate-900/80 border border-white/10 p-4">
-                        <p className="text-xs text-slate-400 uppercase tracking-wide">Receita (mês)</p>
-                        <p className="text-2xl font-bold text-white mt-2">R$ 52.6k</p>
-                        <p className="text-xs text-green-400 mt-2">↑ 21% vs mês</p>
+                        <p className="text-xs text-slate-400 uppercase tracking-wide">Serviços</p>
+                        <p className="text-2xl font-bold text-white mt-2">Registro simples</p>
+                        <p className="text-xs text-green-400 mt-2">Sem perder detalhes</p>
                       </div>
                       <div className="rounded-xl bg-slate-900/80 border border-white/10 p-4">
-                        <p className="text-xs text-slate-400 uppercase tracking-wide">Clientes ativos</p>
-                        <p className="text-2xl font-bold text-white mt-2">187</p>
-                        <p className="text-xs text-blue-400 mt-2">↑ 14 novos</p>
+                        <p className="text-xs text-slate-400 uppercase tracking-wide">Retornos</p>
+                        <p className="text-2xl font-bold text-white mt-2">Lembretes automáticos</p>
+                        <p className="text-xs text-blue-400 mt-2">Mais clientes voltando</p>
                       </div>
                       <div className="rounded-xl bg-slate-900/80 border border-white/10 p-4">
-                        <p className="text-xs text-slate-400 uppercase tracking-wide">Taxa de retorno</p>
-                        <p className="text-2xl font-bold text-white mt-2">72%</p>
-                        <p className="text-xs text-purple-400 mt-2">Excelente</p>
+                        <p className="text-xs text-slate-400 uppercase tracking-wide">Financeiro</p>
+                        <p className="text-2xl font-bold text-white mt-2">Visão clara</p>
+                        <p className="text-xs text-purple-400 mt-2">Receitas e despesas organizadas</p>
                       </div>
                     </div>
 
@@ -378,90 +356,36 @@ export const AuthScreen = () => {
             {/* PRICING */}
             <section id="plans" className="mt-20 space-y-12 scroll-reveal">
               <div className="text-center space-y-4">
-                <h2 className="text-4xl font-bold text-white">Escolha o plano ideal para sua oficina</h2>
-                <p className="text-lg text-slate-400 max-w-2xl mx-auto">Todos com suporte dedicado, atualizações contínuas e garantia de 30 dias</p>
+                <h2 className="text-4xl font-bold text-white">Plano Fundador MotoFix — R$ 49,90/mês</h2>
+                <p className="text-lg text-slate-400 max-w-2xl mx-auto">
+                  Entre como cliente fundador do MotoFix por R$ 49,90/mês, com implantação guiada, suporte pelo WhatsApp e acompanhamento nos primeiros 7 dias.
+                </p>
               </div>
 
-              <div className="grid gap-6 lg:grid-cols-2">
-                {[
-                  { 
-                    name: 'Starter',
-                    price: 'R$ 149',
-                    period: '/mês',
-                    description: 'Perfeito para iniciar sua transformação',
-                    features: [
-                      '✓ Agenda centralizada',
-                      '✓ Até 100 clientes',
-                      '✓ Controle financeiro básico',
-                      '✓ 1 usuário',
-                      '✓ Suporte por email'
-                    ],
-                    highlighted: false
-                  },
-                  { 
-                    name: 'Professional',
-                    price: 'R$ 299',
-                    period: '/mês',
-                    description: 'Escale sua oficina com todas as funcionalidades',
-                    features: [
-                      '✓ Tudo do Starter +',
-                      '✓ Clientes ilimitados',
-                      '✓ Controle financeiro avançado',
-                      '✓ 5 usuários',
-                      '✓ Relatórios detalhados',
-                      '✓ Prioridade 24/7',
-                      '✓ Integração WhatsApp Business'
-                    ],
-                    highlighted: true
-                  },
-                ].map((plan, idx) => (
-                  <div 
-                    key={idx} 
-                    className={`relative rounded-2xl border transition-all duration-300 ${
-                      plan.highlighted 
-                        ? 'border-red-500/50 bg-gradient-to-br from-red-500/20 to-orange-500/20 shadow-lg shadow-red-500/20 scale-105' 
-                        : 'border-white/10 bg-gradient-to-br from-slate-800/50 to-slate-900/50 hover:border-white/20'
-                    } p-8`}
-                  >
-                    {plan.highlighted && (
-                      <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-gradient-to-r from-red-500 to-orange-500 text-white text-xs font-bold px-4 py-1 rounded-full">
-                        MAIS POPULAR
-                      </div>
-                    )}
-                    
-                    <h3 className="text-2xl font-bold text-white mb-2">{plan.name}</h3>
-                    <p className="text-slate-300 text-sm mb-6">{plan.description}</p>
-                    
-                    <div className="mb-6">
-                      <span className="text-5xl font-black text-white">{plan.price}</span>
-                      <span className="text-slate-400 text-sm">{plan.period}</span>
-                    </div>
-
-                    <ul className="space-y-3 mb-8">
-                      {plan.features.map((feature, fidx) => (
-                        <li key={fidx} className="text-sm text-slate-300 flex items-center gap-2">
-                          <span className={plan.highlighted ? 'text-red-400' : 'text-emerald-400'}>•</span>
-                          {feature.replace('✓ ', '')}
-                        </li>
-                      ))}
-                    </ul>
-
-                    <button 
-                      onClick={() => setAuthView('login')}
-                      className={`w-full py-3 rounded-full font-bold transition ${
-                        plan.highlighted
-                          ? 'bg-gradient-to-r from-red-500 to-orange-500 text-white hover:opacity-90'
-                          : 'border-2 border-white/20 text-white hover:border-white/40 bg-white/5'
-                      }`}
-                    >
-                      Começar agora
-                    </button>
+              <div className="mx-auto max-w-2xl">
+                <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-slate-800/50 to-slate-900/50 p-10 shadow-lg shadow-slate-950/30">
+                  <div className="mb-8 text-center">
+                    <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Oferta de lançamento</p>
+                    <h3 className="mt-4 text-5xl font-black text-white">R$ 49,90<span className="text-xl font-medium text-slate-400">/mês</span></h3>
                   </div>
-                ))}
+                  <ul className="space-y-4 mb-10 text-slate-300">
+                    <li>✔ Implantação guiada para sua oficina</li>
+                    <li>✔ Suporte pelo WhatsApp</li>
+                    <li>✔ Acompanhamento nos primeiros 7 dias</li>
+                    <li>✔ Controle de clientes, serviços, retornos e financeiro</li>
+                    <li>✔ Registro de garantias e histórico de motos</li>
+                  </ul>
+                  <button
+                    onClick={() => window.open(whatsappSalesUrl, '_blank')}
+                    className="w-full rounded-full bg-gradient-to-r from-red-500 to-orange-500 px-8 py-4 text-lg font-bold text-white shadow-lg shadow-red-500/30 transition hover:opacity-95"
+                  >
+                    Quero o Plano Fundador
+                  </button>
+                </div>
               </div>
 
               <div className="text-center">
-                <p className="text-slate-300">Dúvidas sobre os planos? 
+                <p className="text-slate-300">Dúvidas?
                   <button 
                     onClick={() => window.open(whatsappSalesUrl, '_blank')}
                     className="ml-2 text-red-400 hover:text-red-300 font-semibold underline"
@@ -472,49 +396,24 @@ export const AuthScreen = () => {
               </div>
             </section>
 
-            {/* SOCIAL PROOF & TESTIMONIALS */}
-            <section className="mt-20 space-y-12 scroll-reveal">
+            {/* SOCIAL PROOF */}
+            <section className="mt-20 space-y-10 scroll-reveal">
               <div className="text-center space-y-4">
-                <h2 className="text-4xl font-bold text-white">Oficinas que já crescem com MotoFix</h2>
-                <p className="text-lg text-slate-400">Veja o que nossos clientes conquistaram</p>
+                <h2 className="text-4xl font-bold text-white">Plano fundador com implantação e suporte</h2>
+                <p className="text-lg text-slate-400 max-w-2xl mx-auto">
+                  Mais do que um software, o MotoFix oferece apoio para sua oficina começar a usar o controle de clientes, serviços, retornos e financeiro de forma simples e prática.
+                </p>
               </div>
 
-              <div className="grid gap-6 lg:grid-cols-3">
-                {[
-                  {
-                    name: 'João Silva',
-                    workshop: 'Centro Automotivo SP',
-                    result: '+67% receita em 4 meses',
-                    detail: 'De R$ 15k para R$ 25k',
-                    avatar: '👨‍💼'
-                  },
-                  {
-                    name: 'Maria Costa',
-                    workshop: 'Oficina Premium Brasília',
-                    result: '120+ agendamentos/mês',
-                    detail: '95% de retenção de clientes',
-                    avatar: '👩‍💼'
-                  },
-                  {
-                    name: 'Carlos Santos',
-                    workshop: 'Auto Serviços RJ',
-                    result: '-10h admin por semana',
-                    detail: '+30% foco em vendas',
-                    avatar: '👨‍🔧'
-                  },
-                ].map((testimonial, idx) => (
-                  <div key={idx} className="rounded-2xl border border-white/10 bg-gradient-to-br from-slate-800/50 to-slate-900/50 p-6 hover:border-red-500/30 transition-all">
-                    <div className="flex items-center gap-4 mb-4">
-                      <div className="text-4xl">{testimonial.avatar}</div>
-                      <div>
-                        <p className="font-bold text-white text-sm">{testimonial.name}</p>
-                        <p className="text-xs text-slate-400">{testimonial.workshop}</p>
-                      </div>
-                    </div>
-                    <p className="text-red-400 font-bold text-lg mb-2">{testimonial.result}</p>
-                    <p className="text-sm text-slate-300">{testimonial.detail}</p>
-                  </div>
-                ))}
+              <div className="mx-auto max-w-3xl grid gap-6 lg:grid-cols-2">
+                <div className="rounded-3xl border border-white/10 bg-slate-900/80 p-8">
+                  <h3 className="text-xl font-bold text-white mb-3">Implantação guiada</h3>
+                  <p className="text-slate-300">Configuramos o MotoFix com seus serviços, preços e primeiro fluxo de retorno para que sua oficina comece com o pé direito.</p>
+                </div>
+                <div className="rounded-3xl border border-white/10 bg-slate-900/80 p-8">
+                  <h3 className="text-xl font-bold text-white mb-3">Suporte pelo WhatsApp</h3>
+                  <p className="text-slate-300">Fale direto com nossa equipe para tirar dúvidas e ajustar o uso do sistema à rotina da sua oficina.</p>
+                </div>
               </div>
             </section>
 
@@ -625,17 +524,16 @@ export const AuthScreen = () => {
             <section className="space-y-8">
               <div className="space-y-6 text-center">
                 <h1 className="animate-fade-up text-4xl sm:text-6xl font-extrabold tracking-tight text-white">
-                  Aumente suas vendas em
-                  <span className="block bg-gradient-to-r from-red-500 via-fuchsia-400 to-white bg-clip-text text-transparent">38% em 3 meses</span>
+                  Sistema online para oficina de moto controlar clientes, serviços, retornos e financeiro sem depender de caderno, planilha ou WhatsApp perdido.
                 </h1>
                 <p className="max-w-2xl mx-auto text-lg text-slate-300 animate-fade-up animation-delay-200">
-                  Mais de 120 oficinas já transformaram seus resultados com MotoFix. Gestão simples que gera impacto real.
+                  Entre como cliente fundador do MotoFix por R$ 49,90/mês, com implantação guiada, suporte pelo WhatsApp e acompanhamento nos primeiros 7 dias.
                 </p>
                 <button 
                   onClick={() => window.open(whatsappSalesUrl, '_blank')}
                   className="mx-auto flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-red-500 to-orange-500 px-8 py-4 text-lg font-bold text-white shadow-2xl shadow-red-500/40 transition hover:scale-105 animate-fade-up animation-delay-300"
                 >
-                  Falar com especialista agora
+                  Ver demo pelo WhatsApp
                   <ArrowRight className="h-5 w-5" />
                 </button>
               </div>
@@ -644,121 +542,25 @@ export const AuthScreen = () => {
             {/* Results Grid */}
             <section className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
               {[
-                { value: '+38%', label: 'Aumento de agendamentos', icon: '📅' },
-                { value: '+89%', label: 'ROI nos primeiros meses', icon: '📈' },
-                { value: '120+', label: 'Oficinas em crescimento', icon: '🏪' },
-                { value: '95%', label: 'Taxa de retenção', icon: '✅' }
+                { value: 'Clientes', label: 'Centralize cadastros', icon: '👥' },
+                { value: 'Serviços', label: 'Registre ordens de serviço', icon: '🔧' },
+                { value: 'Retornos', label: 'Lembretes automáticos', icon: '📲' },
+                { value: 'Financeiro', label: 'Controle receitas e despesas', icon: '💰' }
               ].map((item, idx) => (
                 <div 
                   key={idx}
                   className="group rounded-3xl border border-white/10 bg-gradient-to-br from-slate-800 to-slate-900 p-6 shadow-lg shadow-slate-950/30 transition-all duration-300 hover:border-red-500/50 hover:shadow-red-500/20 animate-fade-up"
                   style={{ animationDelay: `${idx * 100}ms` }}
                 >
-                  <p className="text-4xl font-black text-white group-hover:text-red-400 transition-colors">{item.value}</p>
+                  <p className="text-4xl font-black text-white group-hover:text-red-400 transition-colors">{item.icon}</p>
                   <p className="mt-3 text-sm text-slate-400">{item.label}</p>
                 </div>
               ))}
             </section>
 
-            {/* Antes e Depois */}
-            <section className="space-y-8">
-              <h2 className="text-3xl font-bold text-white text-center">Veja a transformação</h2>
-              <div className="grid gap-8 lg:grid-cols-2">
-                {/* Antes */}
-                <div className="rounded-3xl border border-white/10 bg-slate-900/50 p-8 space-y-6 hover:shadow-lg hover:shadow-slate-950/50 transition-all">
-                  <div className="flex items-center gap-3">
-                    <div className="text-2xl">❌</div>
-                    <h3 className="text-xl font-bold text-slate-300">Antes do MotoFix</h3>
-                  </div>
-                  <ul className="space-y-4 text-slate-400">
-                    <li className="flex gap-3">
-                      <span>•</span>
-                      <span>Agenda em papel ou planilha desorganizada</span>
-                    </li>
-                    <li className="flex gap-3">
-                      <span>•</span>
-                      <span>Dificuldade em rastrear clientes recorrentes</span>
-                    </li>
-                    <li className="flex gap-3">
-                      <span>•</span>
-                      <span>Financeiro confuso e sem controle real</span>
-                    </li>
-                    <li className="flex gap-3">
-                      <span>•</span>
-                      <span>Perda de clientes por falta de lembretes</span>
-                    </li>
-                    <li className="flex gap-3">
-                      <span>•</span>
-                      <span>Sem dados para tomar decisões</span>
-                    </li>
-                  </ul>
-                </div>
 
-                {/* Depois */}
-                <div className="rounded-3xl border border-emerald-500/30 bg-gradient-to-br from-slate-900 to-slate-800 p-8 space-y-6 shadow-lg shadow-emerald-500/10 hover:shadow-emerald-500/20 transition-all">
-                  <div className="flex items-center gap-3">
-                    <div className="text-2xl">✅</div>
-                    <h3 className="text-xl font-bold text-emerald-400">Com MotoFix</h3>
-                  </div>
-                  <ul className="space-y-4 text-slate-300">
-                    <li className="flex gap-3">
-                      <span className="text-emerald-400">•</span>
-                      <span>Agenda centralizada e automática</span>
-                    </li>
-                    <li className="flex gap-3">
-                      <span className="text-emerald-400">•</span>
-                      <span>Sistemas automáticos de lembretes por WhatsApp</span>
-                    </li>
-                    <li className="flex gap-3">
-                      <span className="text-emerald-400">•</span>
-                      <span>Dashboard financeiro completo em tempo real</span>
-                    </li>
-                    <li className="flex gap-3">
-                      <span className="text-emerald-400">•</span>
-                      <span>Aumento automático de 38% em clientes recorrentes</span>
-                    </li>
-                    <li className="flex gap-3">
-                      <span className="text-emerald-400">•</span>
-                      <span>Relatórios inteligentes para crescimento direcionado</span>
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            </section>
 
-            {/* Case Studies */}
-            <section className="space-y-8">
-              <h2 className="text-3xl font-bold text-white text-center">Histórias de sucesso reais</h2>
-              <div className="grid gap-6 lg:grid-cols-3">
-                {[
-                  { 
-                    name: 'João - Oficina em São Paulo',
-                    achievement: 'De R$ 15mil para R$ 25mil de receita mensal',
-                    detail: '+67% em 4 meses'
-                  },
-                  { 
-                    name: 'Maria - Oficina em Brasília',
-                    achievement: '120+ agendamentos mensais gerenciados automaticamente',
-                    detail: '95% de satisfação com controle financeiro'
-                  },
-                  { 
-                    name: 'Carlos - Oficina no RJ',
-                    achievement: 'Economizou 10 horas/semana em administrativo',
-                    detail: '+30% de tempo para vendas'
-                  }
-                ].map((cs, idx) => (
-                  <div
-                    key={idx}
-                    className="group rounded-3xl border border-white/10 bg-slate-900/70 p-6 shadow-lg transition-all duration-300 hover:border-red-500/50 hover:shadow-red-500/20 hover:-translate-y-2 animate-fade-up"
-                    style={{ animationDelay: `${idx * 150}ms` }}
-                  >
-                    <h4 className="font-bold text-white group-hover:text-red-400 transition-colors">{cs.name}</h4>
-                    <p className="mt-3 text-sm text-slate-300">{cs.achievement}</p>
-                    <p className="mt-2 text-xs text-red-400 font-semibold">{cs.detail}</p>
-                  </div>
-                ))}
-              </div>
-            </section>
+
 
             {/* Features */}
             <section className="space-y-8">
@@ -786,20 +588,19 @@ export const AuthScreen = () => {
 
             {/* CTA Final */}
             <section className="space-y-6 rounded-3xl border border-red-500/30 bg-gradient-to-r from-red-500/10 to-orange-500/10 p-8 sm:p-12 text-center scroll-reveal delay-400">
-              <h2 className="text-3xl sm:text-4xl font-bold text-white">Pronto para multiplicar seus resultados?</h2>
-              <p className="max-w-2xl mx-auto text-slate-300">Comece agora com uma consultoria gratuita. Nosso time está pronto para desenhar a solução perfeita para sua oficina.</p>
+              <h2 className="text-3xl sm:text-4xl font-bold text-white">Pronto para começar?</h2>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
                 <button 
                   onClick={() => window.open(whatsappSalesUrl, '_blank')}
                   className="rounded-full bg-gradient-to-r from-red-500 to-orange-500 px-8 py-4 font-bold text-white shadow-lg shadow-red-500/40 transition hover:scale-105"
                 >
-                  Agende sua consultoria - É grátis
+                  Ver demo pelo WhatsApp
                 </button>
                 <button 
-                  onClick={() => setAuthView('login')}
+                  onClick={handleGoogleLogin}
                   className="rounded-full border border-white/20 bg-white/5 px-8 py-4 font-bold text-white transition hover:bg-white/10"
                 >
-                  Ver demo do sistema
+                  Entrar no sistema
                 </button>
               </div>
             </section>
