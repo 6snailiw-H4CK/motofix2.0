@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
-import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, query, runTransaction, setDoc, updateDoc } from 'firebase/firestore';
 
 const firebaseConfig = JSON.parse(process.env.FIREBASE_CONFIG || '{}');
 const PROJECT_ID = process.env.GCLOUD_PROJECT || firebaseConfig.projectId || 'motofix-dev';
@@ -13,7 +13,9 @@ const TEST_USER_ADMIN_DOC = 'admin-user-123';
 const TEST_USER_REGULAR = 'regular-user-123';
 const TEST_USER_OTHER = 'other-user-999';
 const CASH_LAUNCH_ID = 'cash-launch-001';
+const CASH_LAUNCH_PAYMENT_ID = 'cash-launch-payment-stock';
 const PRODUCT_ID = 'produto-estoque-001';
+const PRODUCT_PAYMENT_ID = 'produto-010101';
 
 const now = () => new Date().toISOString();
 
@@ -108,6 +110,69 @@ const stockMovementData = {
   createdAt: now(),
 };
 
+const ownerPaymentProductData = {
+  userId: TEST_USER_OWNER,
+  sourceCode: '010101',
+  description: '(mercadoria teste)',
+  variation: '',
+  variations: [],
+  ncm: '00000000',
+  salePrice: 100,
+  stockQuantity: 5,
+  minStockQuantity: 1,
+  trackStock: true,
+  importedAt: now(),
+  createdAt: now(),
+  updatedAt: now(),
+};
+
+const ownerPaymentCashLaunchData = {
+  userId: TEST_USER_OWNER,
+  orderNumber: 'LC-20260712-135719',
+  clientId: 'cliente-pagamento-001',
+  clientName: 'WILIANS BARBOSA',
+  bikeModel: 'Xj6',
+  status: 'Em Lancamento',
+  openingDate: '2026-07-12',
+  expectedDate: '2026-07-12',
+  request: '',
+  servicesExecuted: '',
+  observation: '',
+  items: [{
+    id: 'item-pagamento-001',
+    productId: PRODUCT_PAYMENT_ID,
+    variationId: '',
+    sourceCode: '010101',
+    description: '(mercadoria teste)',
+    variation: '',
+    ncm: '00000000',
+    quantity: 1,
+    unitPrice: 100,
+    discountValue: 0,
+    discountPercent: 0,
+    netUnitPrice: 100,
+    total: 100,
+    date: '2026-07-12',
+    note: '',
+  }],
+  merchandiseTotal: 100,
+  servicesTotal: 0,
+  discountTotal: 0,
+  orderDiscountValue: 0,
+  orderDiscountPercent: 0,
+  total: 100,
+  invoiced: false,
+  paymentMethod: '',
+  stockDeducted: false,
+  stockDeductedAt: null,
+  stockMovementBatchId: null,
+  createdAt: now(),
+  updatedAt: now(),
+  deletedAt: null,
+  deletedBy: null,
+  deletedReason: null,
+};
+
 const fail = (message) => {
   console.error(`❌ ${message}`);
   process.exitCode = 1;
@@ -131,6 +196,8 @@ async function setupTestData(testEnv) {
 
     await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID), ownerCashLaunchData);
     await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'products', PRODUCT_ID), ownerProductData);
+    await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_PAYMENT_ID), ownerPaymentCashLaunchData);
+    await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'products', PRODUCT_PAYMENT_ID), ownerPaymentProductData);
     await setDoc(doc(firestore, 'users', TEST_USER_REGULAR, 'cash_launches', CASH_LAUNCH_ID), {
       ...ownerCashLaunchData,
       userId: TEST_USER_REGULAR,
@@ -378,7 +445,51 @@ async function runTests() {
       fail('Admin-document não conseguiu listar /users');
     }
 
+    console.log('15) Owner pode finalizar cash_launch faturada com pagamento e baixa de estoque na mesma transacao');
+    await runTransaction(ownerDb, async (transaction) => {
+      const timestamp = now();
+      const productRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'products', PRODUCT_PAYMENT_ID);
+      const launchRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_PAYMENT_ID);
+      const movementRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'stock_movements', 'stock-move-payment-001');
+      transaction.update(productRef, {
+        stockQuantity: 4,
+        updatedAt: timestamp,
+      });
+      transaction.set(movementRef, {
+        userId: TEST_USER_OWNER,
+        productId: PRODUCT_PAYMENT_ID,
+        productDescription: '(mercadoria teste)',
+        type: 'saida_os',
+        quantity: 1,
+        previousQuantity: 5,
+        nextQuantity: 4,
+        cashLaunchId: CASH_LAUNCH_PAYMENT_ID,
+        cashLaunchOrderNumber: 'LC-20260712-135719',
+        itemIds: ['item-pagamento-001'],
+        batchId: 'stock-payment-batch-001',
+        note: 'Baixa automatica ao finalizar O.S.',
+        createdAt: timestamp,
+        sourceCode: '010101',
+      });
+      transaction.update(launchRef, {
+        status: 'Finalizado',
+        invoiced: true,
+        paymentMethod: 'Pix',
+        stockDeducted: true,
+        stockDeductedAt: timestamp,
+        stockMovementBatchId: 'stock-payment-batch-001',
+        updatedAt: timestamp,
+      });
+    });
+    const finalizedPaymentLaunchDoc = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_PAYMENT_ID));
+    if (!finalizedPaymentLaunchDoc.exists() || finalizedPaymentLaunchDoc.data().paymentMethod !== 'Pix') {
+      fail('Owner nao conseguiu finalizar cash_launch faturada com pagamento e baixa de estoque');
+    } else {
+      console.log('   cash_launch faturada aceitou pagamento e baixa de estoque na mesma transacao');
+    }
+
     console.log('\n🎯 Validação completa finalizada com sucesso.\n');
+
   } finally {
     await testEnv.cleanup();
   }
