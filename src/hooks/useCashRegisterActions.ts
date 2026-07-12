@@ -46,7 +46,7 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
 
   const saveLaunch = useCallback(async (draft: CashRegisterDraft, launchId?: string, previousLaunch?: CashRegisterLaunch) => {
     if (!user) return false;
-    if (draft.items.length === 0) {
+    if (draft.status !== 'Cancelado' && draft.items.length === 0) {
       sonnerToast.error('Inclua ao menos uma mercadoria antes de salvar.');
       return false;
     }

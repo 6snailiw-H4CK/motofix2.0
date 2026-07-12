@@ -258,6 +258,22 @@ async function runTests() {
     }
 
     console.log('3) Usuário comum NÃO pode deletar cash_launch de outro usuário');
+    console.log('2b) Owner pode cancelar cash_launch sem mercadoria');
+    await updateDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID), {
+      status: 'Cancelado',
+      updatedAt: now(),
+    });
+    const canceledDoc = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID));
+    if (!canceledDoc.exists() || canceledDoc.data().status !== 'Cancelado') {
+      fail('Owner nao conseguiu cancelar cash_launch sem mercadoria');
+    } else {
+      console.log('   cash_launch vazio aceitou status Cancelado');
+    }
+    await updateDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID), {
+      status: 'Em Lancamento',
+      updatedAt: now(),
+    });
+
     console.log('3b) Owner NAO pode apagar fisicamente seu cash_launch');
     try {
       await deleteDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID));

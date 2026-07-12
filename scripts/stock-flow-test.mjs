@@ -160,7 +160,7 @@ async function finalizeLaunch(db, launchId, batchId) {
   });
 }
 
-async function reopenLaunch(db, launchId, batchId) {
+async function reopenLaunch(db, launchId, batchId, nextStatus = 'Em Lancamento') {
   await runTransaction(db, async (transaction) => {
     const productRef = productPath(db);
     const launchRef = launchPath(db, launchId);
@@ -184,7 +184,7 @@ async function reopenLaunch(db, launchId, batchId) {
       updatedAt: timestamp,
     });
     transaction.update(launchRef, {
-      status: 'Em Lancamento',
+      status: nextStatus,
       stockDeducted: false,
       stockDeductedAt: null,
       stockMovementBatchId: null,
@@ -223,6 +223,14 @@ async function assertLaunchDeducted(db, launchId, expected, label) {
   if (!snapshot.exists()) fail(`${label}: O.S. nao existe.`);
   if (snapshot.data().stockDeducted !== expected) {
     fail(`${label}: stockDeducted esperado ${expected}, encontrado ${snapshot.data().stockDeducted}.`);
+  }
+}
+
+async function assertLaunchStatus(db, launchId, expected, label) {
+  const snapshot = await getDoc(launchPath(db, launchId));
+  if (!snapshot.exists()) fail(`${label}: O.S. nao existe.`);
+  if (snapshot.data().status !== expected) {
+    fail(`${label}: status esperado ${expected}, encontrado ${snapshot.data().status}.`);
   }
 }
 
@@ -266,7 +274,16 @@ async function runTests() {
     if (await countMovements(db) !== 2) fail('Reabertura: movimento de estorno nao foi registrado.');
     console.log('   OK estoque 8 -> 10 e O.S. sem baixa pendente');
 
-    console.log('4) Estoque insuficiente bloqueia finalizacao e preserva dados');
+    console.log('4) Cancelar O.S. finalizada estorna estoque e registra estorno');
+    await finalizeLaunch(db, LAUNCH_ID, 'stock-batch-finalizar-cancelamento');
+    await reopenLaunch(db, LAUNCH_ID, 'stock-batch-cancelar', 'Cancelado');
+    await assertProductStock(db, 10, 'Cancelamento');
+    await assertLaunchDeducted(db, LAUNCH_ID, false, 'Cancelamento');
+    await assertLaunchStatus(db, LAUNCH_ID, 'Cancelado', 'Cancelamento');
+    if (await countMovements(db) !== 4) fail('Cancelamento: movimento de estorno nao foi registrado.');
+    console.log('   OK cancelamento devolveu estoque e marcou O.S. como Cancelado');
+
+    console.log('5) Estoque insuficiente bloqueia finalizacao e preserva dados');
     await updateDoc(productPath(db), { stockQuantity: 1, updatedAt: now() });
     let blocked = false;
     try {

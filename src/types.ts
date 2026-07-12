@@ -230,7 +230,7 @@ export interface CashRegisterLaunch extends SoftDeletable {
   clientEmail?: string;
   clientPhone?: string;
   bikeModel?: string;
-  status: 'Em Lancamento' | 'Finalizado' | 'Pendente';
+  status: 'Em Lancamento' | 'Finalizado' | 'Pendente' | 'Cancelado';
   openingDate: string;
   expectedDate: string;
   request?: string;

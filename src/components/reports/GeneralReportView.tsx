@@ -175,6 +175,7 @@ export const GeneralReportView = ({
 
   const filteredCashLaunches = useMemo(() => {
     return cashLaunches.filter((launch) => {
+      if (launch.status === 'Cancelado') return false;
       if (!isDateInRange(getCashLaunchDate(launch), startDate, endDate)) return false;
       if (serviceTypeFilter !== 'all') return false;
       if (paymentStatus === 'Pago' && !isCashLaunchPaid(launch)) return false;
