@@ -92,12 +92,13 @@ type CashRegisterLocalDraft = {
   orderDiscountPercentInput: string;
 };
 
-const statusOptions: CashRegisterLaunch['status'][] = ['Em Lancamento', 'Finalizado', 'Pendente'];
+const statusOptions: CashRegisterLaunch['status'][] = ['Em Lancamento', 'Pendente', 'Finalizado', 'Cancelado'];
 const historyStatusOptions: Array<{ value: HistoryStatusFilter; label: string }> = [
   { value: 'all', label: 'Todos os status' },
   { value: 'Finalizado', label: 'Finalizado' },
   { value: 'Pendente', label: 'Pendente' },
   { value: 'Em Lancamento', label: 'Em lancamento' },
+  { value: 'Cancelado', label: 'Cancelado' },
 ];
 const cashPaymentMethodOptions: CashPaymentMethod[] = ['Debito', 'Credito', 'Pix', 'Dinheiro'];
 const fiscalStatusOptions: ManualFiscalDocumentStatus[] = ['Nao emitida', 'Emitida', 'Cancelada'];
@@ -106,6 +107,13 @@ const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: '
 const today = () => format(new Date(), 'yyyy-MM-dd');
 
 const compactCurrency = (value: number) => currency.format(Number.isFinite(value) ? value : 0);
+
+const getStatusBadgeClass = (status: CashRegisterLaunch['status']) => {
+  if (status === 'Finalizado') return 'bg-emerald-500/15 text-emerald-200';
+  if (status === 'Pendente') return 'bg-amber-500/15 text-amber-200';
+  if (status === 'Cancelado') return 'bg-red-500/15 text-red-200';
+  return 'bg-slate-800 text-slate-200';
+};
 
 const escapeHtml = (value: unknown) =>
   String(value ?? '')
@@ -1228,7 +1236,7 @@ export const CashRegisterView = ({
                         <td className="px-2.5 py-1.5 text-slate-300">{safeFormat(launch.openingDate)}</td>
                         <td className="px-2.5 py-1.5 text-slate-300">{safeFormat(launch.expectedDate)}</td>
                         <td className="px-2.5 py-1.5">
-                          <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-bold text-slate-200">{launch.status}</span>
+                          <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold', getStatusBadgeClass(launch.status))}>{launch.status}</span>
                         </td>
                         <td className="truncate px-2.5 py-1.5 text-slate-400">{launch.bikeModel || '-'}</td>
                         <td className="px-2.5 py-1.5 text-right font-black text-white">{compactCurrency(launch.total)}</td>
@@ -1274,6 +1282,7 @@ export const CashRegisterView = ({
                   { id: 'Em Lancamento' as MonitoringStatusFilter, label: 'Em lancamento' },
                   { id: 'Pendente' as MonitoringStatusFilter, label: 'Pendente' },
                   { id: 'Finalizado' as MonitoringStatusFilter, label: 'Finalizada' },
+                  { id: 'Cancelado' as MonitoringStatusFilter, label: 'Cancelada' },
                 ].map((filter) => (
                   <button
                     key={filter.id}
@@ -1322,7 +1331,7 @@ export const CashRegisterView = ({
                       </div>
                       <div className="text-left sm:text-right">
                         <p className="text-sm font-black text-primary">{compactCurrency(launch.total)}</p>
-                        <p className="text-xs font-bold uppercase text-slate-500">{launch.status}</p>
+                        <p className={cn('inline-flex rounded-full px-2 py-0.5 text-[10px] font-black uppercase', getStatusBadgeClass(launch.status))}>{launch.status}</p>
                       </div>
                     </button>
                   ))

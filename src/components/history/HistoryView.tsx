@@ -110,6 +110,7 @@ const getCashLaunchDetailText = (launch: CashRegisterLaunch) => {
 };
 
 const getCashLaunchPaymentStatus = (launch: CashRegisterLaunch): MaintenanceRecord['statusPagamento'] | undefined => {
+  if (launch.status === 'Cancelado') return undefined;
   if (launch.invoiced) return 'Pago';
   if (launch.status === 'Pendente' || launch.status === 'Finalizado') return 'Pendente';
   return undefined;

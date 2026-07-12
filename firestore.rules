@@ -134,7 +134,7 @@ service cloud.firestore {
     }
 
     function cashLaunchStatusValid() {
-      return request.resource.data.status in ['Em Lancamento', 'Finalizado', 'Pendente'];
+      return request.resource.data.status in ['Em Lancamento', 'Finalizado', 'Pendente', 'Cancelado'];
     }
 
     function requiredBaseFields(userId, requiredKeys, allowedKeys) {
@@ -367,9 +367,9 @@ service cloud.firestore {
         && request.resource.data.items is list
         && request.resource.data.items.size() <= 200
         && isNumberInRange('merchandiseTotal', 0, 10000000)
-        // Prevent saving a finalized or pending O.S. without merchandise
+        // Prevent saving active payable O.S. without merchandise.
         && (
-          request.resource.data.status == 'Em Lancamento'
+          request.resource.data.status in ['Em Lancamento', 'Cancelado']
           || (request.resource.data.items.size() > 0 && request.resource.data.merchandiseTotal > 0)
         )
         && isNumberInRange('servicesTotal', 0, 10000000)
@@ -419,7 +419,7 @@ service cloud.firestore {
         && request.resource.data.items.size() <= 200
         && isNumberInRange('merchandiseTotal', 0, 10000000)
         && (
-          request.resource.data.status == 'Em Lancamento'
+          request.resource.data.status in ['Em Lancamento', 'Cancelado']
           || (request.resource.data.items.size() > 0 && request.resource.data.merchandiseTotal > 0)
         )
         && isNumberInRange('servicesTotal', 0, 10000000)
@@ -670,6 +670,102 @@ service cloud.firestore {
         && request.resource.data.updatedAt.size() <= 40;
     }
 
+    function validOwnerCashLaunchFinalizedStockUpdate(userId) {
+      return isActiveOwner(userId)
+        && storedUserIdMatches(userId)
+        && optionalUserIdMatches(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'items',
+          'merchandiseTotal',
+          'total',
+          'stockDeducted',
+          'stockDeductedAt',
+          'stockMovementBatchId',
+          'updatedAt'
+        ])
+        && request.resource.data.status == 'Finalizado'
+        && request.resource.data.stockDeducted == true
+        && request.resource.data.items is list
+        && request.resource.data.items.size() > 0
+        && request.resource.data.items.size() <= 200
+        && request.resource.data.merchandiseTotal is number
+        && request.resource.data.merchandiseTotal > 0
+        && request.resource.data.merchandiseTotal <= 10000000
+        && request.resource.data.total is number
+        && request.resource.data.total >= 0
+        && request.resource.data.total <= 10000000
+        && request.resource.data.stockDeductedAt is string
+        && request.resource.data.stockDeductedAt.size() <= 40
+        && request.resource.data.stockMovementBatchId is string
+        && request.resource.data.stockMovementBatchId.size() <= 200
+        && request.resource.data.updatedAt is string
+        && request.resource.data.updatedAt.size() <= 40;
+    }
+
+    function validOwnerCashLaunchCanceledUpdate(userId) {
+      return isActiveOwner(userId)
+        && storedUserIdMatches(userId)
+        && optionalUserIdMatches(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(cashLaunchKeys())
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(cashFiscalFields())
+        && request.resource.data.status == 'Cancelado'
+        && request.resource.data.items is list
+        && request.resource.data.items.size() <= 200
+        && request.resource.data.merchandiseTotal is number
+        && request.resource.data.merchandiseTotal >= 0
+        && request.resource.data.merchandiseTotal <= 10000000
+        && request.resource.data.servicesTotal is number
+        && request.resource.data.servicesTotal >= 0
+        && request.resource.data.servicesTotal <= 10000000
+        && request.resource.data.discountTotal is number
+        && request.resource.data.discountTotal >= 0
+        && request.resource.data.discountTotal <= 10000000
+        && request.resource.data.total is number
+        && request.resource.data.total >= 0
+        && request.resource.data.total <= 10000000
+        && request.resource.data.updatedAt is string
+        && request.resource.data.updatedAt.size() <= 40;
+    }
+
+    function validOwnerCashLaunchSimpleStatusUpdate(userId) {
+      return isActiveOwner(userId)
+        && storedUserIdMatches(userId)
+        && optionalUserIdMatches(userId)
+        && (
+          !resource.data.keys().hasAny(['stockDeducted'])
+          || resource.data.stockDeducted != true
+        )
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+        && request.resource.data.status in ['Em Lancamento', 'Pendente', 'Cancelado']
+        && request.resource.data.updatedAt is string
+        && request.resource.data.updatedAt.size() <= 40;
+    }
+
+    function validOwnerCashLaunchStockRestoreUpdate(userId) {
+      return isActiveOwner(userId)
+        && storedUserIdMatches(userId)
+        && optionalUserIdMatches(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'invoiced',
+          'stockDeducted',
+          'stockDeductedAt',
+          'stockMovementBatchId',
+          'updatedAt'
+        ])
+        && request.resource.data.status in ['Em Lancamento', 'Pendente', 'Cancelado']
+        && (
+          !request.resource.data.keys().hasAny(['invoiced'])
+          || request.resource.data.invoiced == false
+        )
+        && request.resource.data.stockDeducted == false
+        && request.resource.data.stockDeductedAt == null
+        && request.resource.data.stockMovementBatchId == null
+        && request.resource.data.updatedAt is string
+        && request.resource.data.updatedAt.size() <= 40;
+    }
+
     function validOwnerCashLaunchStockUpdate(userId) {
       return isActiveOwner(userId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(cashLaunchKeys())
@@ -692,7 +788,7 @@ service cloud.firestore {
         && request.resource.data.items is list
         && request.resource.data.items.size() <= 200
         && (
-          request.resource.data.status == 'Em Lancamento'
+          request.resource.data.status in ['Em Lancamento', 'Cancelado']
           || (request.resource.data.items.size() > 0 && request.resource.data.merchandiseTotal > 0)
         )
         && isNumberInRange('merchandiseTotal', 0, 10000000)
@@ -1072,7 +1168,7 @@ service cloud.firestore {
 
     match /users/{userId}/stock_movements/{movementId} {
       allow read: if canReadUserData(userId);
-      allow create: if validOwnerStockMovementCreate(userId) || isAdmin() || (validOwnerCreate(userId, stockMovementKeys()) && stockMovementShape(userId));
+      allow create: if validOwnerStockMovementCreate(userId) || isAdmin();
       allow update, delete: if false;
     }
 
@@ -1087,6 +1183,10 @@ service cloud.firestore {
       allow update: if isAdmin()
         || validOwnerSoftDeleteUpdate(userId)
         || validOwnerCashLaunchFinalizedStockPaymentUpdate(userId)
+        || validOwnerCashLaunchFinalizedStockUpdate(userId)
+        || validOwnerCashLaunchCanceledUpdate(userId)
+        || validOwnerCashLaunchSimpleStatusUpdate(userId)
+        || validOwnerCashLaunchStockRestoreUpdate(userId)
         || validOwnerCashLaunchStockUpdate(userId)
         || (
           validOwnerUpdate(userId, cashLaunchKeys())
