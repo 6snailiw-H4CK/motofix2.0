@@ -23,6 +23,13 @@ import {
 } from '../types';
 import { DEFAULT_SETTINGS } from '../constants/appDefaults';
 
+export type CollectionListenerIssue = {
+  key: string;
+  label: string;
+  message: string;
+  at: string;
+};
+
 type UseUserCollectionsParams = {
   user: User | null;
   userProfile: UserProfile | null;
@@ -46,6 +53,7 @@ type UseUserCollectionsResult = {
   fiscalInvoices: FiscalInvoice[];
   fiscalLogs: FiscalLog[];
   operationalLogs: OperationalLog[];
+  collectionListenerIssues: CollectionListenerIssue[];
 };
 
 const buildSettings = (userId: string, data: Record<string, any>): Settings => ({
@@ -77,6 +85,10 @@ const mapActiveDocuments = <T,>(documents: Array<{ id: string; data: () => Recor
   })
 );
 
+const getListenerErrorMessage = (error: unknown) => (
+  error instanceof Error ? error.message : String(error)
+);
+
 export function useUserCollections({
   user,
   userProfile,
@@ -97,104 +109,144 @@ export function useUserCollections({
   const [fiscalInvoices, setFiscalInvoices] = useState<FiscalInvoice[]>([]);
   const [fiscalLogs, setFiscalLogs] = useState<FiscalLog[]>([]);
   const [operationalLogs, setOperationalLogs] = useState<OperationalLog[]>([]);
+  const [collectionListenerIssuesByKey, setCollectionListenerIssuesByKey] = useState<Record<string, CollectionListenerIssue>>({});
 
   useEffect(() => {
     const hasExpiredSubscription = userProfile?.subscriptionExpiresAt
       ? isBefore(parseISO(userProfile.subscriptionExpiresAt), new Date())
       : false;
 
-    if (!user || (!userProfile?.isActive && !hasExpiredSubscription)) return;
+    if (!user || (!userProfile?.isActive && !hasExpiredSubscription)) {
+      setCollectionListenerIssuesByKey({});
+      return;
+    }
+
+    setCollectionListenerIssuesByKey({});
+
+    const clearListenerIssue = (key: string) => {
+      setCollectionListenerIssuesByKey((current) => {
+        if (!current[key]) return current;
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+    };
+
+    const recordListenerIssue = (key: string, label: string, error: unknown) => {
+      console.error(`${label} listener error:`, error);
+      setCollectionListenerIssuesByKey((current) => ({
+        ...current,
+        [key]: {
+          key,
+          label,
+          message: getListenerErrorMessage(error),
+          at: new Date().toISOString(),
+        },
+      }));
+    };
 
     const clientsQuery = query(collection(db, 'users', user.uid, 'clients'));
     const unsubscribeClients = onSnapshot(clientsQuery, (snapshot) => {
+      clearListenerIssue('clients');
       const clientsData = mapActiveDocuments<Client>(snapshot.docs);
       setClients(clientsData);
     }, (error) => {
-      console.error('Clients listener error:', error);
+      recordListenerIssue('clients', 'Clientes', error);
     });
 
     const maintenanceQuery = query(collection(db, 'users', user.uid, 'maintenances'));
     const unsubscribeMaintenances = onSnapshot(maintenanceQuery, (snapshot) => {
+      clearListenerIssue('maintenances');
       const maintenanceData = mapActiveDocuments<MaintenanceRecord>(snapshot.docs);
       setMaintenances(maintenanceData.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
     }, (error) => {
-      console.error('Maintenances listener error:', error);
+      recordListenerIssue('maintenances', 'Historico de servicos', error);
     });
 
     const warrantyQuery = query(collection(db, 'users', user.uid, 'warranties'));
     const unsubscribeWarranties = onSnapshot(warrantyQuery, (snapshot) => {
+      clearListenerIssue('warranties');
       const warrantyData = mapActiveDocuments<Warranty>(snapshot.docs);
       setWarranties(warrantyData.sort((a, b) => b.warrantyNumber - a.warrantyNumber));
     }, (error) => {
-      console.error('Warranties listener error:', error);
+      recordListenerIssue('warranties', 'Garantias', error);
     });
 
     const appointmentsQuery = query(collection(db, 'users', user.uid, 'appointments'));
     const unsubscribeAppointments = onSnapshot(appointmentsQuery, (snapshot) => {
+      clearListenerIssue('appointments');
       const appointmentData = mapActiveDocuments<Appointment>(snapshot.docs);
       setAppointments(appointmentData.sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate)));
     }, (error) => {
-      console.error('Appointments listener error:', error);
+      recordListenerIssue('appointments', 'Agenda', error);
     });
 
     const expensesQuery = query(collection(db, 'users', user.uid, 'expenses'));
     const unsubscribeExpenses = onSnapshot(expensesQuery, (snapshot) => {
+      clearListenerIssue('expenses');
       const expensesData = mapActiveDocuments<ExpenseRecord>(snapshot.docs);
       setExpenseEntries(expensesData.sort((a, b) => b.date.localeCompare(a.date)));
     }, (error) => {
-      console.error('Expenses listener error:', error);
+      recordListenerIssue('expenses', 'Gastos', error);
     });
 
     const productsQuery = query(collection(db, 'users', user.uid, 'products'));
     const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
+      clearListenerIssue('products');
       const productsData = mapActiveDocuments<ProductCatalogItem>(snapshot.docs);
       setProductCatalog(productsData.sort((a, b) => a.description.localeCompare(b.description)));
     }, (error) => {
-      console.error('Products listener error:', error);
+      recordListenerIssue('products', 'Mercadorias', error);
     });
 
     const cashLaunchesQuery = query(collection(db, 'users', user.uid, 'cash_launches'));
     const unsubscribeCashLaunches = onSnapshot(cashLaunchesQuery, (snapshot) => {
+      clearListenerIssue('cash_launches');
       const launchesData = mapActiveDocuments<CashRegisterLaunch>(snapshot.docs);
       setCashLaunches(launchesData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     }, (error) => {
-      console.error('Cash launches listener error:', error);
+      recordListenerIssue('cash_launches', 'Lancamentos caixa', error);
     });
 
     const fiscalCompaniesQuery = query(collection(db, 'users', user.uid, 'fiscal_companies'));
     const unsubscribeFiscalCompanies = onSnapshot(fiscalCompaniesQuery, (snapshot) => {
+      clearListenerIssue('fiscal_companies');
       const companiesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FiscalCompany));
       setFiscalCompanies(companiesData.sort((a, b) => a.legalName.localeCompare(b.legalName)));
     }, (error) => {
-      console.error('Fiscal companies listener error:', error);
+      recordListenerIssue('fiscal_companies', 'Empresas fiscais', error);
     });
 
     const fiscalInvoicesQuery = query(collection(db, 'users', user.uid, 'fiscal_invoices'));
     const unsubscribeFiscalInvoices = onSnapshot(fiscalInvoicesQuery, (snapshot) => {
+      clearListenerIssue('fiscal_invoices');
       const invoicesData = mapActiveDocuments<FiscalInvoice>(snapshot.docs);
       setFiscalInvoices(invoicesData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     }, (error) => {
-      console.error('Fiscal invoices listener error:', error);
+      recordListenerIssue('fiscal_invoices', 'Notas fiscais', error);
     });
 
     const fiscalLogsQuery = query(collection(db, 'users', user.uid, 'fiscal_logs'));
     const unsubscribeFiscalLogs = onSnapshot(fiscalLogsQuery, (snapshot) => {
+      clearListenerIssue('fiscal_logs');
       const logsData = mapActiveDocuments<FiscalLog>(snapshot.docs);
       setFiscalLogs(logsData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     }, (error) => {
-      console.error('Fiscal logs listener error:', error);
+      recordListenerIssue('fiscal_logs', 'Logs fiscais', error);
     });
 
     const operationalLogsQuery = query(collection(db, 'users', user.uid, 'operational_logs'));
     const unsubscribeOperationalLogs = onSnapshot(operationalLogsQuery, (snapshot) => {
+      clearListenerIssue('operational_logs');
       const logsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as OperationalLog));
       setOperationalLogs(logsData.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 50));
     }, (error) => {
-      console.error('Operational logs listener error:', error);
+      recordListenerIssue('operational_logs', 'Logs operacionais', error);
     });
 
     const settingsDoc = doc(db, 'users', user.uid, 'settings', 'config');
     const unsubscribeSettings = onSnapshot(settingsDoc, (snapshot) => {
+      clearListenerIssue('settings');
       if (snapshot.exists()) {
         const data = snapshot.data();
         const updatedSettings = buildSettings(user.uid, data);
@@ -222,7 +274,7 @@ export function useUserCollections({
         setSettingsLoaded(true);
       }
     }, (error) => {
-      console.error('Settings listener error:', error);
+      recordListenerIssue('settings', 'Configuracoes', error);
       setSettings((currentSettings) => (
         currentSettings.userId === user.uid
           ? currentSettings
@@ -240,19 +292,21 @@ export function useUserCollections({
     if (userProfile?.role === 'admin' && userProfile?.isActive) {
       const usersQuery = collection(db, 'users');
       unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
+        clearListenerIssue('admin_users');
         const usersData = snapshot.docs.map(doc => doc.data() as UserProfile);
         setAllUsers(usersData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
       }, (error) => {
-        console.error('Admin users listener error:', error);
+        recordListenerIssue('admin_users', 'Usuarios administrativos', error);
       });
     }
 
     const messageLogsQuery = query(collection(db, 'users', user.uid, 'message_logs'));
     const unsubscribeMessageLogs = onSnapshot(messageLogsQuery, (snapshot) => {
+      clearListenerIssue('message_logs');
       const logsData = mapActiveDocuments<MessageLog>(snapshot.docs);
       setMessageLogs(logsData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     }, (error) => {
-      console.error('Message logs listener error:', error);
+      recordListenerIssue('message_logs', 'Avisos enviados', error);
     });
 
     return () => {
@@ -289,6 +343,7 @@ export function useUserCollections({
     fiscalCompanies,
     fiscalInvoices,
     fiscalLogs,
-    operationalLogs
+    operationalLogs,
+    collectionListenerIssues: Object.values(collectionListenerIssuesByKey).sort((a, b) => b.at.localeCompare(a.at))
   };
 }

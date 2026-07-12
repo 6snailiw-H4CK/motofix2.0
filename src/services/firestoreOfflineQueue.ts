@@ -7,8 +7,12 @@ const WRITE_SETTLE_TIMEOUT_MS = 1200;
 const REMOTE_CONFIRMATION_TIMEOUT_MS = 12000;
 const READ_FALLBACK_TIMEOUT_MS = 3500;
 export const QUEUE_STORAGE_KEY = 'motofix:firestore-offline-queue-state';
+const QUEUE_INDEXED_DB_NAME = 'motofix-offline-queue';
+const QUEUE_INDEXED_DB_STORE = 'snapshots';
+const QUEUE_INDEXED_DB_STATE_KEY = 'firestore-offline-queue-state';
 
 const canUseWindow = () => typeof window !== 'undefined';
+const canUseIndexedDb = () => canUseWindow() && typeof window.indexedDB !== 'undefined';
 
 export type FirestoreReplayMutation = {
   operation: 'set' | 'update';
@@ -138,24 +142,124 @@ const normalizeWrites = (value: unknown): PersistedWrite[] => {
   });
 };
 
+const normalizePersistedSnapshot = (value: unknown): PersistedQueueSnapshot => {
+  if (!value || typeof value !== 'object') return emptySnapshot();
+  const parsed = value as Partial<PersistedQueueSnapshot>;
+  return {
+    writes: normalizeWrites(parsed.writes),
+    lastQueuedAt: parsed.lastQueuedAt || null,
+    lastSettledAt: parsed.lastSettledAt || null,
+    lastError: parsed.lastError || null,
+    failureCount: Number(parsed.failureCount) || 0,
+    confirmedCount: Number(parsed.confirmedCount) || 0,
+    retryCount: Number(parsed.retryCount) || 0,
+    persistenceFailureCount: Number(parsed.persistenceFailureCount) || 0,
+    lastPersistenceError: parsed.lastPersistenceError || null,
+  };
+};
+
+let queueDatabasePromise: Promise<IDBDatabase> | null = null;
+
+const openQueueDatabase = () => {
+  if (!canUseIndexedDb()) {
+    return Promise.reject(new Error('IndexedDB indisponivel.'));
+  }
+
+  if (!queueDatabasePromise) {
+    queueDatabasePromise = new Promise<IDBDatabase>((resolve, reject) => {
+      const request = window.indexedDB.open(QUEUE_INDEXED_DB_NAME, 1);
+
+      request.onupgradeneeded = () => {
+        const database = request.result;
+        if (!database.objectStoreNames.contains(QUEUE_INDEXED_DB_STORE)) {
+          database.createObjectStore(QUEUE_INDEXED_DB_STORE);
+        }
+      };
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error('Falha ao abrir IndexedDB.'));
+      request.onblocked = () => reject(new Error('IndexedDB bloqueado por outra aba.'));
+    });
+  }
+
+  return queueDatabasePromise;
+};
+
+const readPersistedQueueFromIndexedDb = async () => {
+  if (!canUseIndexedDb()) return null;
+  const database = await openQueueDatabase();
+
+  return new Promise<PersistedQueueSnapshot | null>((resolve, reject) => {
+    const transaction = database.transaction(QUEUE_INDEXED_DB_STORE, 'readonly');
+    const store = transaction.objectStore(QUEUE_INDEXED_DB_STORE);
+    const request = store.get(QUEUE_INDEXED_DB_STATE_KEY);
+
+    request.onsuccess = () => {
+      resolve(request.result ? normalizePersistedSnapshot(request.result) : null);
+    };
+    request.onerror = () => reject(request.error || new Error('Falha ao ler fila offline no IndexedDB.'));
+    transaction.onabort = () => reject(transaction.error || new Error('Leitura da fila offline abortada.'));
+  });
+};
+
+const writePersistedQueueToIndexedDb = async (snapshot: PersistedQueueSnapshot) => {
+  if (!canUseIndexedDb()) return;
+  const database = await openQueueDatabase();
+  const serializedSnapshot = JSON.parse(JSON.stringify(snapshot)) as PersistedQueueSnapshot;
+
+  await new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(QUEUE_INDEXED_DB_STORE, 'readwrite');
+    const store = transaction.objectStore(QUEUE_INDEXED_DB_STORE);
+    const request = store.put(serializedSnapshot, QUEUE_INDEXED_DB_STATE_KEY);
+
+    request.onerror = () => reject(request.error || new Error('Falha ao salvar fila offline no IndexedDB.'));
+    transaction.oncomplete = () => resolve();
+    transaction.onabort = () => reject(transaction.error || new Error('Persistencia da fila offline abortada.'));
+  });
+};
+
+const parseTime = (value: string | null | undefined) => {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+};
+
+const newestDate = (left: string | null, right: string | null) => (
+  parseTime(left) >= parseTime(right) ? left : right
+);
+
+const mergePersistedQueues = (
+  primary: PersistedQueueSnapshot,
+  secondary: PersistedQueueSnapshot
+): PersistedQueueSnapshot => {
+  const writesById = new Map<string, PersistedWrite>();
+  [...secondary.writes, ...primary.writes].forEach((write) => {
+    const current = writesById.get(write.id);
+    if (!current || parseTime(write.lastUpdatedAt) >= parseTime(current.lastUpdatedAt)) {
+      writesById.set(write.id, write);
+    }
+  });
+
+  return {
+    writes: Array.from(writesById.values()),
+    lastQueuedAt: newestDate(primary.lastQueuedAt, secondary.lastQueuedAt),
+    lastSettledAt: newestDate(primary.lastSettledAt, secondary.lastSettledAt),
+    lastError: primary.lastError || secondary.lastError || null,
+    failureCount: Math.max(primary.failureCount, secondary.failureCount),
+    confirmedCount: Math.max(primary.confirmedCount, secondary.confirmedCount),
+    retryCount: Math.max(primary.retryCount, secondary.retryCount),
+    persistenceFailureCount: Math.max(primary.persistenceFailureCount, secondary.persistenceFailureCount),
+    lastPersistenceError: primary.lastPersistenceError || secondary.lastPersistenceError || null,
+  };
+};
+
 const readPersistedQueue = (): PersistedQueueSnapshot => {
   if (!canUseWindow()) return emptySnapshot();
 
   try {
     const raw = window.localStorage.getItem(QUEUE_STORAGE_KEY);
     if (!raw) return emptySnapshot();
-    const parsed = JSON.parse(raw) as Partial<PersistedQueueSnapshot>;
-    return {
-      writes: normalizeWrites(parsed.writes),
-      lastQueuedAt: parsed.lastQueuedAt || null,
-      lastSettledAt: parsed.lastSettledAt || null,
-      lastError: parsed.lastError || null,
-      failureCount: Number(parsed.failureCount) || 0,
-      confirmedCount: Number(parsed.confirmedCount) || 0,
-      retryCount: Number(parsed.retryCount) || 0,
-      persistenceFailureCount: Number(parsed.persistenceFailureCount) || 0,
-      lastPersistenceError: parsed.lastPersistenceError || null,
-    };
+    return normalizePersistedSnapshot(JSON.parse(raw));
   } catch (error) {
     console.warn('Nao foi possivel ler o estado da fila offline:', error);
     return emptySnapshot();
@@ -208,6 +312,27 @@ const emitWriteError = (context: string, error: unknown) => {
   }));
 };
 
+const markPersistenceFailed = (message: string, error?: unknown) => {
+  queueState = {
+    ...queueState,
+    persistenceFailureCount: queueState.persistenceFailureCount + 1,
+    lastPersistenceError: message,
+    lastError: `Persistencia da fila: ${message}`,
+  };
+  persistedQueue = {
+    ...persistedQueue,
+    persistenceFailureCount: queueState.persistenceFailureCount,
+    lastPersistenceError: message,
+    lastError: queueState.lastError,
+  };
+  console.warn('Nao foi possivel persistir o estado da fila offline:', error || message);
+  window.dispatchEvent(new CustomEvent(FIRESTORE_OFFLINE_PERSISTENCE_ERROR_EVENT, {
+    detail: { message },
+  }));
+  emitTelemetry({ event: 'persistence_failed', message });
+  emitQueueState();
+};
+
 const persistQueueState = () => {
   if (!canUseWindow()) return;
   persistedQueue = {
@@ -222,23 +347,33 @@ const persistQueueState = () => {
     lastPersistenceError: queueState.lastPersistenceError,
   };
 
+  let localStorageError: unknown = null;
   try {
     window.localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(persistedQueue));
   } catch (error) {
-    const message = getErrorMessage(error);
-    queueState = {
-      ...queueState,
-      persistenceFailureCount: queueState.persistenceFailureCount + 1,
-      lastPersistenceError: message,
-      lastError: `Persistencia da fila: ${message}`,
-    };
-    console.warn('Nao foi possivel persistir o estado da fila offline:', error);
-    window.dispatchEvent(new CustomEvent(FIRESTORE_OFFLINE_PERSISTENCE_ERROR_EVENT, {
-      detail: { message },
-    }));
-    emitTelemetry({ event: 'persistence_failed', message });
-    emitQueueState();
+    localStorageError = error;
   }
+
+  if (!canUseIndexedDb()) {
+    if (localStorageError) {
+      markPersistenceFailed(getErrorMessage(localStorageError), localStorageError);
+    }
+    return;
+  }
+
+  const snapshot = persistedQueue;
+  void writePersistedQueueToIndexedDb(snapshot)
+    .then(() => {
+      if (localStorageError) {
+        console.warn('Espelho localStorage da fila offline falhou, mas IndexedDB foi salvo:', localStorageError);
+      }
+    })
+    .catch((indexedDbError) => {
+      const message = localStorageError
+        ? `IndexedDB: ${getErrorMessage(indexedDbError)}; localStorage: ${getErrorMessage(localStorageError)}`
+        : `IndexedDB: ${getErrorMessage(indexedDbError)}`;
+      markPersistenceFailed(message, indexedDbError);
+    });
 };
 
 const createWriteId = () => {
@@ -602,11 +737,40 @@ export const subscribeFirestoreOfflineQueue = (
   return () => window.removeEventListener(FIRESTORE_OFFLINE_QUEUE_EVENT, handleQueueState);
 };
 
+const hydrateQueueFromIndexedDb = async () => {
+  if (!canUseIndexedDb()) return;
+
+  try {
+    const indexedDbSnapshot = await readPersistedQueueFromIndexedDb();
+    if (!indexedDbSnapshot) return;
+
+    persistedQueue = mergePersistedQueues(indexedDbSnapshot, persistedQueue);
+    queueState = buildQueueState(persistedQueue);
+
+    try {
+      window.localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(persistedQueue));
+    } catch (error) {
+      console.warn('Nao foi possivel atualizar o espelho localStorage da fila offline:', error);
+    }
+
+    emitQueueState();
+  } catch (error) {
+    console.warn('Nao foi possivel hidratar a fila offline pelo IndexedDB:', error);
+  }
+};
+
 if (canUseWindow()) {
+  void hydrateQueueFromIndexedDb();
+
   window.addEventListener('storage', (event) => {
     if (event.key !== QUEUE_STORAGE_KEY) return;
-    persistedQueue = readPersistedQueue();
+    persistedQueue = mergePersistedQueues(readPersistedQueue(), persistedQueue);
     queueState = buildQueueState(persistedQueue);
+    if (canUseIndexedDb()) {
+      void writePersistedQueueToIndexedDb(persistedQueue).catch((error) => {
+        console.warn('Nao foi possivel sincronizar a fila offline com IndexedDB:', error);
+      });
+    }
     emitQueueState();
   });
 }

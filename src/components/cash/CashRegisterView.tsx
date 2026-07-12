@@ -58,7 +58,7 @@ type CashRegisterViewProps = {
   onInitialLaunchLoaded?: () => void;
   onOpenRecurringServices?: () => void;
   onQuickSaveClient?: (client: QuickClientInput) => Promise<Client | null> | Client | null;
-  onSaveLaunch: (draft: CashRegisterDraft, launchId?: string) => Promise<boolean> | boolean;
+  onSaveLaunch: (draft: CashRegisterDraft, launchId?: string, previousLaunch?: CashRegisterLaunch) => Promise<boolean> | boolean;
 };
 
 type MainTab = 'control' | 'history' | 'monitoring';
@@ -145,6 +145,22 @@ const formatShortOrderNumber = (orderNumber?: string) => {
 
   const compact = raw.replace(/^LC[-_]?/i, '').replace(/[^a-z0-9]/gi, '');
   return compact ? `OS ${compact.slice(-6)}` : 'OS';
+};
+
+const getProductStockLabel = (product: ProductCatalogItem) => {
+  if (!product.trackStock) return 'Sem controle';
+  const stockQuantity = Number(product.stockQuantity || 0);
+  if (stockQuantity <= 0) return 'Zerado';
+  return `${stockQuantity} disp.`;
+};
+
+const getProductStockClass = (product: ProductCatalogItem) => {
+  if (!product.trackStock) return 'text-slate-500';
+  const stockQuantity = Number(product.stockQuantity || 0);
+  const minStockQuantity = Number(product.minStockQuantity || 0);
+  if (stockQuantity <= 0) return 'text-red-300';
+  if (minStockQuantity > 0 && stockQuantity <= minStockQuantity) return 'text-amber-200';
+  return 'text-emerald-200';
 };
 
 const calculateItem = (item: CashRegisterItem): CashRegisterItem => {
@@ -306,7 +322,7 @@ export const CashRegisterView = ({
     const search = normalizeSearch(productSearch.trim());
     const rows = search
       ? expandedRows.filter(({ product, variation }) => {
-        const haystack = normalizeSearch(`${product.sourceCode} ${product.description} ${product.variation || ''} ${variation?.name || ''} ${variation?.salePrice || ''} ${product.ncm}`);
+        const haystack = normalizeSearch(`${product.sourceCode} ${product.description} ${product.variation || ''} ${variation?.name || ''} ${variation?.salePrice || ''} ${product.ncm} ${product.stockQuantity || 0} ${getProductStockLabel(product)}`);
         return haystack.includes(search);
       })
       : expandedRows;
@@ -730,7 +746,10 @@ export const CashRegisterView = ({
     const successOrderNumber = editingOrderNumber || 'Novo lancamento';
     const successTotal = totals.total;
     const shouldAutoIssueFiscal = Boolean(invoiced && statusOverride === 'Finalizado' && fiscalAutoIssueEnabled && editingLaunchId);
-    const saved = await Promise.resolve(onSaveLaunch(buildDraft(statusOverride, invoiced), editingLaunchId || undefined));
+    const previousLaunch = editingLaunchId
+      ? cashLaunches.find((launch) => launch.id === editingLaunchId)
+      : undefined;
+    const saved = await Promise.resolve(onSaveLaunch(buildDraft(statusOverride, invoiced), editingLaunchId || undefined, previousLaunch));
     if (saved) {
       if (isInvoiceAction && invoicePaymentMethod) {
         setInvoiceSuccess({
@@ -1414,7 +1433,7 @@ export const CashRegisterView = ({
             </div>
 
             <div className="flex-1 overflow-auto p-3">
-              <div className="min-w-[920px] overflow-hidden rounded-xl border border-slate-800">
+              <div className="min-w-[980px] overflow-hidden rounded-xl border border-slate-800">
                 <table className="w-full text-left text-[13px]">
                   <thead className="bg-primary/90 text-white">
                     <tr>
@@ -1422,6 +1441,7 @@ export const CashRegisterView = ({
                       <th className="px-2.5 py-1.5">Descricao</th>
                       <th className="px-2.5 py-1.5">Variacao</th>
                       <th className="px-2.5 py-1.5">NCM</th>
+                      <th className="px-2.5 py-1.5 text-right">Estoque</th>
                       <th className="px-2.5 py-1.5 text-right">Venda R$</th>
                       <th className="px-2.5 py-1.5 text-right">Acao</th>
                     </tr>
@@ -1429,13 +1449,13 @@ export const CashRegisterView = ({
                   <tbody className="divide-y divide-slate-800 bg-slate-950/40">
                     {products.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-3 py-8 text-center text-slate-500">
+                        <td colSpan={7} className="px-3 py-8 text-center text-slate-500">
                           Importe a planilha XLSX para carregar Descricao, Variacao, NCM e Venda R$.
                         </td>
                       </tr>
                     ) : productPickerRows.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-3 py-8 text-center text-slate-500">Nenhuma mercadoria encontrada para esta busca.</td>
+                        <td colSpan={7} className="px-3 py-8 text-center text-slate-500">Nenhuma mercadoria encontrada para esta busca.</td>
                       </tr>
                     ) : (
                       productPickerRows.map(({ id, product, variation }) => (
@@ -1457,6 +1477,7 @@ export const CashRegisterView = ({
                           <td className="px-2.5 py-1.5 font-bold text-white">{product.description}</td>
                           <td className="px-2.5 py-1.5 text-slate-400">{variation?.name || product.variation || '-'}</td>
                           <td className="px-2.5 py-1.5 text-slate-400">{product.ncm || '-'}</td>
+                          <td className={cn('px-2.5 py-1.5 text-right text-xs font-black', getProductStockClass(product))}>{getProductStockLabel(product)}</td>
                           <td className="px-2.5 py-1.5 text-right font-black text-primary">{compactCurrency(parsePositiveMoney(variation?.salePrice ?? product.salePrice))}</td>
                           <td className="px-2.5 py-1.5 text-right">
                             <button

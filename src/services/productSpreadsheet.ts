@@ -1,6 +1,6 @@
 import type { ProductCatalogItem, ProductCatalogVariation } from '../types';
 
-export type ProductImportRow = Pick<ProductCatalogItem, 'id' | 'sourceCode' | 'description' | 'variation' | 'variations' | 'ncm' | 'salePrice'>;
+export type ProductImportRow = Pick<ProductCatalogItem, 'id' | 'sourceCode' | 'description' | 'variation' | 'variations' | 'ncm' | 'salePrice' | 'stockQuantity' | 'minStockQuantity' | 'trackStock'>;
 
 type ProductColumn = {
   label: string;
@@ -158,6 +158,11 @@ const parseMoney = (value?: string) => {
   return Number.isFinite(parsed) ? parsed : Number.NaN;
 };
 
+const parseStockQuantity = (value?: string) => {
+  const parsed = parseMoney(value);
+  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : null;
+};
+
 const splitCodeDescription = (value: string, fallbackIndex: number) => {
   const cleaned = value.replace(/\s+/g, ' ').trim();
   const match = cleaned.match(/^(\d+)\s*-\s*(.+)$/);
@@ -205,6 +210,7 @@ const productToSheetRow = (product: ProductCatalogItem, index: number) => {
   const sourceCode = product.sourceCode || String(index + 1);
   const description = [sourceCode, product.description].filter(Boolean).join(' - ');
   const variations = formatVariationsForSheet(product.variations);
+  const shouldExportStock = product.trackStock || Number(product.stockQuantity || 0) > 0 || Number(product.minStockQuantity || 0) > 0;
 
   return [
     description,
@@ -215,7 +221,7 @@ const productToSheetRow = (product: ProductCatalogItem, index: number) => {
     product.ncm || '',
     '',
     '',
-    '',
+    shouldExportStock ? String(Math.max(0, Math.floor(Number(product.stockQuantity || 0)))) : '',
     '',
     '',
     formatMoneyForSheet(product.salePrice),
@@ -477,6 +483,15 @@ const parseProductsFromRows = (parsedRows: string[][]): ProductImportRow[] => {
     'tamanho',
   ]);
   const variationsIndex = findHeaderIndex(normalizedHeaders, ['variaÃ§Ãµes', 'variacoes', 'variations']);
+  const stockQuantityIndex = findHeaderIndex(normalizedHeaders, [
+    'estoque',
+    'saldo estoque',
+    'quantidade estoque',
+    'qtd estoque',
+    'qtde estoque',
+    'stock',
+    'stock quantity',
+  ]);
   const dataRows = parsedRows.slice(resolvedHeaderRowIndex >= 0 ? resolvedHeaderRowIndex + 1 : 1);
 
   const products = dataRows.flatMap((row, index) => {
@@ -491,6 +506,7 @@ const parseProductsFromRows = (parsedRows: string[][]): ProductImportRow[] => {
     const ncm = readCell(row, rowNcmIndex);
     const salePrice = parseMoney(readCell(row, rowSalePriceIndex));
     const variations = rowVariationsIndex >= 0 ? parseVariations(row[rowVariationsIndex]) : [];
+    const stockQuantity = stockQuantityIndex >= 0 ? parseStockQuantity(readCell(row, stockQuantityIndex)) : null;
 
     if (!rawDescription || !Number.isFinite(salePrice)) return [];
 
@@ -509,6 +525,7 @@ const parseProductsFromRows = (parsedRows: string[][]): ProductImportRow[] => {
       variations,
       ncm,
       salePrice,
+      ...(stockQuantity === null ? {} : { stockQuantity, trackStock: true }),
     }];
   });
 
@@ -730,6 +747,15 @@ const parseProductsWorkbookLegacy = async (file: File): Promise<ProductImportRow
   ]);
   const variationsIndex = findHeaderIndex(normalizedHeaders, ['variações', 'variacoes', 'variations']);
 
+  const stockQuantityIndex = findHeaderIndex(normalizedHeaders, [
+    'estoque',
+    'saldo estoque',
+    'quantidade estoque',
+    'qtd estoque',
+    'qtde estoque',
+    'stock',
+    'stock quantity',
+  ]);
   const dataRows = parsedRows.slice(headerRowIndex >= 0 ? headerRowIndex + 1 : 1);
 
   const products = dataRows.flatMap((row, index) => {
@@ -745,6 +771,7 @@ const parseProductsWorkbookLegacy = async (file: File): Promise<ProductImportRow
     const ncm = rowNcmIndex >= 0 ? row[rowNcmIndex] || '' : '';
     const salePrice = parseMoney(rowSalePriceIndex >= 0 ? row[rowSalePriceIndex] : '');
     const variations = rowVariationsIndex >= 0 ? parseVariations(row[rowVariationsIndex]) : parseVariations('');
+    const stockQuantity = stockQuantityIndex >= 0 ? parseStockQuantity(row[stockQuantityIndex]) : null;
 
     if (!rawDescription.trim() || !Number.isFinite(salePrice)) return [];
 
@@ -761,6 +788,7 @@ const parseProductsWorkbookLegacy = async (file: File): Promise<ProductImportRow
       variations,
       ncm,
       salePrice,
+      ...(stockQuantity === null ? {} : { stockQuantity, trackStock: true }),
     }];
   });
 

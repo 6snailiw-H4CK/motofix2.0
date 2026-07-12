@@ -44,7 +44,7 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
     }
   }, [user]);
 
-  const saveLaunch = useCallback(async (draft: CashRegisterDraft, launchId?: string) => {
+  const saveLaunch = useCallback(async (draft: CashRegisterDraft, launchId?: string, previousLaunch?: CashRegisterLaunch) => {
     if (!user) return false;
     if (draft.items.length === 0) {
       sonnerToast.error('Inclua ao menos uma mercadoria antes de salvar.');
@@ -59,7 +59,7 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
         await cashRegisterRepository.update(user.uid, launchId, {
           ...draft,
           updatedAt: now,
-        });
+        }, previousLaunch);
       } else {
         const orderNumber = `LC-${format(new Date(), 'yyyyMMdd-HHmmss')}`;
 
@@ -96,7 +96,7 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
         : launchId ? 'Lancamento Caixa atualizado com sucesso.' : 'Lancamento Caixa salvo com sucesso.');
       return true;
     } catch (error) {
-      sonnerToast.error('Nao foi possivel salvar o Lancamento Caixa.');
+      sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel salvar o Lancamento Caixa.');
       handleFirestoreError(error, OperationType.CREATE, 'cash_launches');
       return false;
     } finally {
@@ -104,16 +104,22 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
     }
   }, [user, workshopName]);
 
-  const deleteLaunch = useCallback(async (launchId: string) => {
+  const deleteLaunch = useCallback(async (launchOrId: CashRegisterLaunch | string) => {
     if (!user) return false;
 
+    const launchId = typeof launchOrId === 'string' ? launchOrId : launchOrId.id;
+    const previousLaunch = typeof launchOrId === 'string' ? undefined : launchOrId;
     setDeletingLaunchId(launchId);
     try {
-      await cashRegisterRepository.delete(user.uid, launchId);
+      await cashRegisterRepository.delete(user.uid, launchId, undefined, previousLaunch);
       sonnerToast.success('O.S. movida para a lixeira.', {
         action: {
           label: 'Desfazer',
-          onClick: () => void cashRegisterRepository.restore(user.uid, launchId),
+          onClick: () => {
+            void cashRegisterRepository.restore(user.uid, launchId)
+              .then(() => sonnerToast.success('O.S. restaurada com estoque sincronizado.'))
+              .catch((error) => sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel restaurar a O.S.'));
+          },
         },
       });
       return true;

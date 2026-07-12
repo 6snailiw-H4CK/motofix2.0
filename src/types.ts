@@ -159,6 +159,9 @@ export interface ProductCatalogItem extends SoftDeletable {
   variations?: ProductCatalogVariation[];
   ncm: string;
   salePrice: number;
+  stockQuantity?: number;
+  minStockQuantity?: number;
+  trackStock?: boolean;
   importedAt: string;
   userId: string;
   createdAt?: string;
@@ -171,7 +174,7 @@ export interface ProductCatalogVariation {
   salePrice: number;
 }
 
-export type ProductCatalogFormInput = Pick<ProductCatalogItem, 'sourceCode' | 'description' | 'variation' | 'variations' | 'ncm' | 'salePrice'>;
+export type ProductCatalogFormInput = Pick<ProductCatalogItem, 'sourceCode' | 'description' | 'variation' | 'variations' | 'ncm' | 'salePrice' | 'stockQuantity' | 'minStockQuantity' | 'trackStock'>;
 
 export interface CashRegisterItem {
   id: string;
@@ -246,9 +249,34 @@ export interface CashRegisterLaunch extends SoftDeletable {
   fiscalReference?: string;
   fiscalIssuedAt?: string;
   manualFiscal?: ManualFiscalInfo;
+  stockDeducted?: boolean;
+  stockDeductedAt?: string | null;
+  stockMovementBatchId?: string | null;
   userId: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export type StockMovementType = 'saida_os' | 'estorno_os' | 'entrada_manual' | 'ajuste_manual';
+
+export interface StockMovement {
+  id?: string;
+  userId: string;
+  productId: string;
+  productDescription: string;
+  sourceCode?: string;
+  variationId?: string;
+  variation?: string;
+  type: StockMovementType;
+  quantity: number;
+  previousQuantity: number;
+  nextQuantity: number;
+  cashLaunchId?: string;
+  cashLaunchOrderNumber?: string;
+  itemIds?: string[];
+  batchId: string;
+  note?: string;
+  createdAt: string;
 }
 
 export type FiscalEnvironment = 'homologation' | 'production';

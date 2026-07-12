@@ -27,6 +27,9 @@ const emptyForm: ProductCatalogFormInput = {
   variations: [],
   ncm: '',
   salePrice: 0,
+  stockQuantity: 0,
+  minStockQuantity: 0,
+  trackStock: false,
 };
 
 const parseMoney = (value: string) => {
@@ -38,6 +41,46 @@ const parseMoney = (value: string) => {
 const formatMoneyInput = (value: number) => (
   value ? String(value).replace('.', ',') : ''
 );
+
+const parseStockInput = (value: string) => {
+  const parsed = Number(value.replace(/\D/g, ''));
+  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : 0;
+};
+
+const formatStockInput = (value?: number) => (
+  Number(value || 0) > 0 ? String(Math.floor(Number(value || 0))) : ''
+);
+
+const getStockStatus = (product: ProductCatalogItem) => {
+  if (!product.trackStock) {
+    return {
+      label: 'Sem controle',
+      className: 'border-slate-700 bg-slate-900 text-slate-400',
+    };
+  }
+
+  const stockQuantity = Number(product.stockQuantity || 0);
+  const minStockQuantity = Number(product.minStockQuantity || 0);
+
+  if (stockQuantity <= 0) {
+    return {
+      label: 'Zerado',
+      className: 'border-red-500/40 bg-red-500/10 text-red-200',
+    };
+  }
+
+  if (minStockQuantity > 0 && stockQuantity <= minStockQuantity) {
+    return {
+      label: 'Baixo',
+      className: 'border-amber-500/40 bg-amber-500/10 text-amber-200',
+    };
+  }
+
+  return {
+    label: 'Em estoque',
+    className: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200',
+  };
+};
 
 const makeVariationId = (name: string) => (
   `var-${name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || Date.now()}`
@@ -57,6 +100,8 @@ export const ProductsView = ({
   const [editingProductId, setEditingProductId] = useState<string | undefined>();
   const [form, setForm] = useState<ProductCatalogFormInput>(emptyForm);
   const [salePriceInput, setSalePriceInput] = useState('');
+  const [stockQuantityInput, setStockQuantityInput] = useState('');
+  const [minStockQuantityInput, setMinStockQuantityInput] = useState('');
   const [isVariationFormOpen, setIsVariationFormOpen] = useState(false);
   const [variationName, setVariationName] = useState('');
   const [variationPriceInput, setVariationPriceInput] = useState('');
@@ -72,6 +117,10 @@ export const ProductsView = ({
         product.variation,
         product.sourceCode,
         product.ncm,
+        product.trackStock ? 'estoque controle estoque' : 'sem controle estoque',
+        String(product.stockQuantity || 0),
+        String(product.minStockQuantity || 0),
+        getStockStatus(product).label,
         ...(product.variations || []).flatMap((variation) => [
           variation.name,
           String(variation.salePrice || 0),
@@ -104,6 +153,20 @@ export const ProductsView = ({
       ? products.reduce((sum, product) => sum + Number(product.salePrice || 0), 0) / products.length
       : 0
   ), [products]);
+  const stockSummary = useMemo(() => {
+    const controlledProducts = products.filter((product) => product.trackStock);
+    const lowStockProducts = controlledProducts.filter((product) => {
+      const stockQuantity = Number(product.stockQuantity || 0);
+      const minStockQuantity = Number(product.minStockQuantity || 0);
+      return stockQuantity <= 0 || (minStockQuantity > 0 && stockQuantity <= minStockQuantity);
+    });
+
+    return {
+      controlledCount: controlledProducts.length,
+      lowStockCount: lowStockProducts.length,
+      totalUnits: controlledProducts.reduce((sum, product) => sum + Number(product.stockQuantity || 0), 0),
+    };
+  }, [products]);
   const selectedProduct = useMemo(
     () => products.find((product) => product.id === editingProductId),
     [editingProductId, products]
@@ -127,6 +190,8 @@ export const ProductsView = ({
     setEditingProductId(undefined);
     setForm(emptyForm);
     setSalePriceInput('');
+    setStockQuantityInput('');
+    setMinStockQuantityInput('');
     resetVariationDraft();
     setIsDeleteAllConfirming(false);
   };
@@ -146,8 +211,13 @@ export const ProductsView = ({
       variations,
       ncm: product.ncm || '',
       salePrice: Number(product.salePrice || 0),
+      trackStock: Boolean(product.trackStock),
+      stockQuantity: Number(product.stockQuantity || 0),
+      minStockQuantity: Number(product.minStockQuantity || 0),
     });
     setSalePriceInput(formatMoneyInput(Number(product.salePrice || 0)));
+    setStockQuantityInput(formatStockInput(product.stockQuantity));
+    setMinStockQuantityInput(formatStockInput(product.minStockQuantity));
     setIsVariationFormOpen(false);
     setVariationName('');
     setVariationPriceInput('');
@@ -177,6 +247,8 @@ export const ProductsView = ({
     const saved = await onSaveProduct({
       ...form,
       salePrice: parseMoney(salePriceInput),
+      stockQuantity: parseStockInput(stockQuantityInput),
+      minStockQuantity: parseStockInput(minStockQuantityInput),
     }, editingProductId);
 
     if (saved) {
@@ -234,7 +306,7 @@ export const ProductsView = ({
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[0.75fr_1.25fr]">
+      <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)] 2xl:grid-cols-[460px_minmax(0,1fr)]">
         <section className="rounded-2xl border border-slate-700/70 bg-slate-900/60 p-4 shadow-xl shadow-black/10">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -291,6 +363,40 @@ export const ProductsView = ({
                 className={inputClass}
                 inputMode="decimal"
                 placeholder="0,00"
+              />
+            </label>
+            <label className="flex items-center gap-3 rounded-xl border border-slate-700/70 bg-slate-950/45 px-3 py-2.5">
+              <input
+                type="checkbox"
+                checked={Boolean(form.trackStock)}
+                onChange={(event) => updateForm({ trackStock: event.target.checked })}
+                className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-primary focus:ring-primary"
+              />
+              <span>
+                <span className="block text-sm font-black text-white">Controlar estoque</span>
+                <span className="text-[11px] font-bold text-slate-500">Baixa automatica ao finalizar O.S.</span>
+              </span>
+            </label>
+            <label className="space-y-1">
+              <span className={labelClass}>Estoque atual</span>
+              <input
+                value={stockQuantityInput}
+                onChange={(event) => setStockQuantityInput(event.target.value)}
+                disabled={!form.trackStock}
+                className={cn(inputClass, !form.trackStock && 'cursor-not-allowed opacity-50')}
+                inputMode="numeric"
+                placeholder="0"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className={labelClass}>Estoque minimo</span>
+              <input
+                value={minStockQuantityInput}
+                onChange={(event) => setMinStockQuantityInput(event.target.value)}
+                disabled={!form.trackStock}
+                className={cn(inputClass, !form.trackStock && 'cursor-not-allowed opacity-50')}
+                inputMode="numeric"
+                placeholder="0"
               />
             </label>
             <div className="space-y-2 sm:col-span-2 xl:col-span-1 2xl:col-span-2">
@@ -379,7 +485,7 @@ export const ProductsView = ({
         </section>
 
         <section className="min-w-0 rounded-2xl border border-slate-700/70 bg-slate-900/60 p-4 shadow-xl shadow-black/10">
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-4">
             <div className="rounded-xl border border-slate-700/60 bg-slate-950/40 p-3">
               <p className={labelClass}>Itens</p>
               <p className="mt-1 text-2xl font-black text-white">{products.length}</p>
@@ -391,6 +497,11 @@ export const ProductsView = ({
             <div className="rounded-xl border border-slate-700/60 bg-slate-950/40 p-3">
               <p className={labelClass}>Filtrados</p>
               <p className="mt-1 text-2xl font-black text-white">{filteredProducts.length}</p>
+            </div>
+            <div className="rounded-xl border border-slate-700/60 bg-slate-950/40 p-3">
+              <p className={labelClass}>Estoque</p>
+              <p className="mt-1 text-2xl font-black text-white">{stockSummary.totalUnits}</p>
+              <p className="text-[11px] font-bold text-amber-200">{stockSummary.lowStockCount} baixo/zerado de {stockSummary.controlledCount}</p>
             </div>
           </div>
 
@@ -405,23 +516,25 @@ export const ProductsView = ({
           </div>
 
           <div className="mt-4 overflow-hidden rounded-2xl border border-slate-700/60">
-            <div className="max-h-[58vh] overflow-auto">
-              <table className="min-w-[980px] w-full text-left text-xs">
+            <div className="max-h-[64vh] overflow-auto">
+              <table className="min-w-[1120px] w-full text-left text-xs">
                 <thead className="sticky top-0 z-10 bg-primary text-white">
                   <tr>
-                    <th className="px-3 py-3">Codigo</th>
-                    <th className="px-3 py-3">Descricao</th>
-                    <th className="px-3 py-3">Variacoes</th>
-                    <th className="px-3 py-3">NCM</th>
-                    <th className="px-3 py-3 text-right">Venda</th>
-                    <th className="px-3 py-3">Importado</th>
-                    <th className="px-3 py-3 text-right">Acoes</th>
+                    <th className="px-3 py-2.5">Codigo</th>
+                    <th className="px-3 py-2.5">Descricao</th>
+                    <th className="px-3 py-2.5">Variacoes</th>
+                    <th className="px-3 py-2.5">NCM</th>
+                    <th className="px-3 py-2.5 text-right">Venda</th>
+                    <th className="px-3 py-2.5 text-right">Estoque</th>
+                    <th className="px-3 py-2.5">Status</th>
+                    <th className="px-3 py-2.5">Importado</th>
+                    <th className="px-3 py-2.5 text-right">Acoes</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800 bg-slate-950/35">
                   {filteredProducts.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-3 py-12 text-center text-sm font-bold text-slate-500">
+                      <td colSpan={9} className="px-3 py-12 text-center text-sm font-bold text-slate-500">
                         Nenhuma mercadoria encontrada.
                       </td>
                     </tr>
@@ -429,6 +542,7 @@ export const ProductsView = ({
                     const isEditing = product.id === editingProductId;
                     const isConfirmingDelete = deleteConfirmId === product.id;
                     const isDeleting = deletingProductId === product.id;
+                    const stockStatus = getStockStatus(product);
 
                     return (
                       <tr
@@ -447,11 +561,11 @@ export const ProductsView = ({
                           isEditing ? 'bg-primary/10' : 'hover:bg-slate-900/80'
                         )}
                       >
-                        <td className="px-3 py-3 font-black text-slate-200">{product.sourceCode || '-'}</td>
-                        <td className="max-w-md px-3 py-3">
+                        <td className="px-3 py-2.5 font-black text-slate-200">{product.sourceCode || '-'}</td>
+                        <td className="max-w-lg px-3 py-2.5">
                           <p className="line-clamp-2 font-black text-white">{product.description}</p>
                         </td>
-                        <td className="max-w-xs px-3 py-3">
+                        <td className="max-w-sm px-3 py-2.5">
                           {product.variations?.length ? (
                             <div className="space-y-1">
                               {product.variations.slice(0, 3).map((variation) => (
@@ -467,10 +581,18 @@ export const ProductsView = ({
                             <span className="font-bold text-slate-500">{product.variation || '-'}</span>
                           )}
                         </td>
-                        <td className="px-3 py-3 font-bold text-slate-400">{product.ncm || '-'}</td>
-                        <td className="px-3 py-3 text-right font-black text-primary">{currency.format(Number(product.salePrice || 0))}</td>
-                        <td className="px-3 py-3 font-bold text-slate-500">{safeFormat(product.importedAt, 'dd/MM/yyyy')}</td>
-                        <td className="px-3 py-3">
+                        <td className="px-3 py-2.5 font-bold text-slate-400">{product.ncm || '-'}</td>
+                        <td className="px-3 py-2.5 text-right font-black text-primary">{currency.format(Number(product.salePrice || 0))}</td>
+                        <td className="px-3 py-2.5 text-right font-black text-white">
+                          {product.trackStock ? Number(product.stockQuantity || 0) : '-'}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className={cn('inline-flex rounded-full border px-2 py-1 text-[10px] font-black uppercase', stockStatus.className)}>
+                            {stockStatus.label}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 font-bold text-slate-500">{safeFormat(product.importedAt, 'dd/MM/yyyy')}</td>
+                        <td className="px-3 py-2.5">
                           <div className="flex justify-end gap-2">
                             <button
                               type="button"
