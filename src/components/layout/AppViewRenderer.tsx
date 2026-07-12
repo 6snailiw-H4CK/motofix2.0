@@ -461,7 +461,7 @@ export const AppViewRenderer = ({
           }}
           onDeleteLaunchClick={(launch) => {
             confirmOrRequestDelete('cashLaunch', launch.id, () => {
-              void cashRegisterActions.deleteLaunch(launch.id);
+              void cashRegisterActions.deleteLaunch(launch);
             });
           }}
         />

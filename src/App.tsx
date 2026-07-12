@@ -67,7 +67,8 @@ export default function App() {
     fiscalCompanies,
     fiscalInvoices,
     fiscalLogs,
-    operationalLogs
+    operationalLogs,
+    collectionListenerIssues
   } = useUserCollections({ user, userProfile, isNewUser });
   const offlineSyncStatus = useOfflineSyncStatus();
   useOfflineDataPreload({ user, userProfile });
@@ -250,6 +251,7 @@ export default function App() {
         alertCount={alertCount}
         colorMode={colorMode}
         settings={settings}
+        collectionListenerIssues={collectionListenerIssues}
         offlineSyncStatus={offlineSyncStatus}
         userProfile={userProfile}
         view={view}

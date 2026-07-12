@@ -10,6 +10,13 @@ import {
 import { createRestoreMetadata, createSoftDeleteMetadata, isSoftDeleted } from './softDelete';
 
 export type ClientWriteData = Record<string, unknown>;
+export type LinkedMaintenanceWriteData = Record<string, unknown>;
+
+type LinkedMaintenanceWrite = {
+  operation: 'create' | 'update';
+  id?: string;
+  data: LinkedMaintenanceWriteData | ((clientId: string) => LinkedMaintenanceWriteData);
+};
 
 const clientCollectionPath = (userId: string) => collection(db, 'users', userId, 'clients');
 const clientDocPath = (userId: string, clientId: string) => doc(db, 'users', userId, 'clients', clientId);
@@ -52,6 +59,69 @@ export const clientRepository = {
       'Salvar cliente com ID',
       createFirestoreReplayDescriptor('set', clientReplayPath(userId, clientId), data, true)
     );
+  },
+
+  async saveWithMaintenance(
+    userId: string,
+    clientWrite: { operation: 'create' | 'update'; id?: string; data: ClientWriteData },
+    maintenanceWrite: LinkedMaintenanceWrite
+  ) {
+    const clientRef = clientWrite.id
+      ? clientDocPath(userId, clientWrite.id)
+      : doc(clientCollectionPath(userId));
+    const clientId = clientRef.id;
+    const maintenanceData = typeof maintenanceWrite.data === 'function'
+      ? maintenanceWrite.data(clientId)
+      : maintenanceWrite.data;
+    const maintenanceRef = maintenanceWrite.id
+      ? doc(db, 'users', userId, 'maintenances', maintenanceWrite.id)
+      : doc(maintenanceCollectionPath(userId));
+    const maintenanceId = maintenanceRef.id;
+    const batch = writeBatch(db);
+    const replayWrites: FirestoreReplayMutation[] = [];
+
+    if (clientWrite.operation === 'create') {
+      batch.set(clientRef, clientWrite.data);
+      replayWrites.push({
+        operation: 'set',
+        path: clientReplayPath(userId, clientId),
+        data: clientWrite.data,
+      });
+    } else {
+      batch.update(clientRef, clientWrite.data);
+      replayWrites.push({
+        operation: 'update',
+        path: clientReplayPath(userId, clientId),
+        data: clientWrite.data,
+      });
+    }
+
+    if (maintenanceWrite.operation === 'create') {
+      batch.set(maintenanceRef, maintenanceData);
+      replayWrites.push({
+        operation: 'set',
+        path: maintenanceReplayPath(userId, maintenanceId),
+        data: maintenanceData,
+      });
+    } else {
+      if (!maintenanceWrite.id) {
+        throw new Error('ID da manutencao obrigatorio para atualizacao atomica.');
+      }
+      batch.update(maintenanceRef, maintenanceData);
+      replayWrites.push({
+        operation: 'update',
+        path: maintenanceReplayPath(userId, maintenanceId),
+        data: maintenanceData,
+      });
+    }
+
+    await queueFirestoreVoidWrite(
+      () => batch.commit(),
+      'Salvar cliente e manutencao',
+      createFirestoreBatchReplayDescriptor(replayWrites)
+    );
+
+    return { clientId, maintenanceId };
   },
 
   async remove(userId: string, clientId: string, reason?: string) {

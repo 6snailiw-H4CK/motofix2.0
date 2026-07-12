@@ -35,6 +35,11 @@ const makeVariationId = (name: string, index: number) => (
   `${normalizeDocId(name) || 'variacao'}-${index + 1}`
 );
 
+const normalizeStockQuantity = (value: unknown) => {
+  const quantity = Number(value);
+  return Number.isFinite(quantity) ? Math.max(0, Math.floor(quantity)) : 0;
+};
+
 const sanitizeProduct = (input: ProductCatalogFormInput): ProductCatalogFormInput => {
   const variations = (input.variations || [])
     .map((variation, index) => {
@@ -56,6 +61,9 @@ const sanitizeProduct = (input: ProductCatalogFormInput): ProductCatalogFormInpu
     variations,
     ncm: String(input.ncm || '').replace(/\D/g, '').trim(),
     salePrice: Number(input.salePrice || 0),
+    trackStock: Boolean(input.trackStock),
+    stockQuantity: normalizeStockQuantity(input.stockQuantity),
+    minStockQuantity: normalizeStockQuantity(input.minStockQuantity),
   };
 };
 
@@ -112,6 +120,14 @@ export const productRepository = {
 
     if ((product.variations || []).some((variation) => !Number.isFinite(variation.salePrice) || variation.salePrice < 0)) {
       throw new Error('Valor de variacao invalido.');
+    }
+
+    if (!Number.isFinite(product.stockQuantity || 0) || Number(product.stockQuantity || 0) < 0) {
+      throw new Error('Quantidade em estoque invalida.');
+    }
+
+    if (!Number.isFinite(product.minStockQuantity || 0) || Number(product.minStockQuantity || 0) < 0) {
+      throw new Error('Estoque minimo invalido.');
     }
 
     const now = new Date().toISOString();

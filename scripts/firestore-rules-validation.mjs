@@ -13,6 +13,7 @@ const TEST_USER_ADMIN_DOC = 'admin-user-123';
 const TEST_USER_REGULAR = 'regular-user-123';
 const TEST_USER_OTHER = 'other-user-999';
 const CASH_LAUNCH_ID = 'cash-launch-001';
+const PRODUCT_ID = 'produto-estoque-001';
 
 const now = () => new Date().toISOString();
 
@@ -73,6 +74,40 @@ const operationLogData = {
   details: { note: 'Teste operacional' },
 };
 
+const ownerProductData = {
+  id: PRODUCT_ID,
+  userId: TEST_USER_OWNER,
+  sourceCode: 'EST-001',
+  description: 'Produto com estoque',
+  variation: '',
+  variations: [],
+  ncm: '00000000',
+  salePrice: 25,
+  stockQuantity: 5,
+  minStockQuantity: 2,
+  trackStock: true,
+  importedAt: now(),
+  createdAt: now(),
+  updatedAt: now(),
+};
+
+const stockMovementData = {
+  userId: TEST_USER_OWNER,
+  productId: PRODUCT_ID,
+  productDescription: 'Produto com estoque',
+  sourceCode: 'EST-001',
+  type: 'saida_os',
+  quantity: 1,
+  previousQuantity: 5,
+  nextQuantity: 4,
+  cashLaunchId: CASH_LAUNCH_ID,
+  cashLaunchOrderNumber: 'LC-20260623-0001',
+  itemIds: ['item-001'],
+  batchId: 'stock-batch-001',
+  note: 'Teste de movimento de estoque',
+  createdAt: now(),
+};
+
 const fail = (message) => {
   console.error(`❌ ${message}`);
   process.exitCode = 1;
@@ -95,6 +130,7 @@ async function setupTestData(testEnv) {
     });
 
     await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID), ownerCashLaunchData);
+    await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'products', PRODUCT_ID), ownerProductData);
     await setDoc(doc(firestore, 'users', TEST_USER_REGULAR, 'cash_launches', CASH_LAUNCH_ID), {
       ...ownerCashLaunchData,
       userId: TEST_USER_REGULAR,
@@ -253,7 +289,72 @@ async function runTests() {
       console.log('   ✅ operational_logs acessível por admin');
     }
 
-    console.log('9) Usuário comum não pode ler /users de outro usuário diretamente');
+    console.log('9) Owner pode atualizar estoque de produto');
+    await updateDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'products', PRODUCT_ID), {
+      stockQuantity: 4,
+      updatedAt: now(),
+    });
+    const productDoc = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'products', PRODUCT_ID));
+    if (!productDoc.exists() || productDoc.data().stockQuantity !== 4) {
+      fail('Owner nao conseguiu atualizar stockQuantity do produto');
+    } else {
+      console.log('   ✅ Produto aceitou atualizacao de estoque');
+    }
+
+    console.log('10) Owner pode criar stock_movement');
+    await setDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'stock_movements', 'stock-move-001'), stockMovementData);
+    const stockMovementDoc = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'stock_movements', 'stock-move-001'));
+    if (!stockMovementDoc.exists()) {
+      fail('Owner nao conseguiu criar stock_movement');
+    } else {
+      console.log('   ✅ stock_movement criado com sucesso por owner');
+    }
+
+    console.log('11) Usuario comum NAO pode criar stock_movement de outro usuario');
+    try {
+      await setDoc(doc(commonDb, 'users', TEST_USER_OWNER, 'stock_movements', 'stock-move-blocked'), {
+        ...stockMovementData,
+        batchId: 'stock-batch-blocked',
+      });
+      fail('Usuario comum conseguiu criar stock_movement para outro usuario');
+    } catch (error) {
+      console.log('   ✅ Usuario comum corretamente impedido de criar stock_movement de outro usuario');
+    }
+
+    console.log('12) Owner pode finalizar cash_launch com metadata de estoque');
+    await updateDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID), {
+      status: 'Finalizado',
+      items: [{
+        id: 'item-001',
+        productId: PRODUCT_ID,
+        sourceCode: 'EST-001',
+        description: 'Produto com estoque',
+        variation: '',
+        ncm: '00000000',
+        quantity: 1,
+        unitPrice: 25,
+        discountValue: 0,
+        discountPercent: 0,
+        netUnitPrice: 25,
+        total: 25,
+        date: '2026-06-23',
+        note: '',
+      }],
+      merchandiseTotal: 25,
+      total: 25,
+      stockDeducted: true,
+      stockDeductedAt: now(),
+      stockMovementBatchId: 'stock-batch-001',
+      updatedAt: now(),
+    });
+    const finalizedLaunchDoc = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID));
+    if (!finalizedLaunchDoc.exists() || finalizedLaunchDoc.data().stockDeducted !== true) {
+      fail('Owner nao conseguiu finalizar cash_launch com metadata de estoque');
+    } else {
+      console.log('   ✅ cash_launch aceitou metadata de estoque na finalizacao');
+    }
+
+    console.log('13) Usuário comum não pode ler /users de outro usuário diretamente');
     try {
       const otherUserDoc = await getDoc(doc(commonDb, 'users', TEST_USER_OWNER));
       if (otherUserDoc.exists()) {
@@ -265,7 +366,7 @@ async function runTests() {
       console.log('   ✅ Usuário comum corretamente impedido de ler /users de outro usuário');
     }
 
-    console.log('10) Admin-document pode listar /users');
+    console.log('14) Admin-document pode listar /users');
     try {
       const allUsersSnapshot = await getDocs(query(collection(adminDocDb, 'users')));
       if (allUsersSnapshot.size >= 2) {

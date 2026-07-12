@@ -297,10 +297,42 @@ service cloud.firestore {
         && optionalList('variations', 80)
         && isText('ncm', 20)
         && isNumberInRange('salePrice', 0, 10000000)
+        && optionalNumberInRange('stockQuantity', 0, 10000000)
+        && optionalNumberInRange('minStockQuantity', 0, 10000000)
+        && optionalBool('trackStock')
         && optionalText('importedAt', 40)
         && optionalText('createdAt', 40)
         && optionalText('updatedAt', 40)
         && softDeleteMetadataValid();
+    }
+
+    function stockMovementShape(userId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'productId',
+          'productDescription',
+          'type',
+          'quantity',
+          'previousQuantity',
+          'nextQuantity',
+          'batchId',
+          'createdAt'
+        ], stockMovementKeys())
+        && isText('productId', 160)
+        && isText('productDescription', 240)
+        && optionalText('sourceCode', 80)
+        && optionalText('variationId', 160)
+        && optionalText('variation', 160)
+        && request.resource.data.type in ['saida_os', 'estorno_os', 'entrada_manual', 'ajuste_manual']
+        && isNumberInRange('quantity', 0, 10000000)
+        && isNumberInRange('previousQuantity', 0, 10000000)
+        && isNumberInRange('nextQuantity', 0, 10000000)
+        && optionalText('cashLaunchId', 160)
+        && optionalText('cashLaunchOrderNumber', 80)
+        && optionalList('itemIds', 200)
+        && isText('batchId', 200)
+        && optionalText('note', 500)
+        && isText('createdAt', 40);
     }
 
     function cashLaunchShape(userId) {
@@ -359,6 +391,59 @@ service cloud.firestore {
         && optionalText('fiscalReference', 160)
         && optionalText('fiscalIssuedAt', 40)
         && optionalMap('manualFiscal')
+        && optionalBool('stockDeducted')
+        && optionalNullableText('stockDeductedAt', 40)
+        && optionalNullableText('stockMovementBatchId', 200)
+        && isText('createdAt', 40)
+        && isText('updatedAt', 40)
+        && softDeleteMetadataValid();
+    }
+
+    function cashLaunchUpdateShape(userId) {
+      return request.resource.data.userId == userId
+        && storedUserIdMatches(userId)
+        && isText('orderNumber', 80)
+        && optionalText('clientId', 160)
+        && isText('clientName', 120)
+        && optionalText('clientDocument', 32)
+        && optionalText('clientEmail', 160)
+        && optionalText('clientPhone', 60)
+        && optionalText('bikeModel', 120)
+        && cashLaunchStatusValid()
+        && isText('openingDate', 40)
+        && isText('expectedDate', 40)
+        && optionalText('request', 5000)
+        && optionalText('servicesExecuted', 5000)
+        && optionalText('observation', 5000)
+        && request.resource.data.items is list
+        && request.resource.data.items.size() <= 200
+        && isNumberInRange('merchandiseTotal', 0, 10000000)
+        && (
+          request.resource.data.status == 'Em Lancamento'
+          || (request.resource.data.items.size() > 0 && request.resource.data.merchandiseTotal > 0)
+        )
+        && isNumberInRange('servicesTotal', 0, 10000000)
+        && isNumberInRange('discountTotal', 0, 10000000)
+        && optionalNumberInRange('orderDiscountValue', 0, 10000000)
+        && optionalNumberInRange('orderDiscountPercent', 0, 100)
+        && isNumberInRange('total', 0, 10000000)
+        && optionalBool('invoiced')
+        && optionalText('paymentMethod', 40)
+        && (
+          !request.resource.data.keys().hasAny(['invoiced'])
+          || request.resource.data.invoiced != true
+          || (
+            request.resource.data.keys().hasAny(['paymentMethod'])
+            && request.resource.data.paymentMethod in ['Debito', 'Credito', 'Pix', 'Dinheiro']
+          )
+        )
+        && optionalText('fiscalInvoiceId', 160)
+        && optionalText('fiscalReference', 160)
+        && optionalText('fiscalIssuedAt', 40)
+        && optionalMap('manualFiscal')
+        && optionalBool('stockDeducted')
+        && optionalNullableText('stockDeductedAt', 40)
+        && optionalNullableText('stockMovementBatchId', 200)
         && isText('createdAt', 40)
         && isText('updatedAt', 40)
         && softDeleteMetadataValid();
@@ -479,6 +564,68 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedKeys)
         && optionalUserIdMatches(userId)
         && storedUserIdMatches(userId);
+    }
+
+    function softDeleteUpdateKeys() {
+      return [
+        'deletedAt',
+        'deletedBy',
+        'deletedReason',
+        'resetAt',
+        'resetId',
+        'updatedAt'
+      ];
+    }
+
+    function validOwnerSoftDeleteUpdate(userId) {
+      return isActiveOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(softDeleteUpdateKeys())
+        && optionalUserIdMatches(userId)
+        && storedUserIdMatches(userId)
+        && softDeleteMetadataValid()
+        && optionalText('updatedAt', 40);
+    }
+
+    function validOwnerCashLaunchStockUpdate(userId) {
+      return isActiveOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(cashLaunchKeys())
+        && request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'status',
+          'items',
+          'stockDeducted',
+          'stockDeductedAt',
+          'stockMovementBatchId',
+          'deletedAt',
+          'deletedBy',
+          'deletedReason'
+        ])
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(cashFiscalFields())
+        && request.resource.data.userId == userId
+        && storedUserIdMatches(userId)
+        && isText('orderNumber', 80)
+        && isText('clientName', 120)
+        && cashLaunchStatusValid()
+        && request.resource.data.items is list
+        && request.resource.data.items.size() <= 200
+        && (
+          request.resource.data.status == 'Em Lancamento'
+          || (request.resource.data.items.size() > 0 && request.resource.data.merchandiseTotal > 0)
+        )
+        && isNumberInRange('merchandiseTotal', 0, 10000000)
+        && isNumberInRange('servicesTotal', 0, 10000000)
+        && isNumberInRange('discountTotal', 0, 10000000)
+        && isNumberInRange('total', 0, 10000000)
+        && request.resource.data.stockDeducted is bool
+        && (
+          request.resource.data.stockDeductedAt == null
+          || (request.resource.data.stockDeductedAt is string && request.resource.data.stockDeductedAt.size() <= 40)
+        )
+        && (
+          request.resource.data.stockMovementBatchId == null
+          || (request.resource.data.stockMovementBatchId is string && request.resource.data.stockMovementBatchId.size() <= 200)
+        )
+        && isText('createdAt', 40)
+        && isText('updatedAt', 40);
     }
 
     function validSettingsCreate(userId) {
@@ -652,6 +799,9 @@ service cloud.firestore {
         'variations',
         'ncm',
         'salePrice',
+        'stockQuantity',
+        'minStockQuantity',
+        'trackStock',
         'importedAt',
         'userId',
         'createdAt',
@@ -692,6 +842,9 @@ service cloud.firestore {
         'fiscalReference',
         'fiscalIssuedAt',
         'manualFiscal',
+        'stockDeducted',
+        'stockDeductedAt',
+        'stockMovementBatchId',
         'userId',
         'createdAt',
         'updatedAt',
@@ -700,6 +853,27 @@ service cloud.firestore {
         'deletedReason',
         'resetAt',
         'resetId'
+      ];
+    }
+
+    function stockMovementKeys() {
+      return [
+        'userId',
+        'productId',
+        'productDescription',
+        'sourceCode',
+        'variationId',
+        'variation',
+        'type',
+        'quantity',
+        'previousQuantity',
+        'nextQuantity',
+        'cashLaunchId',
+        'cashLaunchOrderNumber',
+        'itemIds',
+        'batchId',
+        'note',
+        'createdAt'
       ];
     }
 
@@ -812,6 +986,12 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /users/{userId}/stock_movements/{movementId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isAdmin() || (validOwnerCreate(userId, stockMovementKeys()) && stockMovementShape(userId));
+      allow update, delete: if false;
+    }
+
     match /users/{userId}/cash_launches/{launchId} {
       allow read: if canReadUserData(userId);
       allow create: if isAdmin()
@@ -821,10 +1001,12 @@ service cloud.firestore {
           && cashLaunchShape(userId)
         );
       allow update: if isAdmin()
+        || validOwnerSoftDeleteUpdate(userId)
+        || validOwnerCashLaunchStockUpdate(userId)
         || (
           validOwnerUpdate(userId, cashLaunchKeys())
           && !request.resource.data.diff(resource.data).affectedKeys().hasAny(cashFiscalFields())
-          && cashLaunchShape(userId)
+          && cashLaunchUpdateShape(userId)
         );
       allow delete: if false;
     }
