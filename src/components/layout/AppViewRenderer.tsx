@@ -151,6 +151,7 @@ type AppViewRendererSession = {
 type AppViewRendererUi = {
   colorMode: ColorMode;
   expandedTopService: string | null;
+  fiscalModuleAvailable: boolean;
   isNewService: boolean;
   searchQuery: string;
   serviceListFilter: ServiceListFilter;
@@ -225,6 +226,7 @@ export const AppViewRenderer = ({
   const {
     colorMode,
     expandedTopService,
+    fiscalModuleAvailable,
     isNewService,
     searchQuery,
     serviceListFilter,
@@ -442,7 +444,7 @@ export const AppViewRenderer = ({
           clients={clients}
           products={productCatalog}
           settings={settings}
-          fiscalAutoIssueEnabled={fiscalCompanies.some((company) => company.autoIssueFromCashLaunch && company.nfseEnabled)}
+          fiscalAutoIssueEnabled={fiscalModuleAvailable && fiscalCompanies.some((company) => company.autoIssueFromCashLaunch && company.nfseEnabled)}
           isSavingLaunch={cashRegisterActions.isSavingLaunch}
           deleteConfirmId={getDeleteConfirmId('cashLaunch')}
           deletingLaunchId={cashRegisterActions.deletingLaunchId}
@@ -454,6 +456,7 @@ export const AppViewRenderer = ({
           onQuickSaveClient={clientActions.quickCreateClient}
           onSaveLaunch={cashRegisterActions.saveLaunch}
           onAutoIssueFiscalFromCashLaunch={(cashLaunchId) => {
+            if (!fiscalModuleAvailable) return;
             const cashLaunch = cashLaunches.find((launch) => launch.id === cashLaunchId);
             if (cashLaunch) {
               void fiscalActions.issueFromCashLaunch(cashLaunch);
@@ -487,7 +490,7 @@ export const AppViewRenderer = ({
       );
     }
 
-    if (view === 'fiscal') {
+    if (view === 'fiscal' && fiscalModuleAvailable) {
       return (
         <FiscalView
           cashLaunches={cashLaunches}

@@ -23,6 +23,7 @@ import { AppView } from '../../types';
 
 type BottomNavProps = {
   view: AppView;
+  fiscalModuleAvailable: boolean;
   isAdmin: boolean;
   onViewChange: (view: AppView) => void;
 };
@@ -40,7 +41,7 @@ type MoreGroup = {
   items: BottomNavItem[];
 };
 
-export const BottomNav = ({ view, isAdmin, onViewChange }: BottomNavProps) => {
+export const BottomNav = ({ view, fiscalModuleAvailable, isAdmin, onViewChange }: BottomNavProps) => {
   const [isMoreOpen, setIsMoreOpen] = useState(false);
 
   const primaryItems: BottomNavItem[] = [
@@ -97,7 +98,7 @@ export const BottomNav = ({ view, isAdmin, onViewChange }: BottomNavProps) => {
       title: 'Configuracoes',
       items: [
         { id: 'settings', icon: SettingsIcon, label: 'Configuracoes', match: ['settings'], shortLabel: 'Config.' },
-        { id: 'fiscal', icon: FileText, label: 'Fiscal', match: ['fiscal'], shortLabel: 'Fiscal' },
+        ...(fiscalModuleAvailable ? [{ id: 'fiscal' as AppView, icon: FileText, label: 'Fiscal', match: ['fiscal' as AppView], shortLabel: 'Fiscal' }] : []),
         ...(isAdmin ? [{ id: 'admin' as AppView, icon: Shield, label: 'Admin', match: ['admin' as AppView], shortLabel: 'Admin' }] : []),
       ],
     },

@@ -17,6 +17,7 @@ import { AppShell } from './components/layout/AppShell';
 import { AppViewRenderer } from './components/layout/AppViewRenderer';
 import { ProfileSetupModal } from './components/settings/ProfileSetupModal';
 import { DEFAULT_SERVICE_TYPES } from './constants/appDefaults';
+import { canAccessFiscalModule } from './config/fiscal';
 import { useAdminActions } from './hooks/useAdminActions';
 import { useAppDerivedData } from './hooks/useAppDerivedData';
 import { useAppShellState } from './hooks/useAppShellState';
@@ -98,6 +99,15 @@ export default function App() {
   const defaultServiceType = canonicalServiceType(activeDefaultServiceTypes[0] || settings.serviceTypes?.[0] || DEFAULT_SERVICE_TYPES[0]);
   const workshopName = settings.businessName || userProfile?.displayName || 'MotoFix';
   const getStatus = getMaintenanceStatus;
+  const fiscalModuleAvailable = canAccessFiscalModule(userProfile, user?.email);
+
+  const handleViewChange = useCallback((nextView: Parameters<typeof setView>[0]) => {
+    if (nextView === 'fiscal' && !fiscalModuleAvailable) {
+      setView('dashboard');
+      return;
+    }
+    setView(nextView);
+  }, [fiscalModuleAvailable, setView]);
 
   const handleExpenseSaved = useCallback(() => setView('expenses'), [setView]);
   const openWarrantyForm = useCallback(() => setView('new-warranty'), [setView]);
@@ -217,9 +227,15 @@ export default function App() {
 
   useEffect(() => {
     if (isExpired && !shouldBlock && userProfile && userProfile.role !== 'admin') {
-      setView('checkout');
+      handleViewChange('checkout');
     }
-  }, [isExpired, shouldBlock, setView, userProfile]);
+  }, [handleViewChange, isExpired, shouldBlock, userProfile]);
+
+  useEffect(() => {
+    if (view === 'fiscal' && !fiscalModuleAvailable) {
+      setView('dashboard');
+    }
+  }, [fiscalModuleAvailable, setView, view]);
 
   const shouldBlockUser = shouldBlock;
 
@@ -252,13 +268,14 @@ export default function App() {
         colorMode={colorMode}
         settings={settings}
         collectionListenerIssues={collectionListenerIssues}
+        fiscalModuleAvailable={fiscalModuleAvailable}
         offlineSyncStatus={offlineSyncStatus}
         userProfile={userProfile}
         view={view}
         onColorModeChange={setColorMode}
         onRequestNotifications={requestNotificationPermission}
         onSignOut={() => signOut(auth)}
-        onViewChange={setView}
+        onViewChange={handleViewChange}
       >
         <AppViewRenderer
           actions={{
@@ -310,6 +327,7 @@ export default function App() {
           ui={{
             colorMode,
             expandedTopService,
+            fiscalModuleAvailable,
             isNewService,
             searchQuery,
             serviceListFilter,
@@ -318,7 +336,7 @@ export default function App() {
             setSearchQuery,
             setServiceListFilter,
             setSettings,
-            setView,
+            setView: handleViewChange,
             view,
           }}
         />
