@@ -26,7 +26,7 @@ export type SidebarNavItem = {
   group?: 'primary' | 'tools';
 };
 
-export const getPrimaryNavItems = (isAdmin: boolean): SidebarNavItem[] => [
+export const getPrimaryNavItems = (isAdmin: boolean, fiscalModuleAvailable: boolean): SidebarNavItem[] => [
   {
     id: 'dashboard',
     icon: LayoutDashboard,
@@ -125,13 +125,15 @@ export const getPrimaryNavItems = (isAdmin: boolean): SidebarNavItem[] => [
     match: ['whatsapp'],
     group: 'tools',
   },
-  {
-    id: 'fiscal',
-    icon: FileText,
-    label: 'Fiscal',
-    match: ['fiscal'],
-    group: 'tools',
-  },
+  ...(fiscalModuleAvailable
+    ? [{
+      id: 'fiscal' as AppView,
+      icon: FileText,
+      label: 'Fiscal',
+      match: ['fiscal' as AppView],
+      group: 'tools' as const,
+    }]
+    : []),
   ...(isAdmin
     ? [{
       id: 'admin' as AppView,
@@ -146,6 +148,7 @@ export const getPrimaryNavItems = (isAdmin: boolean): SidebarNavItem[] => [
 type SidebarNavProps = {
   businessName?: string;
   currentUserName?: string;
+  fiscalModuleAvailable: boolean;
   isAdmin: boolean;
   view: AppView;
   onViewChange: (view: AppView) => void;
@@ -154,11 +157,12 @@ type SidebarNavProps = {
 export const SidebarNav = ({
   businessName,
   currentUserName,
+  fiscalModuleAvailable,
   isAdmin,
   view,
   onViewChange,
 }: SidebarNavProps) => {
-  const items = getPrimaryNavItems(isAdmin);
+  const items = getPrimaryNavItems(isAdmin, fiscalModuleAvailable);
 
   return (
     <aside className="app-sidebar hidden min-h-screen w-56 shrink-0 border-r border-slate-800/80 bg-[#08090d] lg:flex lg:flex-col 2xl:w-60">

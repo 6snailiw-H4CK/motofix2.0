@@ -13,6 +13,7 @@ type AppShellProps = {
   children: ReactNode;
   colorMode: ColorMode;
   collectionListenerIssues: CollectionListenerIssue[];
+  fiscalModuleAvailable: boolean;
   offlineSyncStatus: OfflineSyncStatus;
   settings: Settings;
   userProfile: UserProfile | null;
@@ -28,6 +29,7 @@ export const AppShell = ({
   children,
   colorMode,
   collectionListenerIssues,
+  fiscalModuleAvailable,
   offlineSyncStatus,
   settings,
   userProfile,
@@ -47,6 +49,7 @@ export const AppShell = ({
         <SidebarNav
           businessName={businessName}
           currentUserName={userName}
+          fiscalModuleAvailable={fiscalModuleAvailable}
           isAdmin={isAdmin}
           view={view}
           onViewChange={onViewChange}
@@ -100,6 +103,7 @@ export const AppShell = ({
 
       <BottomNav
         view={view}
+        fiscalModuleAvailable={fiscalModuleAvailable}
         isAdmin={isAdmin}
         onViewChange={onViewChange}
       />

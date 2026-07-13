@@ -18,6 +18,7 @@
     "test:rules": "firebase emulators:exec --only firestore \"node scripts/firestore-rules-validation.mjs\"",
     "test:rules:static": "node scripts/validate-firestore-rules.mjs",
     "test:rules:scenarios": "node scripts/firestore-rules-scenarios.mjs",
+    "test:fiscal": "node --import tsx scripts/fiscal-smoke-test.mjs",
     "deploy:hosting": "npm run build && firebase deploy --only hosting",
     "deploy:rules": "firebase deploy --only firestore:rules",
     "deploy:prod": "npm run build && firebase deploy --only hosting,firestore:rules",

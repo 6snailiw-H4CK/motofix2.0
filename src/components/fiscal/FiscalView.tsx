@@ -205,6 +205,16 @@ export const FiscalView = ({
         </div>
       </div>
 
+      <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+        <div className="min-w-0">
+          <p className="font-black uppercase tracking-wide">Area fiscal reservada</p>
+          <p className="mt-1 text-amber-100/85">
+            Use primeiro em homologacao. Emissao fiscal em producao so deve ser liberada depois de validar cadastro, emissao, sincronizacao, XML/PDF e cancelamento.
+          </p>
+        </div>
+      </div>
+
       <section className="overflow-hidden rounded-2xl border border-slate-700/60 bg-slate-900/55">
         <div className="flex flex-wrap border-b border-slate-700/60 bg-slate-950/50">
           {[
