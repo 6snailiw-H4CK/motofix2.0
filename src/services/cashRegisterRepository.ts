@@ -3,15 +3,20 @@ import {
   doc,
   runTransaction,
   setDoc,
-  updateDoc,
   type DocumentReference,
   type Transaction,
 } from 'firebase/firestore';
+
+export type CashRegisterSaveResult = {
+  savedOffline: boolean;
+  id?: string;
+};
 import { db } from '../firebase';
 import type { CashRegisterItem, CashRegisterLaunch, ProductCatalogItem, StockMovement, StockMovementType } from '../types';
 import { createFirestoreReplayDescriptor, queueFirestoreVoidWrite } from './firestoreOfflineQueue';
 import { createRestoreMetadata, createSoftDeleteMetadata } from './softDelete';
 import { validateCashLaunchData } from './cashRegisterValidation';
+import { shouldUseStockRestoreOnDelete } from './cashRegisterDeleteLogic';
 
 export type CashRegisterWriteData = Omit<CashRegisterLaunch, 'id'>;
 export type CashRegisterUpdateData = Partial<Omit<CashRegisterLaunch, 'id' | 'orderNumber' | 'userId' | 'createdAt'>>;
@@ -52,12 +57,18 @@ const requireOnlineStockSync = () => {
   }
 };
 
+const shouldUseStockTransaction = (launch?: Partial<CashRegisterLaunch>, nextStatus?: string) => {
+  if (!launch && !nextStatus) return false;
+  return nextStatus === 'Finalizado' || launch?.stockDeducted === true || launch?.status === 'Finalizado';
+};
+
 const createId = (prefix: string) => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return `${prefix}-${crypto.randomUUID()}`;
   }
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 };
+
 
 const normalizeQuantity = (value: unknown) => {
   const quantity = Number(value);
@@ -136,7 +147,8 @@ const collectStockAdjustments = async (
     const productSnapshot = await transaction.get(productRef);
 
     if (!productSnapshot.exists()) {
-      throw new Error(`Mercadoria "${group.description || group.productId}" nao encontrada para baixa de estoque.`);
+      console.warn(`Mercadoria "${group.description || group.productId}" nao encontrada para sincronizar estoque da O.S.; item mantido sem movimento de estoque.`);
+      continue;
     }
 
     const product = {
@@ -240,32 +252,34 @@ const finalizeWithStockTransaction = async (
 const updateWithStockTransaction = async (
   userId: string,
   launchId: string,
-  data: CashRegisterUpdateData
+  data: CashRegisterUpdateData,
+  previousLaunch?: CashRegisterLaunch
 ) => {
   requireOnlineStockSync();
   const now = data.updatedAt || new Date().toISOString();
 
   await runTransaction(db, async (transaction) => {
-    const { launchRef, launch: previousLaunch } = await readLaunchInTransaction(transaction, userId, launchId);
-    const nextStatus = data.status || previousLaunch.status;
-    const nextItems = data.items || previousLaunch.items || [];
+    const launchRef = cashLaunchDocPath(userId, launchId);
+    const currentLaunch = previousLaunch ?? (await readLaunchInTransaction(transaction, userId, launchId)).launch;
+    const nextStatus = data.status || currentLaunch.status;
+    const nextItems = data.items || currentLaunch.items || [];
     const nextLaunch = {
-      ...previousLaunch,
+      ...currentLaunch,
       ...data,
       items: nextItems,
       status: nextStatus,
     };
 
     if (
-      previousLaunch.stockDeducted === true
+      currentLaunch.stockDeducted === true
       && nextStatus === 'Finalizado'
       && data.items
-      && stockSignature(previousLaunch.items) !== stockSignature(data.items)
+      && stockSignature(currentLaunch.items) !== stockSignature(data.items)
     ) {
       throw new Error('Para alterar itens de uma O.S. finalizada, mude o status antes para ajustar o estoque com seguranca.');
     }
 
-    if (nextStatus === 'Finalizado' && previousLaunch.stockDeducted !== true) {
+    if (nextStatus === 'Finalizado' && currentLaunch.stockDeducted !== true) {
       const batchId = createId(`stock-${launchId}`);
       const adjustments = await collectStockAdjustments(transaction, userId, nextItems, 'deduct');
       applyStockAdjustments(transaction, userId, nextLaunch, adjustments, 'deduct', now, batchId);
@@ -276,10 +290,10 @@ const updateWithStockTransaction = async (
       return;
     }
 
-    if (previousLaunch.stockDeducted === true && nextStatus !== 'Finalizado') {
+    if (currentLaunch.stockDeducted === true && nextStatus !== 'Finalizado') {
       const batchId = createId(`stock-${launchId}-estorno`);
-      const adjustments = await collectStockAdjustments(transaction, userId, previousLaunch.items || [], 'restore');
-      applyStockAdjustments(transaction, userId, previousLaunch, adjustments, 'restore', now, batchId);
+      const adjustments = await collectStockAdjustments(transaction, userId, currentLaunch.items || [], 'restore');
+      applyStockAdjustments(transaction, userId, currentLaunch, adjustments, 'restore', now, batchId);
       transaction.update(launchRef, {
         ...data,
         stockDeducted: false,
@@ -296,13 +310,15 @@ const updateWithStockTransaction = async (
 const deleteWithStockTransaction = async (
   userId: string,
   launchId: string,
-  metadata: ReturnType<typeof createSoftDeleteMetadata>
+  metadata: ReturnType<typeof createSoftDeleteMetadata>,
+  previousLaunch?: CashRegisterLaunch
 ) => {
   requireOnlineStockSync();
   const now = metadata.deletedAt || new Date().toISOString();
 
   await runTransaction(db, async (transaction) => {
-    const { launchRef, launch } = await readLaunchInTransaction(transaction, userId, launchId);
+    const launchRef = cashLaunchDocPath(userId, launchId);
+    const launch = previousLaunch ?? (await readLaunchInTransaction(transaction, userId, launchId)).launch;
 
     if (launch.stockDeducted === true) {
       const batchId = createId(`stock-${launchId}-exclusao`);
@@ -321,13 +337,14 @@ const deleteWithStockTransaction = async (
   });
 };
 
-const restoreWithStockTransaction = async (userId: string, launchId: string) => {
+const restoreWithStockTransaction = async (userId: string, launchId: string, previousLaunch?: CashRegisterLaunch) => {
   requireOnlineStockSync();
   const metadata = createRestoreMetadata();
   const now = new Date().toISOString();
 
   await runTransaction(db, async (transaction) => {
-    const { launchRef, launch } = await readLaunchInTransaction(transaction, userId, launchId);
+    const launchRef = cashLaunchDocPath(userId, launchId);
+    const launch = previousLaunch ?? (await readLaunchInTransaction(transaction, userId, launchId)).launch;
 
     if (launch.status === 'Finalizado' && launch.stockDeducted !== true) {
       const batchId = createId(`stock-${launchId}-restauracao`);
@@ -349,21 +366,21 @@ const restoreWithStockTransaction = async (userId: string, launchId: string) => 
 };
 
 export const cashRegisterRepository = {
-  async create(userId: string, data: CashRegisterWriteData) {
+  async create(userId: string, data: CashRegisterWriteData): Promise<CashRegisterSaveResult> {
     validateCashLaunchData(data);
     const docRef = doc(cashLaunchCollectionPath(userId));
 
     if (data.status === 'Finalizado') {
       await finalizeWithStockTransaction(userId, docRef, docRef.id, data);
-      return docRef.id;
+      return { id: docRef.id, savedOffline: false };
     }
 
-    await queueFirestoreVoidWrite(
+    const result = await queueFirestoreVoidWrite(
       () => setDoc(docRef, data),
       'Criar lancamento de caixa',
       createFirestoreReplayDescriptor('set', cashLaunchReplayPath(userId, docRef.id), { ...data })
     );
-    return docRef.id;
+    return { id: docRef.id, savedOffline: result.status === 'queued' };
   },
 
   async update(
@@ -371,40 +388,42 @@ export const cashRegisterRepository = {
     launchId: string,
     data: CashRegisterUpdateData,
     previousLaunch?: CashRegisterLaunch
-  ) {
+  ): Promise<CashRegisterSaveResult> {
     validateCashLaunchData(data as Partial<CashRegisterLaunch>);
 
     const nextStatus = data.status || previousLaunch?.status;
-    const needsStockTransaction = nextStatus === 'Finalizado' || previousLaunch?.stockDeducted === true;
+    const needsStockTransaction = shouldUseStockTransaction(previousLaunch, nextStatus);
 
     if (needsStockTransaction) {
-      await updateWithStockTransaction(userId, launchId, data);
-      return;
+      await updateWithStockTransaction(userId, launchId, data, previousLaunch);
+      return { savedOffline: false };
     }
 
-    await queueFirestoreVoidWrite(
-      () => updateDoc(cashLaunchDocPath(userId, launchId), data),
+    const result = await queueFirestoreVoidWrite(
+      () => setDoc(cashLaunchDocPath(userId, launchId), data, { merge: true }),
       'Atualizar lancamento de caixa',
       createFirestoreReplayDescriptor('update', cashLaunchReplayPath(userId, launchId), { ...data })
     );
+    return { savedOffline: result.status === 'queued' };
   },
 
   async delete(userId: string, launchId: string, reason?: string, previousLaunch?: CashRegisterLaunch) {
     const metadata = createSoftDeleteMetadata(userId, reason);
+    const requiresStockRestore = shouldUseStockRestoreOnDelete(previousLaunch);
 
-    if (previousLaunch?.stockDeducted === true || previousLaunch?.status === 'Finalizado') {
-      await deleteWithStockTransaction(userId, launchId, metadata);
+    if (requiresStockRestore) {
+      await deleteWithStockTransaction(userId, launchId, metadata, previousLaunch);
       return;
     }
 
     await queueFirestoreVoidWrite(
-      () => updateDoc(cashLaunchDocPath(userId, launchId), metadata),
+      () => setDoc(cashLaunchDocPath(userId, launchId), metadata, { merge: true }),
       'Arquivar lancamento de caixa',
       createFirestoreReplayDescriptor('update', cashLaunchReplayPath(userId, launchId), metadata)
     );
   },
 
-  async restore(userId: string, launchId: string) {
-    await restoreWithStockTransaction(userId, launchId);
+  async restore(userId: string, launchId: string, previousLaunch?: CashRegisterLaunch) {
+    await restoreWithStockTransaction(userId, launchId, previousLaunch);
   },
 };

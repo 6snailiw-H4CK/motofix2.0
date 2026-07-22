@@ -14,6 +14,7 @@ import {
   Settings as SettingsIcon,
   Shield,
   ShieldCheck,
+  TrendingUp,
   Users,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
@@ -88,6 +89,7 @@ export const BottomNav = ({ view, fiscalModuleAvailable, isAdmin, onViewChange }
     {
       title: 'Financeiro',
       items: [
+        { id: 'financial-health', icon: TrendingUp, label: 'Saúde Financeira', match: ['financial-health'], shortLabel: 'Saúde Fin.' },
         { id: 'cash-register', icon: ReceiptText, label: 'Lancamentos Caixa', match: ['cash-register'], shortLabel: 'Caixa' },
         { id: 'expenses', icon: DollarSign, label: 'Gastos', match: ['expenses'], shortLabel: 'Gastos' },
         { id: 'general-report', icon: BarChart3, label: 'Relatorios', match: ['general-report', 'report'], shortLabel: 'Relatorios' },

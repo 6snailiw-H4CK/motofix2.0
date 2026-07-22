@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { DEFAULT_SERVICE_TYPES } from '../../constants/appDefaults';
 import { getServiceTypeKey, getServiceTypeLabel, normalizeServiceTypeOptions } from '../../lib/serviceTypes';
 import { cn } from '../../lib/utils';
+import { getCashPaidAmount, getCashPaymentStatus, getCashReceivableAmount, isCashLaunchFinancial } from '../../lib/cashPayments';
 import type { AppView, Appointment, CashPaymentMethod, CashRegisterLaunch, Client, ExpenseRecord, MaintenanceRecord, Settings, Warranty } from '../../types';
 
 type PaymentStatusFilter = 'all' | 'Pago' | 'Pendente' | 'Parcial';
@@ -78,14 +79,6 @@ const getReceivableAmount = (maintenance: MaintenanceRecord) => {
   if (getPaymentStatus(maintenance) === 'Pago') return 0;
   return explicitBalance > 0 ? explicitBalance : Math.max(0, total - paid);
 };
-
-const isCashLaunchPaid = (launch: CashRegisterLaunch) => launch.status === 'Finalizado' && Boolean(launch.invoiced);
-
-const isCashLaunchReceivable = (launch: CashRegisterLaunch) => (
-  launch.status === 'Pendente' ||
-  launch.status === 'Em Lancamento' ||
-  (launch.status === 'Finalizado' && !launch.invoiced)
-);
 
 const getCashLaunchDate = (launch: CashRegisterLaunch) => launch.openingDate || launch.createdAt;
 
@@ -176,13 +169,12 @@ export const GeneralReportView = ({
   const filteredCashLaunches = useMemo(() => {
     return cashLaunches.filter((launch) => {
       if (launch.status === 'Cancelado') return false;
+      if (!isCashLaunchFinancial(launch)) return false;
       if (!isDateInRange(getCashLaunchDate(launch), startDate, endDate)) return false;
       if (serviceTypeFilter !== 'all') return false;
-      if (paymentStatus === 'Pago' && !isCashLaunchPaid(launch)) return false;
-      if (paymentStatus === 'Pendente' && !isCashLaunchReceivable(launch)) return false;
-      if (paymentStatus === 'Parcial') return false;
+      if (paymentStatus !== 'all' && getCashPaymentStatus(launch) !== paymentStatus) return false;
       if (cashPaymentMethodFilter !== 'all') {
-        if (!isCashLaunchPaid(launch)) return false;
+        if (getCashPaidAmount(launch) <= 0) return false;
         const matchesPaymentMethod = cashPaymentMethodFilter === 'missing'
           ? !launch.paymentMethod
           : launch.paymentMethod === cashPaymentMethodFilter;
@@ -190,7 +182,7 @@ export const GeneralReportView = ({
       }
 
       if (!normalizedClientQuery) return true;
-      return `${launch.orderNumber} ${launch.clientName} ${launch.bikeModel || ''} ${launch.status} ${isCashLaunchPaid(launch) ? launch.paymentMethod || '' : ''}`.toLowerCase().includes(normalizedClientQuery);
+      return `${launch.orderNumber} ${launch.clientName} ${launch.bikeModel || ''} ${launch.status} ${getCashPaymentStatus(launch)} ${getCashPaidAmount(launch) > 0 ? launch.paymentMethod || '' : ''}`.toLowerCase().includes(normalizedClientQuery);
     });
   }, [cashLaunches, cashPaymentMethodFilter, endDate, normalizedClientQuery, paymentStatus, serviceTypeFilter, startDate]);
 
@@ -199,12 +191,8 @@ export const GeneralReportView = ({
     const serviceReceived = filteredMaintenances.reduce((sum, maintenance) => sum + getPaidAmount(maintenance), 0);
     const serviceReceivable = filteredMaintenances.reduce((sum, maintenance) => sum + getReceivableAmount(maintenance), 0);
     const cashGrossRevenue = filteredCashLaunches.reduce((sum, launch) => sum + toNumber(launch.total), 0);
-    const cashReceived = filteredCashLaunches
-      .filter(isCashLaunchPaid)
-      .reduce((sum, launch) => sum + toNumber(launch.total), 0);
-    const cashReceivable = filteredCashLaunches
-      .filter(isCashLaunchReceivable)
-      .reduce((sum, launch) => sum + toNumber(launch.total), 0);
+    const cashReceived = filteredCashLaunches.reduce((sum, launch) => sum + getCashPaidAmount(launch), 0);
+    const cashReceivable = filteredCashLaunches.reduce((sum, launch) => sum + getCashReceivableAmount(launch), 0);
     const grossRevenue = serviceGrossRevenue + cashGrossRevenue;
     const received = serviceReceived + cashReceived;
     const receivable = serviceReceivable + cashReceivable;
@@ -256,10 +244,9 @@ export const GeneralReportView = ({
 
   const cashReceivableRows = useMemo(() => {
     return filteredCashLaunches
-      .filter(isCashLaunchReceivable)
       .map(launch => ({
         launch,
-        receivable: toNumber(launch.total),
+        receivable: getCashReceivableAmount(launch),
       }))
       .filter(row => row.receivable > 0)
       .sort((a, b) => b.receivable - a.receivable);
@@ -325,8 +312,8 @@ export const GeneralReportView = ({
       addClientMovement(key, {
         bikeModel: launch.bikeModel || '-',
         gross: toNumber(launch.total),
-        received: isCashLaunchPaid(launch) ? toNumber(launch.total) : 0,
-        receivable: isCashLaunchReceivable(launch) ? toNumber(launch.total) : 0,
+        received: getCashPaidAmount(launch),
+        receivable: getCashReceivableAmount(launch),
       });
     });
 
@@ -340,18 +327,22 @@ export const GeneralReportView = ({
   }, [clientsById, filteredCashLaunches, filteredMaintenances]);
 
   const supplierBreakdown = useMemo(() => {
-    const map = new Map<string, { count: number; total: number }>();
+    const map = new Map<string, { supplier: string; count: number; total: number }>();
 
     filteredExpenses.forEach((expense) => {
       const supplier = (expense.supplier || '').trim() || 'Sem fornecedor';
-      const current = map.get(supplier) || { count: 0, total: 0 };
+      const key = supplier
+        .replace(/\s+/g, ' ')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLocaleLowerCase('pt-BR');
+      const current = map.get(key) || { supplier, count: 0, total: 0 };
       current.count += 1;
       current.total += toNumber(expense.amount);
-      map.set(supplier, current);
+      map.set(key, current);
     });
 
-    return Array.from(map.entries())
-      .map(([supplier, values]) => ({ supplier, ...values }))
+    return Array.from(map.values())
       .sort((a, b) => b.total - a.total)
       .slice(0, 10);
   }, [filteredExpenses]);
@@ -427,12 +418,12 @@ export const GeneralReportView = ({
     rows.set('missing', { count: 0, total: 0 });
 
     filteredCashLaunches
-      .filter(isCashLaunchPaid)
       .forEach((launch) => {
+        if (getCashPaidAmount(launch) <= 0) return;
         const method = launch.paymentMethod || 'missing';
         const current = rows.get(method) || { count: 0, total: 0 };
         current.count += 1;
-        current.total += toNumber(launch.total);
+        current.total += getCashPaidAmount(launch);
         rows.set(method, current);
       });
 
@@ -1029,7 +1020,7 @@ export const GeneralReportView = ({
                 <th>Moto</th>
                 <th>Abertura</th>
                 <th>Status</th>
-                <th>Faturado</th>
+                <th>Pagamento</th>
                 <th>Forma</th>
                 <th className="text-right">Total</th>
                 <th className="text-right">Recebido</th>
@@ -1039,8 +1030,8 @@ export const GeneralReportView = ({
             <tbody className="divide-y divide-slate-800">
               {filteredCashLaunches.map((launch) => {
                 const total = toNumber(launch.total);
-                const received = isCashLaunchPaid(launch) ? total : 0;
-                const receivable = isCashLaunchReceivable(launch) ? total : 0;
+                const received = getCashPaidAmount(launch);
+                const receivable = getCashReceivableAmount(launch);
 
                 return (
                   <tr key={launch.id} className="text-slate-300">
@@ -1049,8 +1040,8 @@ export const GeneralReportView = ({
                     <td>{launch.bikeModel || '-'}</td>
                     <td>{formatDate(getCashLaunchDate(launch))}</td>
                     <td>{launch.status}</td>
-                    <td>{launch.invoiced ? 'Sim' : 'Nao'}</td>
-                    <td>{isCashLaunchPaid(launch) ? getCashPaymentMethodLabel(launch) : '-'}</td>
+                    <td>{getCashPaymentStatus(launch)}</td>
+                    <td>{received > 0 ? getCashPaymentMethodLabel(launch) : '-'}</td>
                     <td className="text-right">{toCurrency(total)}</td>
                     <td className="text-right text-emerald-400">{toCurrency(received)}</td>
                     <td className="text-right text-amber-400">{toCurrency(receivable)}</td>

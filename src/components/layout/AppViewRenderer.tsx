@@ -33,6 +33,7 @@ import type { useMessageLogActions } from '../../hooks/useMessageLogActions';
 import type { useProductActions } from '../../hooks/useProductActions';
 import type { useServiceTypeActions } from '../../hooks/useServiceTypeActions';
 import type { useSettingsActions } from '../../hooks/useSettingsActions';
+import { getCashReceivableAmount } from '../../lib/cashPayments';
 import type { useWarrantyActions } from '../../hooks/useWarrantyActions';
 import type { useWhatsAppReminderActions } from '../../hooks/useWhatsAppReminderActions';
 import { downloadProductsWorkbook } from '../../services/productSpreadsheet';
@@ -68,6 +69,7 @@ const WhatsAppView = lazy(() => import('../whatsapp/WhatsAppView').then((module)
 const CheckoutScreen = lazy(() => import('../checkout/CheckoutScreen').then((module) => ({ default: module.CheckoutScreen })));
 const WarrantiesView = lazy(() => import('../warranties/WarrantiesView').then((module) => ({ default: module.WarrantiesView })));
 const WarrantyForm = lazy(() => import('../Forms/WarrantyForm').then((module) => ({ default: module.WarrantyForm })));
+const FinancialHealthView = lazy(() => import('../financial-health/FinancialHealthView').then((module) => ({ default: module.FinancialHealthView })));
 
 const ViewLoadingFallback = () => (
   <div className="py-10 text-center text-xs font-bold uppercase tracking-widest text-slate-500">
@@ -254,8 +256,7 @@ export const AppViewRenderer = ({
   const { confirmOrRequestDelete, getDeleteConfirmId } = deleteConfirmation;
   const pendingPaymentClients = clientsSortedByBalance.filter((client) => (clientBalanceMap.get(client.id) || 0) > 0);
   const pendingCashLaunches = cashLaunches.filter((launch) => (
-    (Number(launch.total) || 0) > 0
-    && (launch.status === 'Pendente' || (launch.status === 'Finalizado' && !launch.invoiced))
+    getCashReceivableAmount(launch) > 0
   ));
   const pendingPaymentCount = pendingPaymentClients.length + pendingCashLaunches.length;
   const operationalDataCount = (
@@ -762,6 +763,20 @@ export const AppViewRenderer = ({
           onToggleUserStatus={adminActions.toggleUserStatus}
           onUpdateSubscription={adminActions.updateSubscription}
           onSetSubscriptionDate={adminActions.setSubscriptionDate}
+        />
+      );
+    }
+
+    if (view === 'financial-health') {
+      return (
+        <FinancialHealthView
+          maintenances={maintenances}
+          cashLaunches={cashLaunches}
+          expenses={expenseEntries}
+          clients={clients}
+          settings={settings}
+          onViewChange={setView}
+          onSaveGoals={(goals) => settingsActions.saveSettingsPatch({ financialGoals: goals })}
         />
       );
     }

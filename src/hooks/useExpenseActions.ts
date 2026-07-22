@@ -81,12 +81,13 @@ export const useExpenseActions = ({ user, onAfterSave, workshopName }: UseExpens
     });
   }, [amount, date, description, draftKey, isDraftHydrated, note, paymentMethod, supplier]);
 
-  const saveExpense = useCallback(async () => {
+  const saveExpense = useCallback(async (canonicalSupplier?: string) => {
     if (!user) return;
 
     const parsedAmount = parseBrazilianCurrency(amount, Number.NaN);
-    if (!description.trim() || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
-      sonnerToast.error('Preencha a descricao e um valor valido para o gasto.');
+    const normalizedSupplier = (canonicalSupplier || supplier).trim().replace(/\s+/g, ' ');
+    if (!normalizedSupplier || !description.trim() || Number.isNaN(parsedAmount) || parsedAmount <= 0) {
+      sonnerToast.error('Preencha o fornecedor, a descricao e um valor valido para o gasto.');
       return;
     }
 
@@ -94,7 +95,7 @@ export const useExpenseActions = ({ user, onAfterSave, workshopName }: UseExpens
     try {
       const expenseId = await expenseRepository.create(user.uid, {
         description: description.trim(),
-        supplier: supplier.trim() || '',
+        supplier: normalizedSupplier,
         amount: parsedAmount,
         paymentMethod,
         date: date || format(new Date(), 'yyyy-MM-dd'),

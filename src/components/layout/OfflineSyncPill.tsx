@@ -15,12 +15,23 @@ type PillView = {
 };
 
 const buildPillView = (status: OfflineSyncStatus): PillView | null => {
-  if (status.lastError) {
+  const isQuotaLikeError = (message: string) => /429|resource-exhausted|quota exceeded|too many requests/i.test(message);
+
+  if (status.lastError && !isQuotaLikeError(status.lastError)) {
     return {
       icon: AlertTriangle,
       label: 'Erro sync',
       title: status.lastError,
       className: 'border-red-500/30 bg-red-500/10 text-red-200',
+    };
+  }
+
+  if (status.failedWrites > 0 && status.lastError && isQuotaLikeError(status.lastError)) {
+    return {
+      icon: CloudUpload,
+      label: `${status.failedWrites} aguardando`,
+      title: 'O Firestore limitou temporariamente as requisicoes. O app tentara sincronizar novamente de forma gradual.',
+      className: 'border-amber-500/35 bg-amber-500/10 text-amber-100',
     };
   }
 

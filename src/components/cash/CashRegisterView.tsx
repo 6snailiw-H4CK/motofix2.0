@@ -22,8 +22,10 @@ import {
   X,
 } from 'lucide-react';
 import { parseBrazilianCurrency } from '../../lib/money';
+import { getCashPaymentStatus, getCashReceivableAmount, type CashPaymentStatus } from '../../lib/cashPayments';
 import { cn, safeFormat } from '../../lib/utils';
 import type { CashRegisterDraft } from '../../hooks/useCashRegisterActions';
+import type { CashRegisterSaveResult } from '../../services/cashRegisterRepository';
 import { clearLocalDraft, loadLocalDraft, saveLocalDraft } from '../../services/localDrafts';
 import type {
   CashPaymentMethod,
@@ -58,7 +60,7 @@ type CashRegisterViewProps = {
   onInitialLaunchLoaded?: () => void;
   onOpenRecurringServices?: () => void;
   onQuickSaveClient?: (client: QuickClientInput) => Promise<Client | null> | Client | null;
-  onSaveLaunch: (draft: CashRegisterDraft, launchId?: string, previousLaunch?: CashRegisterLaunch) => Promise<boolean> | boolean;
+  onSaveLaunch: (draft: CashRegisterDraft, launchId?: string, previousLaunch?: CashRegisterLaunch) => Promise<CashRegisterSaveResult | boolean> | CashRegisterSaveResult | boolean;
 };
 
 type MainTab = 'control' | 'history' | 'monitoring';
@@ -80,6 +82,8 @@ type CashRegisterLocalDraft = {
   clientName: string;
   bikeModel: string;
   status: CashRegisterLaunch['status'];
+  statusPagamento: CashPaymentStatus;
+  valorPagoInput: string;
   isInvoiced: boolean;
   paymentMethod?: CashPaymentMethod | '';
   openingDate: string;
@@ -101,6 +105,7 @@ const historyStatusOptions: Array<{ value: HistoryStatusFilter; label: string }>
   { value: 'Cancelado', label: 'Cancelado' },
 ];
 const cashPaymentMethodOptions: CashPaymentMethod[] = ['Debito', 'Credito', 'Pix', 'Dinheiro'];
+const cashPaymentStatusOptions: CashPaymentStatus[] = ['Pago', 'Pendente', 'Parcial'];
 const fiscalStatusOptions: ManualFiscalDocumentStatus[] = ['Nao emitida', 'Emitida', 'Cancelada'];
 const fiscalAttachmentMaxBytes = 180 * 1024;
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -262,6 +267,8 @@ export const CashRegisterView = ({
   const [clientName, setClientName] = useState('');
   const [bikeModel, setBikeModel] = useState('');
   const [status, setStatus] = useState<CashRegisterLaunch['status']>('Em Lancamento');
+  const [statusPagamento, setStatusPagamento] = useState<CashPaymentStatus>('Pendente');
+  const [valorPagoInput, setValorPagoInput] = useState('');
   const [isInvoiced, setIsInvoiced] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<CashPaymentMethod | ''>('');
   const [openingDate, setOpeningDate] = useState(today());
@@ -275,9 +282,11 @@ export const CashRegisterView = ({
   const [productSearch, setProductSearch] = useState('');
   const [isProductPickerOpen, setIsProductPickerOpen] = useState(false);
   const [historySearch, setHistorySearch] = useState('');
+  const [historyDateFilter, setHistoryDateFilter] = useState(today());
   const [historyStatusFilter, setHistoryStatusFilter] = useState<HistoryStatusFilter>('all');
   const [monitoringStatusFilter, setMonitoringStatusFilter] = useState<MonitoringStatusFilter>('all');
   const [invoiceSuccess, setInvoiceSuccess] = useState<{ orderNumber: string; paymentMethod: CashPaymentMethod; total: number } | null>(null);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [isQuickClientOpen, setIsQuickClientOpen] = useState(false);
   const [isSavingQuickClient, setIsSavingQuickClient] = useState(false);
   const [quickClientForm, setQuickClientForm] = useState<QuickClientInput>({ name: '', contact: '', bikeModel: '' });
@@ -298,6 +307,8 @@ export const CashRegisterView = ({
       setClientName(draft.data.clientName || '');
       setBikeModel(draft.data.bikeModel || '');
       setStatus(draft.data.status || 'Em Lancamento');
+      setStatusPagamento(draft.data.statusPagamento || 'Pendente');
+      setValorPagoInput(draft.data.valorPagoInput || '');
       setIsInvoiced(Boolean(draft.data.isInvoiced));
       setPaymentMethod(draft.data.paymentMethod || '');
       setOpeningDate(draft.data.openingDate || today());
@@ -340,7 +351,10 @@ export const CashRegisterView = ({
 
   const filteredLaunches = useMemo(() => {
     const search = normalizeSearch(historySearch.trim());
+    const currentDate = today();
     return cashLaunches.filter((launch) => {
+      const isWithinDateRange = launch.openingDate >= historyDateFilter && launch.openingDate <= currentDate;
+      if (!isWithinDateRange) return false;
       const matchesStatus = historyStatusFilter === 'all' || launch.status === historyStatusFilter;
       if (!matchesStatus) return false;
       if (!search) return true;
@@ -348,7 +362,7 @@ export const CashRegisterView = ({
       const haystack = normalizeSearch(`${launch.orderNumber} ${launch.clientName} ${launch.status} ${launchPaymentMethod} ${launch.total}`);
       return haystack.includes(search);
     });
-  }, [cashLaunches, historySearch, historyStatusFilter]);
+  }, [cashLaunches, historyDateFilter, historySearch, historyStatusFilter]);
 
   const monitoredLaunches = useMemo(() => (
     monitoringStatusFilter === 'all'
@@ -395,6 +409,17 @@ export const CashRegisterView = ({
       total,
     };
   }, [items, orderDiscountPercentInput, orderDiscountValueInput]);
+
+  const paymentSummary = useMemo(() => {
+    const total = totals.total;
+    const paid = statusPagamento === 'Pago'
+      ? total
+      : statusPagamento === 'Parcial'
+        ? Math.min(total, Math.max(0, parseNumber(valorPagoInput)))
+        : 0;
+
+    return { paid, balance: Math.max(0, total - paid) };
+  }, [statusPagamento, totals.total, valorPagoInput]);
 
   const selectedClient = clients.find((client) => client.id === selectedClientId);
 
@@ -611,6 +636,8 @@ export const CashRegisterView = ({
     setClientName(launch.clientName || '');
     setBikeModel(launch.bikeModel || '');
     setStatus(launch.status);
+    setStatusPagamento(launch.statusPagamento || (launch.status === 'Finalizado' && launch.invoiced ? 'Pago' : 'Pendente'));
+    setValorPagoInput(launch.statusPagamento === 'Parcial' ? String(launch.valorPago || 0) : '');
     setIsInvoiced(launch.status === 'Finalizado' && Boolean(launch.invoiced));
     setPaymentMethod(launch.paymentMethod || '');
     setOpeningDate(launch.openingDate || today());
@@ -642,6 +669,8 @@ export const CashRegisterView = ({
     setClientName('');
     setBikeModel('');
     setStatus('Em Lancamento');
+    setStatusPagamento('Pendente');
+    setValorPagoInput('');
     setIsInvoiced(false);
     setPaymentMethod('');
     setOpeningDate(today());
@@ -652,6 +681,7 @@ export const CashRegisterView = ({
     setItems([]);
     setOrderDiscountValueInput('');
     setOrderDiscountPercentInput('');
+    setSaveNotice(null);
     setWorkTab('opening');
     if (draftStorageKey) clearLocalDraft(draftStorageKey);
   };
@@ -668,13 +698,24 @@ export const CashRegisterView = ({
     setStatus(nextStatus);
     if (nextStatus !== 'Finalizado') {
       setIsInvoiced(false);
-      setPaymentMethod('');
     }
+  };
+
+  const handlePaymentStatusChange = (nextStatus: CashPaymentStatus) => {
+    setStatusPagamento(nextStatus);
+    if (nextStatus !== 'Parcial') setValorPagoInput('');
   };
 
   const buildDraft = (statusOverride?: CashRegisterLaunch['status'], invoiced = false): CashRegisterDraft => {
     const finalStatus = statusOverride || status;
     const finalInvoiced = finalStatus === 'Finalizado' && (invoiced || isInvoiced);
+    const finalPaymentStatus: CashPaymentStatus = finalInvoiced ? 'Pago' : statusPagamento;
+    const finalPaid = finalPaymentStatus === 'Pago'
+      ? totals.total
+      : finalPaymentStatus === 'Parcial'
+        ? paymentSummary.paid
+        : 0;
+    const finalBalance = Math.max(0, totals.total - finalPaid);
 
     return {
       ...(selectedClientId ? { clientId: selectedClientId } : {}),
@@ -693,8 +734,11 @@ export const CashRegisterView = ({
       orderDiscountValue: totals.orderDiscountValue,
       orderDiscountPercent: totals.orderDiscountPercent,
       total: totals.total,
+      statusPagamento: finalPaymentStatus,
+      valorPago: finalPaid,
+      saldoDevedor: finalBalance,
       invoiced: finalInvoiced,
-      ...(finalInvoiced && paymentMethod ? { paymentMethod } : {}),
+      ...((finalPaid > 0 && paymentMethod) ? { paymentMethod } : {}),
     };
   };
 
@@ -712,6 +756,8 @@ export const CashRegisterView = ({
       || items.length > 0
       || orderDiscountValueInput.trim()
       || orderDiscountPercentInput.trim()
+      || statusPagamento !== 'Pendente'
+      || valorPagoInput.trim()
       || paymentMethod
     );
 
@@ -727,6 +773,8 @@ export const CashRegisterView = ({
       clientName,
       bikeModel,
       status,
+      statusPagamento,
+      valorPagoInput,
       isInvoiced,
       paymentMethod,
       openingDate,
@@ -738,15 +786,17 @@ export const CashRegisterView = ({
       orderDiscountValueInput,
       orderDiscountPercentInput,
     });
-  }, [bikeModel, clientName, draftStorageKey, editingLaunchId, editingOrderNumber, expectedDate, isDraftHydrated, isInvoiced, items, observation, openingDate, orderDiscountPercentInput, orderDiscountValueInput, paymentMethod, request, selectedClientId, servicesExecuted, status]);
+  }, [bikeModel, clientName, draftStorageKey, editingLaunchId, editingOrderNumber, expectedDate, isDraftHydrated, isInvoiced, items, observation, openingDate, orderDiscountPercentInput, orderDiscountValueInput, paymentMethod, request, selectedClientId, servicesExecuted, status, statusPagamento, valorPagoInput]);
 
   const handleSave = async (statusOverride?: CashRegisterLaunch['status'], invoiced = false) => {
     const isInvoiceAction = statusOverride === 'Finalizado' && invoiced;
     const finalStatus = statusOverride || status;
     const finalInvoiced = finalStatus === 'Finalizado' && (invoiced || isInvoiced);
+    const finalPaymentStatus = finalInvoiced ? 'Pago' : statusPagamento;
+    const finalPaid = finalPaymentStatus === 'Pago' ? totals.total : paymentSummary.paid;
 
-    if (finalInvoiced && !paymentMethod) {
-      sonnerToast.error('Informe a forma de pagamento antes de faturar a O.S.');
+    if (finalPaid > 0 && !paymentMethod) {
+      sonnerToast.error('Informe a forma de pagamento antes de salvar um pagamento na O.S.');
       return;
     }
 
@@ -757,8 +807,17 @@ export const CashRegisterView = ({
     const previousLaunch = editingLaunchId
       ? cashLaunches.find((launch) => launch.id === editingLaunchId)
       : undefined;
-    const saved = await Promise.resolve(onSaveLaunch(buildDraft(statusOverride, invoiced), editingLaunchId || undefined, previousLaunch));
-    if (saved) {
+    const saveResult = await Promise.resolve(onSaveLaunch(buildDraft(statusOverride, invoiced), editingLaunchId || undefined, previousLaunch));
+    if (saveResult) {
+      const isOfflineSave = typeof saveResult === 'object'
+        ? saveResult.savedOffline
+        : typeof navigator !== 'undefined' && navigator.onLine === false;
+      const isFinalizedAction = finalStatus === 'Finalizado';
+      setSaveNotice(isOfflineSave
+        ? 'Salvo localmente e aguardando sincronização.'
+        : isFinalizedAction
+          ? 'O.S. salva com sucesso.'
+          : 'O.S. salva com sucesso.');
       if (isInvoiceAction && invoicePaymentMethod) {
         setInvoiceSuccess({
           orderNumber: successOrderNumber,
@@ -766,7 +825,7 @@ export const CashRegisterView = ({
           total: successTotal,
         });
       }
-      if (shouldAutoIssueFiscal && editingLaunchId) {
+      if (shouldAutoIssueFiscal && editingLaunchId && !isOfflineSave) {
         await Promise.resolve(onAutoIssueFiscalFromCashLaunch?.(editingLaunchId));
       }
       resetDraft();
@@ -951,6 +1010,38 @@ export const CashRegisterView = ({
                     </div>
                   </div>
 
+                  <div className="grid gap-2 rounded-xl border border-slate-700/50 bg-slate-950/35 p-3 md:grid-cols-2 xl:grid-cols-5">
+                    <div className="space-y-1">
+                      <label className={labelClass}>Pagamento</label>
+                      <select value={statusPagamento} onChange={(event) => handlePaymentStatusChange(event.target.value as CashPaymentStatus)} className={fieldClass}>
+                        {cashPaymentStatusOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    </div>
+                    {statusPagamento === 'Parcial' && (
+                      <div className="space-y-1">
+                        <label className={labelClass}>Valor pago R$</label>
+                        <input value={valorPagoInput} onChange={(event) => setValorPagoInput(event.target.value)} inputMode="decimal" placeholder="0,00" className={fieldClass} />
+                      </div>
+                    )}
+                    {paymentSummary.paid > 0 && (
+                      <div className="space-y-1">
+                        <label className={labelClass}>Forma</label>
+                        <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as CashPaymentMethod | '')} className={fieldClass}>
+                          <option value="">Selecione</option>
+                          {cashPaymentMethodOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                        </select>
+                      </div>
+                    )}
+                    <div className="rounded-lg bg-slate-900/70 px-3 py-2">
+                      <p className={labelClass}>Pago</p>
+                      <p className="mt-1 text-sm font-black text-emerald-300">{compactCurrency(paymentSummary.paid)}</p>
+                    </div>
+                    <div className="rounded-lg bg-slate-900/70 px-3 py-2">
+                      <p className={labelClass}>Saldo</p>
+                      <p className={cn('mt-1 text-sm font-black', paymentSummary.balance > 0 ? 'text-amber-200' : 'text-emerald-300')}>{compactCurrency(paymentSummary.balance)}</p>
+                    </div>
+                  </div>
+
                   <div className="grid gap-2 lg:grid-cols-[1fr_1fr]">
                     <div className="space-y-1">
                       <label className={labelClass}>Observacao</label>
@@ -1108,7 +1199,7 @@ export const CashRegisterView = ({
               </div>
             )}
 
-            <div className="grid gap-3 border-t border-slate-700/50 pt-3 xl:grid-cols-[auto_minmax(220px,300px)_1fr_auto] xl:items-end">
+            <div className="grid gap-3 border-t border-slate-700/50 pt-3 xl:grid-cols-[auto_minmax(220px,300px)_auto] xl:items-end">
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                 <SummaryBox label="Mercadorias R$" value={compactCurrency(totals.merchandiseGross)} />
                 <SummaryBox label="Servicos R$" value={compactCurrency(totals.servicesTotal)} />
@@ -1143,34 +1234,30 @@ export const CashRegisterView = ({
                 </p>
               </div>
 
-              {status === 'Finalizado' ? (
-                <label className="rounded-lg border border-slate-700/50 bg-slate-950/40 p-2.5">
-                  <span className={labelClass}>Forma de pagamento</span>
-                  <select
-                    value={paymentMethod}
-                    onChange={(event) => setPaymentMethod(event.target.value as CashPaymentMethod | '')}
-                    className={cn(fieldClass, 'mt-1.5')}
-                  >
-                    <option value="">Selecione</option>
-                    {cashPaymentMethodOptions.map((option) => (
-                      <option key={option} value={option}>{option}</option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
-                <div className="hidden xl:block" />
-              )}
-
               <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-                {status === 'Finalizado' && (
-                  <ActionButton label="Faturar" onClick={() => void handleSave('Finalizado', true)} disabled={isSavingLaunch} />
-                )}
                 <ActionButton label="Imprimir" icon={<Printer className="h-4 w-4" />} onClick={handlePrintOrder} />
                 <ActionButton label="Nova O.S" icon={<Plus className="h-4 w-4" />} onClick={startNewOrder} />
-                <ActionButton label={isSavingLaunch ? 'Salvando...' : editingLaunchId ? 'Atualizar' : 'Salvar'} icon={<Save className="h-4 w-4" />} onClick={() => void handleSave()} disabled={isSavingLaunch} primary />
-                <ActionButton label="Fechar" icon={<X className="h-4 w-4" />} onClick={startNewOrder} />
+                <ActionButton
+                  label={isSavingLaunch
+                    ? 'Salvando...'
+                    : status === 'Finalizado'
+                      ? statusPagamento === 'Pago' ? 'Finalizar e faturar' : 'Finalizar O.S.'
+                      : editingLaunchId ? 'Atualizar O.S.' : 'Salvar rascunho'}
+                  icon={<Save className="h-4 w-4" />}
+                  onClick={() => void handleSave(
+                    status === 'Finalizado' ? 'Finalizado' : undefined,
+                    status === 'Finalizado' && statusPagamento === 'Pago'
+                  )}
+                  disabled={isSavingLaunch}
+                  primary
+                />
               </div>
             </div>
+            {saveNotice && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] font-semibold text-amber-200">
+                {saveNotice}
+              </div>
+            )}
           </div>
         )}
 
@@ -1180,9 +1267,21 @@ export const CashRegisterView = ({
               <div>
                 <p className={labelClass}>Historico</p>
                 <h3 className="text-lg font-black text-white">{filteredLaunches.length} lancamento(s)</h3>
-                <p className="text-xs text-slate-500">Clique em uma linha para editar, dar baixa ou finalizar.</p>
+                <p className="text-xs text-slate-500">O periodo vai da data inicial escolhida ate hoje.</p>
               </div>
-              <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto lg:min-w-[520px]">
+              <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto lg:min-w-[700px]">
+                <label className="min-w-0 sm:w-44">
+                  <span className="sr-only">Data inicial do historico</span>
+                  <input
+                    type="date"
+                    value={historyDateFilter}
+                    max={today()}
+                    onChange={(event) => setHistoryDateFilter(event.target.value || today())}
+                    className={fieldClass}
+                    aria-label="Data inicial do historico"
+                    title="Mostrar lancamentos desta data ate hoje"
+                  />
+                </label>
                 <select
                   value={historyStatusFilter}
                   onChange={(event) => setHistoryStatusFilter(event.target.value as HistoryStatusFilter)}
@@ -1201,7 +1300,7 @@ export const CashRegisterView = ({
             </div>
 
             <div className="overflow-x-auto rounded-xl border border-slate-700/50">
-              <table className="min-w-[1100px] w-full table-fixed text-left text-[13px]">
+              <table className="min-w-[1180px] w-full table-fixed text-left text-[13px]">
                 <thead className="bg-primary/90 text-white">
                   <tr>
                     <th className="w-24 px-2.5 py-1.5">O.S.</th>
@@ -1211,7 +1310,8 @@ export const CashRegisterView = ({
                     <th className="w-32 px-2.5 py-1.5">Status</th>
                     <th className="w-28 px-2.5 py-1.5">Placa/Moto</th>
                     <th className="w-28 px-2.5 py-1.5 text-right">Total R$</th>
-                    <th className="w-20 px-2.5 py-1.5 text-center">Faturado</th>
+                    <th className="w-24 px-2.5 py-1.5 text-center">Pagamento</th>
+                    <th className="w-28 px-2.5 py-1.5 text-right">Saldo R$</th>
                     <th className="w-28 px-2.5 py-1.5">Forma</th>
                     <th className="w-40 px-2.5 py-1.5 text-right">Acao</th>
                   </tr>
@@ -1219,7 +1319,7 @@ export const CashRegisterView = ({
                 <tbody className="divide-y divide-slate-800 bg-slate-950/40">
                   {filteredLaunches.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-3 py-8 text-center text-slate-500">Nenhum lancamento salvo ainda.</td>
+                      <td colSpan={11} className="px-3 py-8 text-center text-slate-500">Nenhum lancamento encontrado neste periodo.</td>
                     </tr>
                   ) : (
                     filteredLaunches.map((launch) => (
@@ -1240,8 +1340,18 @@ export const CashRegisterView = ({
                         </td>
                         <td className="truncate px-2.5 py-1.5 text-slate-400">{launch.bikeModel || '-'}</td>
                         <td className="px-2.5 py-1.5 text-right font-black text-white">{compactCurrency(launch.total)}</td>
-                        <td className="px-2.5 py-1.5 text-center">{launch.status === 'Finalizado' && launch.invoiced ? <Check className="mx-auto h-4 w-4 text-emerald-400" /> : '-'}</td>
-                        <td className="px-2.5 py-1.5 text-slate-300">{launch.status === 'Finalizado' && launch.invoiced ? launch.paymentMethod || '-' : '-'}</td>
+                        <td className="px-2.5 py-1.5 text-center">
+                          <span className={cn(
+                            'rounded-full px-2 py-0.5 text-[10px] font-black uppercase',
+                            getCashPaymentStatus(launch) === 'Pago'
+                              ? 'bg-emerald-500/15 text-emerald-200'
+                              : getCashPaymentStatus(launch) === 'Parcial'
+                                ? 'bg-sky-500/15 text-sky-200'
+                                : 'bg-amber-500/15 text-amber-200'
+                          )}>{getCashPaymentStatus(launch)}</span>
+                        </td>
+                        <td className="px-2.5 py-1.5 text-right font-bold text-amber-200">{compactCurrency(getCashReceivableAmount(launch))}</td>
+                        <td className="px-2.5 py-1.5 text-slate-300">{launch.paymentMethod || '-'}</td>
                         <td className="px-2.5 py-1.5 text-right">
                           <div className="flex justify-end gap-2">
                             <button

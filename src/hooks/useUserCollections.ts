@@ -4,6 +4,7 @@ import { User } from 'firebase/auth';
 import { collection, doc, onSnapshot, query, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { queueFirestoreVoidWrite } from '../services/firestoreOfflineQueue';
+import { getLocalCashLaunches, LOCAL_CASH_LAUNCHES_UPDATED_EVENT } from '../services/localCashLaunchRepository';
 import { isSoftDeleted } from '../services/softDelete';
 import {
   Appointment,
@@ -89,6 +90,35 @@ const getListenerErrorMessage = (error: unknown) => (
   error instanceof Error ? error.message : String(error)
 );
 
+const isQuotaLikeListenerError = (error: unknown) => {
+  const message = getListenerErrorMessage(error).toLowerCase();
+  return message.includes('429')
+    || message.includes('resource-exhausted')
+    || message.includes('quota exceeded')
+    || message.includes('too many requests');
+};
+
+const mergeCashLaunches = (remoteLaunches: CashRegisterLaunch[]) => {
+  const localLaunches = getLocalCashLaunches();
+  const combined = [...remoteLaunches, ...localLaunches];
+  const byId = new Map<string, CashRegisterLaunch>();
+
+  combined.forEach((launch) => {
+    if (!launch?.id) return;
+    if (isSoftDeleted(launch)) return;
+    const existing = byId.get(launch.id);
+    if (!existing || new Date(launch.updatedAt || launch.createdAt).getTime() >= new Date(existing.updatedAt || existing.createdAt).getTime()) {
+      byId.set(launch.id, launch);
+    }
+  });
+
+  return Array.from(byId.values()).sort((left, right) => {
+    const leftTime = new Date(left.updatedAt || left.createdAt).getTime();
+    const rightTime = new Date(right.updatedAt || right.createdAt).getTime();
+    return rightTime - leftTime;
+  });
+};
+
 export function useUserCollections({
   user,
   userProfile,
@@ -112,11 +142,32 @@ export function useUserCollections({
   const [collectionListenerIssuesByKey, setCollectionListenerIssuesByKey] = useState<Record<string, CollectionListenerIssue>>({});
 
   useEffect(() => {
+    const syncLocalCashLaunches = () => {
+      setCashLaunches((currentLaunches) => {
+        const remoteLaunches = currentLaunches.filter((launch) => !getLocalCashLaunches().some((localLaunch) => localLaunch.id === launch.id));
+        return mergeCashLaunches(remoteLaunches);
+      });
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener(LOCAL_CASH_LAUNCHES_UPDATED_EVENT, syncLocalCashLaunches);
+    }
+
+    syncLocalCashLaunches();
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener(LOCAL_CASH_LAUNCHES_UPDATED_EVENT, syncLocalCashLaunches);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const hasExpiredSubscription = userProfile?.subscriptionExpiresAt
       ? isBefore(parseISO(userProfile.subscriptionExpiresAt), new Date())
       : false;
 
-    if (!user || (!userProfile?.isActive && !hasExpiredSubscription)) {
+    if (!user || !userProfile) {
       setCollectionListenerIssuesByKey({});
       return;
     }
@@ -133,6 +184,10 @@ export function useUserCollections({
     };
 
     const recordListenerIssue = (key: string, label: string, error: unknown) => {
+      if (isQuotaLikeListenerError(error)) {
+        console.warn(`${label} listener quota issue:`, error);
+        return;
+      }
       console.error(`${label} listener error:`, error);
       setCollectionListenerIssuesByKey((current) => ({
         ...current,
@@ -203,9 +258,10 @@ export function useUserCollections({
     const unsubscribeCashLaunches = onSnapshot(cashLaunchesQuery, (snapshot) => {
       clearListenerIssue('cash_launches');
       const launchesData = mapActiveDocuments<CashRegisterLaunch>(snapshot.docs);
-      setCashLaunches(launchesData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      setCashLaunches(mergeCashLaunches(launchesData));
     }, (error) => {
       recordListenerIssue('cash_launches', 'Lancamentos caixa', error);
+      setCashLaunches(mergeCashLaunches([]));
     });
 
     const fiscalCompaniesQuery = query(collection(db, 'users', user.uid, 'fiscal_companies'));
@@ -296,6 +352,11 @@ export function useUserCollections({
         const usersData = snapshot.docs.map(doc => doc.data() as UserProfile);
         setAllUsers(usersData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
       }, (error) => {
+        if (error instanceof Error && error.message?.includes('permission')) {
+          clearListenerIssue('admin_users');
+          setAllUsers([]);
+          return;
+        }
         recordListenerIssue('admin_users', 'Usuarios administrativos', error);
       });
     }

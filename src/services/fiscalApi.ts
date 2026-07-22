@@ -30,7 +30,22 @@ const getAuthHeaders = async () => {
 };
 
 const parseResponse = async <T>(response: Response): Promise<T> => {
-  const payload = await response.json().catch(() => ({})) as FiscalApiResponse<T>;
+  const contentType = response.headers.get('content-type') || '';
+  const rawPayload = await response.text();
+  if (!contentType.includes('application/json')) {
+    throw new Error('API fiscal indisponivel. Configure VITE_FISCAL_API_URL para o backend fiscal publicado.');
+  }
+
+  const payload = rawPayload
+    ? (() => {
+        try {
+          return JSON.parse(rawPayload) as FiscalApiResponse<T>;
+        } catch {
+          throw new Error('Resposta invalida da API fiscal.');
+        }
+      })()
+    : {} as FiscalApiResponse<T>;
+
   if (!response.ok) {
     throw new Error(payload.error || 'Erro ao comunicar com o modulo fiscal.');
   }
@@ -125,4 +140,3 @@ export const fiscalApi = {
     return response.blob();
   },
 };
-

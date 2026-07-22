@@ -14,6 +14,8 @@ import {
 } from "./server/firebaseAdmin";
 import { registerFiscalRoutes } from "./server/fiscal/fiscalRoutes";
 import { registerWhatsAppRoutes } from "./server/whatsapp/whatsappRoutes";
+import { startWhatsAppScheduler } from "./server/whatsappRemindersService";
+import { startAutomaticBackupScheduler } from "./server/automaticBackup";
 import {
   apiNotFound,
   bodyParser,
@@ -144,6 +146,17 @@ async function startServer() {
     firebaseInitialized,
   });
 
+  startAutomaticBackupScheduler({
+    db,
+    auth: adminAuth,
+    firebaseInitialized,
+    enabled: process.env.AUTOMATIC_BACKUP_ENABLED !== "false",
+  });
+
+  startWhatsAppScheduler({
+    db,
+    enabled: process.env.WHATSAPP_SCHEDULER_ENABLED !== "false",
+  });
   /**
    * GET /api/payments/publishable-key
    * Retorna a chave pública do Stripe

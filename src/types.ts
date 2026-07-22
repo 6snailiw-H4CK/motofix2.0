@@ -34,7 +34,8 @@ export type AppView =
   | 'fiscal'
   | 'checkout'
   | 'subscription-expired'
-  | 'expenses';
+  | 'expenses'
+  | 'financial-health';
 
 export interface Client extends SoftDeletable {
   id: string;
@@ -243,6 +244,9 @@ export interface CashRegisterLaunch extends SoftDeletable {
   orderDiscountValue?: number;
   orderDiscountPercent?: number;
   total: number;
+  statusPagamento?: 'Pago' | 'Pendente' | 'Parcial';
+  valorPago?: number;
+  saldoDevedor?: number;
   invoiced?: boolean;
   paymentMethod?: CashPaymentMethod;
   fiscalInvoiceId?: string;
@@ -404,6 +408,12 @@ export interface Appointment extends SoftDeletable {
   completed?: boolean;
 }
 
+export interface FinancialGoals {
+  desiredMonthlyProfit: number; // Lucro desejado por mês
+  estimatedMonthlyCosts: number; // Custos estimados por mês
+  targetMotosPerMonth: number; // Número de motos que pretende atender
+}
+
 export interface Settings {
   userId: string;
   whatsappTemplate: string;
@@ -422,6 +432,8 @@ export interface Settings {
   businessAddress?: string;
   isProfileComplete?: boolean;
   expenses?: Array<{ value?: number; valor?: number; description?: string }>;
+  /** Metas financeiras customizáveis */
+  financialGoals?: FinancialGoals;
 }
 
 export interface Subscription {
