@@ -97,6 +97,7 @@ export const ProductsView = ({
   onDeleteAllProductsClick,
 }: ProductsViewProps) => {
   const [search, setSearch] = useState('');
+  const [isLowStockFilterActive, setIsLowStockFilterActive] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | undefined>();
   const [form, setForm] = useState<ProductCatalogFormInput>(emptyForm);
   const [salePriceInput, setSalePriceInput] = useState('');
@@ -134,12 +135,21 @@ export const ProductsView = ({
 
   const filteredProducts = useMemo(() => {
     const term = deferredSearch.trim().toLowerCase();
-    if (!term) return products;
+    const searchFilteredProducts = !term
+      ? products
+      : productSearchRows
+        .filter(({ searchText }) => searchText.includes(term))
+        .map(({ product }) => product);
 
-    return productSearchRows
-      .filter(({ searchText }) => searchText.includes(term))
-      .map(({ product }) => product);
-  }, [deferredSearch, productSearchRows, products]);
+    if (!isLowStockFilterActive) return searchFilteredProducts;
+
+    return searchFilteredProducts.filter((product) => {
+      if (!product.trackStock) return false;
+      const stockQuantity = Number(product.stockQuantity || 0);
+      const minStockQuantity = Number(product.minStockQuantity || 0);
+      return stockQuantity <= 0 || (minStockQuantity > 0 && stockQuantity <= minStockQuantity);
+    });
+  }, [deferredSearch, isLowStockFilterActive, productSearchRows, products]);
 
   const visibleProducts = useMemo(
     () => filteredProducts.slice(0, visibleLimit),
@@ -174,7 +184,7 @@ export const ProductsView = ({
 
   useEffect(() => {
     setVisibleLimit(INITIAL_VISIBLE_PRODUCTS);
-  }, [deferredSearch, products.length]);
+  }, [deferredSearch, isLowStockFilterActive, products.length]);
 
   const updateForm = (patch: Partial<ProductCatalogFormInput>) => {
     setForm((current) => ({ ...current, ...patch }));
@@ -498,11 +508,25 @@ export const ProductsView = ({
               <p className={labelClass}>Filtrados</p>
               <p className="mt-1 text-2xl font-black text-white">{filteredProducts.length}</p>
             </div>
-            <div className="rounded-xl border border-slate-700/60 bg-slate-950/40 p-3">
+            <button
+              type="button"
+              onClick={() => setIsLowStockFilterActive((current) => !current)}
+              className={cn(
+                'rounded-xl border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-primary/60',
+                isLowStockFilterActive
+                  ? 'border-amber-400/70 bg-amber-500/10'
+                  : 'border-slate-700/60 bg-slate-950/40 hover:border-amber-400/60 hover:bg-amber-500/5'
+              )}
+              aria-pressed={isLowStockFilterActive}
+              title="Mostrar somente mercadorias com estoque baixo ou zerado"
+            >
               <p className={labelClass}>Estoque</p>
               <p className="mt-1 text-2xl font-black text-white">{stockSummary.totalUnits}</p>
               <p className="text-[11px] font-bold text-amber-200">{stockSummary.lowStockCount} baixo/zerado de {stockSummary.controlledCount}</p>
-            </div>
+              <p className="mt-1 text-[10px] font-bold text-slate-400">
+                {isLowStockFilterActive ? 'Filtro ativo — clique para mostrar todos' : 'Clique para ver os itens'}
+              </p>
+            </button>
           </div>
 
           <div className="mt-4 flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-950/50 px-3 py-2 text-slate-400">
@@ -513,6 +537,15 @@ export const ProductsView = ({
               className="min-w-0 flex-1 bg-transparent text-sm font-bold text-slate-100 outline-none placeholder:text-slate-600"
               placeholder="Buscar por codigo, descricao, variacao ou NCM..."
             />
+            {isLowStockFilterActive && (
+              <button
+                type="button"
+                onClick={() => setIsLowStockFilterActive(false)}
+                className="shrink-0 rounded-lg bg-amber-500/10 px-2 py-1 text-[10px] font-black uppercase text-amber-200 transition hover:bg-amber-500/20"
+              >
+                Limpar filtro
+              </button>
+            )}
           </div>
 
           <div className="mt-4 overflow-hidden rounded-2xl border border-slate-700/60">
@@ -535,7 +568,7 @@ export const ProductsView = ({
                   {filteredProducts.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="px-3 py-12 text-center text-sm font-bold text-slate-500">
-                        Nenhuma mercadoria encontrada.
+                        {isLowStockFilterActive ? 'Nenhuma mercadoria com estoque baixo ou zerado.' : 'Nenhuma mercadoria encontrada.'}
                       </td>
                     </tr>
                   ) : visibleProducts.map((product) => {

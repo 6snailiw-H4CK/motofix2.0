@@ -6,6 +6,8 @@ export const FIRESTORE_OFFLINE_TELEMETRY_EVENT = 'motofix:firestore-offline-tele
 const WRITE_SETTLE_TIMEOUT_MS = 1200;
 const REMOTE_CONFIRMATION_TIMEOUT_MS = 12000;
 const READ_FALLBACK_TIMEOUT_MS = 3500;
+const QUOTA_RETRY_BASE_DELAY_MS = 5 * 60 * 1000;
+const QUOTA_RETRY_MAX_DELAY_MS = 60 * 60 * 1000;
 export const QUEUE_STORAGE_KEY = 'motofix:firestore-offline-queue-state';
 const QUEUE_INDEXED_DB_NAME = 'motofix-offline-queue';
 const QUEUE_INDEXED_DB_STORE = 'snapshots';
@@ -282,10 +284,36 @@ const buildQueueState = (snapshot: PersistedQueueSnapshot): FirestoreOfflineQueu
 });
 
 let queueState = buildQueueState(persistedQueue);
+const scheduledQuotaRetries = new Set<string>();
 
 const getErrorMessage = (error: unknown) => (
   error instanceof Error ? error.message : String(error)
 );
+
+const isQuotaLikeError = (error: unknown) => {
+  const message = getErrorMessage(error).toLowerCase();
+  return message.includes('429')
+    || message.includes('resource-exhausted')
+    || message.includes('quota exceeded')
+    || message.includes('too many requests');
+};
+
+const scheduleQuotaRetry = (writeId: string, retryCount: number) => {
+  if (!canUseWindow() || scheduledQuotaRetries.has(writeId)) return;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+
+  const delay = Math.min(
+    QUOTA_RETRY_BASE_DELAY_MS * (2 ** Math.max(0, retryCount)),
+    QUOTA_RETRY_MAX_DELAY_MS
+  );
+  const jitter = Math.round(Math.random() * 30_000);
+  scheduledQuotaRetries.add(writeId);
+
+  window.setTimeout(() => {
+    scheduledQuotaRetries.delete(writeId);
+    void retryFailedWrite(writeId).catch(() => undefined);
+  }, delay + jitter);
+};
 
 export const getFirestoreOfflineQueueState = (): FirestoreOfflineQueueState => ({
   ...queueState,
@@ -394,6 +422,7 @@ const refreshCounts = () => {
 const markWriteFailed = (writeId: string, context: string, error: unknown) => {
   const message = getErrorMessage(error);
   const failedWrite = persistedQueue.writes.find((write) => write.id === writeId);
+  const isQuotaError = isQuotaLikeError(error);
   if (failedWrite) {
     failedWrite.status = 'failed';
     failedWrite.lastUpdatedAt = new Date().toISOString();
@@ -407,9 +436,12 @@ const markWriteFailed = (writeId: string, context: string, error: unknown) => {
     failureCount: queueState.failureCount + 1,
   };
   persistQueueState();
-  emitWriteError(context, error);
+  if (!isQuotaError) {
+    emitWriteError(context, error);
+  }
   emitTelemetry({ event: 'write_failed', writeId, context, message });
   emitQueueState();
+  if (isQuotaError) scheduleQuotaRetry(writeId, failedWrite?.retryCount || 0);
 };
 
 const trackWrite = <T>(
@@ -512,7 +544,7 @@ export const queueFirestoreVoidWrite = async (
   context?: string,
   replay?: FirestoreReplayDescriptor
 ) => {
-  await queueFirestoreWrite(operation, context, replay);
+  return queueFirestoreWrite(operation, context, replay);
 };
 
 export const getPendingWriteCheckpoint = () => persistedQueue.writes
@@ -681,6 +713,7 @@ export async function retryFailedWrite(writeId: string): Promise<void> {
     emitWriteError(failedWrite.context, error);
     emitTelemetry({ event: 'retry_failed', writeId, context: failedWrite.context, message });
     emitQueueState();
+    if (isQuotaLikeError(error)) scheduleQuotaRetry(writeId, failed?.retryCount || 0);
 
     if (message === 'Tempo limite ao repetir a escrita no Firestore.') {
       void replayPromise.then(() => {
@@ -746,6 +779,9 @@ const hydrateQueueFromIndexedDb = async () => {
 
     persistedQueue = mergePersistedQueues(indexedDbSnapshot, persistedQueue);
     queueState = buildQueueState(persistedQueue);
+    persistedQueue.writes
+      .filter((write) => write.status === 'failed' && write.replay)
+      .forEach((write) => scheduleQuotaRetry(write.id, write.retryCount));
 
     try {
       window.localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(persistedQueue));
@@ -761,6 +797,12 @@ const hydrateQueueFromIndexedDb = async () => {
 
 if (canUseWindow()) {
   void hydrateQueueFromIndexedDb();
+
+  window.addEventListener('online', () => {
+    persistedQueue.writes
+      .filter((write) => write.status === 'failed' && write.replay)
+      .forEach((write) => scheduleQuotaRetry(write.id, write.retryCount));
+  });
 
   window.addEventListener('storage', (event) => {
     if (event.key !== QUEUE_STORAGE_KEY) return;

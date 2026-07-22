@@ -21,4 +21,22 @@ export function validateCashLaunchData(data: Partial<CashRegisterLaunch>) {
   if (data.invoiced && !data.paymentMethod) {
     throw new Error('Informe a forma de pagamento antes de faturar a O.S.');
   }
+
+  if (data.statusPagamento) {
+    const total = Math.max(0, Number(data.total || 0));
+    const paid = Math.max(0, Number(data.valorPago || 0));
+    const balance = Math.max(0, Number(data.saldoDevedor ?? total - paid));
+
+    if (data.statusPagamento === 'Pago' && (paid !== total || balance !== 0)) {
+      throw new Error('Pagamento marcado como pago deve quitar o valor total da O.S.');
+    }
+
+    if (data.statusPagamento === 'Pendente' && (paid !== 0 || balance !== total)) {
+      throw new Error('Pagamento pendente nao pode ter valor recebido.');
+    }
+
+    if (data.statusPagamento === 'Parcial' && (paid <= 0 || paid >= total || balance <= 0)) {
+      throw new Error('Informe um valor pago menor que o total para pagamento parcial.');
+    }
+  }
 }

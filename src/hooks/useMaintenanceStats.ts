@@ -1,6 +1,7 @@
 import { isAfter, parseISO } from 'date-fns';
 import { useCallback, useMemo } from 'react';
 import type { CashRegisterLaunch, Client, MaintenanceRecord, Warranty } from '../types';
+import { getCashPaidAmount, getCashPaymentStatus, getCashReceivableAmount, isCashLaunchFinancial } from '../lib/cashPayments';
 import { getServiceTypeLabel, isOilChangeService } from '../lib/serviceTypes';
 
 export type ServiceListFilter = 'all' | 'recorrentes' | 'eventuais';
@@ -94,11 +95,11 @@ export const useMaintenanceStats = ({
     });
 
     dashboardCashLaunches.forEach((launch) => {
-      if (launch.status !== 'Finalizado' || !launch.invoiced) return;
+      if (!isCashLaunchFinancial(launch)) return;
       const launchDate = parseSafeDate(launch.openingDate || launch.createdAt);
       if (!launchDate || !isSameMonth(launchDate, currentMonth, currentYear)) return;
 
-      const value = Number(launch.total) || 0;
+      const value = getCashPaidAmount(launch);
       if (value <= 0) return;
       revenue += value;
       servicesCount++;
@@ -177,17 +178,18 @@ export const useMaintenanceStats = ({
     });
 
     dashboardCashLaunches.forEach((launch) => {
-      if (launch.status !== 'Finalizado' || !launch.invoiced) return;
+      if (!isCashLaunchFinancial(launch)) return;
       const launchDate = getCashLaunchDate(launch);
       if (!launchDate || !isSameMonth(launchDate, currentMonth, currentYear)) return;
 
-      const value = Number(launch.total) || 0;
+      const value = getCashPaidAmount(launch);
+      if (value <= 0) return;
       addSource(launch.clientName || 'Consumidor final', {
         date: launch.openingDate || launch.createdAt || '',
         id: launch.id,
         label: launch.orderNumber || 'Lancamento Caixa',
         origin: 'Lancamentos Caixa',
-        status: 'Faturado',
+        status: getCashPaymentStatus(launch),
         value,
       });
     });
@@ -249,17 +251,21 @@ export const useMaintenanceStats = ({
       const launchDate = parseSafeDate(launch.openingDate || launch.createdAt);
       const isCurrentMonth = launchDate ? isSameMonth(launchDate, currentMonth, currentYear) : false;
 
-      if (launch.status === 'Pendente' || (launch.status === 'Finalizado' && !launch.invoiced)) {
-        aReceber += total;
-        if (isCurrentMonth) {
-          aReceberMes += total;
-          faturamentoBrutoMes += total;
-        }
-        return;
+      if (!isCashLaunchFinancial(launch)) return;
+
+      const paymentStatus = getCashPaymentStatus(launch);
+      const paid = getCashPaidAmount(launch);
+      const balance = getCashReceivableAmount(launch);
+
+      if (paymentStatus === 'Pendente') {
+        aReceber += balance;
+        if (isCurrentMonth) aReceberMes += balance;
       }
 
-      if (launch.status === 'Finalizado' && launch.invoiced && isCurrentMonth) {
-        totalRecebidoMes += total;
+      if (paymentStatus === 'Parcial') parcialAReceber += balance;
+
+      if (isCurrentMonth) {
+        totalRecebidoMes += paid;
         faturamentoBrutoMes += total;
       }
     });

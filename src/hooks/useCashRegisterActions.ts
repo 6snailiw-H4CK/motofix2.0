@@ -8,6 +8,7 @@ import { productRepository } from '../services/productRepository';
 import type { CashRegisterLaunch } from '../types';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
 import { recordOperationalLog } from '../services/operationalLogRepository';
+import { isQuotaError } from '../lib/firebaseRetry';
 
 type UseCashRegisterActionsParams = {
   user: User | null;
@@ -55,28 +56,27 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
     try {
       const now = new Date().toISOString();
 
-      if (launchId) {
-        await cashRegisterRepository.update(user.uid, launchId, {
-          ...draft,
-          updatedAt: now,
-        }, previousLaunch);
-      } else {
-        const orderNumber = `LC-${format(new Date(), 'yyyyMMdd-HHmmss')}`;
+      const result = launchId
+        ? await cashRegisterRepository.update(user.uid, launchId, {
+            ...draft,
+            updatedAt: now,
+          }, previousLaunch)
+        : await cashRegisterRepository.create(user.uid, {
+            ...draft,
+            orderNumber: `LC-${format(new Date(), 'yyyyMMdd-HHmmss')}`,
+            userId: user.uid,
+            createdAt: now,
+            updatedAt: now,
+          });
 
-        const cashLaunchId = await cashRegisterRepository.create(user.uid, {
-          ...draft,
-          orderNumber,
-          userId: user.uid,
-          createdAt: now,
-          updatedAt: now,
-        });
+      if (!launchId && result.id && !result.savedOffline) {
         recordOperationalLog({
           userId: user.uid,
           usuario: user.email,
           oficina: workshopName,
           acao: 'os_criada',
-          targetId: cashLaunchId,
-          details: { orderNumber, clientName: draft.clientName, total: draft.total },
+          targetId: result.id,
+          details: { orderNumber: result.id, clientName: draft.clientName, total: draft.total },
         });
         if (Number(draft.total) > 0) {
           recordOperationalLog({
@@ -84,19 +84,21 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
             usuario: user.email,
             oficina: workshopName,
             acao: 'receita_criada',
-            targetId: cashLaunchId,
-            details: { source: 'cash_launch', orderNumber, total: draft.total },
+            targetId: result.id,
+            details: { source: 'cash_launch', orderNumber: result.id, total: draft.total },
           });
         }
       }
 
-      const savedOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+      const savedOffline = result.savedOffline === true;
       sonnerToast.success(savedOffline
         ? 'O.S. salva neste computador. Sincronizacao pendente.'
         : launchId ? 'Lancamento Caixa atualizado com sucesso.' : 'Lancamento Caixa salvo com sucesso.');
-      return true;
+      return result;
     } catch (error) {
-      sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel salvar o Lancamento Caixa.');
+      sonnerToast.error(isQuotaError(error)
+        ? 'O Firestore limitou as requisicoes. A O.S. nao foi faturada; tente novamente quando a sincronizacao normalizar.'
+        : error instanceof Error ? error.message : 'Nao foi possivel salvar o Lancamento Caixa.');
       handleFirestoreError(error, OperationType.CREATE, 'cash_launches');
       return false;
     } finally {

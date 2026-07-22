@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { endOfMonth, format, isValid, isWithinInterval, parseISO, startOfMonth } from 'date-fns';
 import { CheckCircle, CheckCircle2, ChevronRight, DollarSign, FileText, Filter, MessageCircle, RefreshCw, Trash2, Wrench } from 'lucide-react';
 import { cn, safeFormat } from '../../lib/utils';
+import { getCashPaidAmount, getCashPaymentStatus, getCashReceivableAmount } from '../../lib/cashPayments';
 import type { CashRegisterLaunch, MaintenanceRecord, MessageLog } from '../../types';
 
 type HistoryFilters = {
@@ -109,13 +110,6 @@ const getCashLaunchDetailText = (launch: CashRegisterLaunch) => {
   return compactText(launch.observation || launch.request || launch.servicesExecuted || 'Ordem de servico sem itens detalhados.', 120);
 };
 
-const getCashLaunchPaymentStatus = (launch: CashRegisterLaunch): MaintenanceRecord['statusPagamento'] | undefined => {
-  if (launch.status === 'Cancelado') return undefined;
-  if (launch.invoiced) return 'Pago';
-  if (launch.status === 'Pendente' || launch.status === 'Finalizado') return 'Pendente';
-  return undefined;
-};
-
 const toMaintenanceHistoryRecord = (record: MaintenanceRecord): HistoryRecord => ({
   id: record.id,
   source: 'maintenance',
@@ -143,7 +137,9 @@ const toCashLaunchHistoryRecord = (launch: CashRegisterLaunch): HistoryRecord =>
   serviceType: getCashLaunchServiceType(launch),
   serviceValue: Number(launch.total) || 0,
   isRecurringRevenue: false,
-  statusPagamento: getCashLaunchPaymentStatus(launch),
+  statusPagamento: launch.status === 'Cancelado' ? undefined : getCashPaymentStatus(launch),
+  valorPago: getCashPaidAmount(launch),
+  saldoDevedor: getCashReceivableAmount(launch),
   detailText: getCashLaunchDetailText(launch),
   orderNumber: launch.orderNumber,
   cashStatus: launch.status,

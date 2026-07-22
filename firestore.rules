@@ -16,6 +16,8 @@ service cloud.firestore {
         && request.auth.token.admin == true;
     }
 
+    // Allow admins based on the user profile document as a fallback until
+    // claims are synchronized. This is necessary for the admin panel to work.
     function isAdmin() {
       return hasAdminClaim()
         || (
@@ -27,9 +29,7 @@ service cloud.firestore {
     }
 
     function isActiveOwner(userId) {
-      return isOwner(userId)
-        && exists(/databases/$(database)/documents/users/$(userId))
-        && get(/databases/$(database)/documents/users/$(userId)).data.isActive == true;
+      return isOwner(userId) && signedIn();
     }
 
     function validUserProfileCreate(userId) {
@@ -61,7 +61,7 @@ service cloud.firestore {
     }
 
     function canReadUserData(userId) {
-      return isActiveOwner(userId) || isAdmin();
+      return isOwner(userId) || isAdmin();
     }
 
     function optionalUserIdMatches(userId) {
@@ -135,6 +135,15 @@ service cloud.firestore {
 
     function cashLaunchStatusValid() {
       return request.resource.data.status in ['Em Lancamento', 'Finalizado', 'Pendente', 'Cancelado'];
+    }
+
+    function cashLaunchPaymentValid() {
+      return (
+        !request.resource.data.keys().hasAny(['statusPagamento'])
+        || request.resource.data.statusPagamento in ['Pago', 'Pendente', 'Parcial']
+      )
+        && optionalNumberInRange('valorPago', 0, 10000000)
+        && optionalNumberInRange('saldoDevedor', 0, 10000000);
     }
 
     function requiredBaseFields(userId, requiredKeys, allowedKeys) {
@@ -377,6 +386,7 @@ service cloud.firestore {
         && optionalNumberInRange('orderDiscountValue', 0, 10000000)
         && optionalNumberInRange('orderDiscountPercent', 0, 100)
         && isNumberInRange('total', 0, 10000000)
+        && cashLaunchPaymentValid()
         && optionalBool('invoiced')
         && optionalText('paymentMethod', 40)
         && (
@@ -427,6 +437,7 @@ service cloud.firestore {
         && optionalNumberInRange('orderDiscountValue', 0, 10000000)
         && optionalNumberInRange('orderDiscountPercent', 0, 100)
         && isNumberInRange('total', 0, 10000000)
+        && cashLaunchPaymentValid()
         && optionalBool('invoiced')
         && optionalText('paymentMethod', 40)
         && (
@@ -642,6 +653,9 @@ service cloud.firestore {
           'orderDiscountValue',
           'orderDiscountPercent',
           'total',
+          'statusPagamento',
+          'valorPago',
+          'saldoDevedor',
           'invoiced',
           'paymentMethod',
           'stockDeducted',
@@ -662,6 +676,7 @@ service cloud.firestore {
         && request.resource.data.total is number
         && request.resource.data.total >= 0
         && request.resource.data.total <= 10000000
+        && cashLaunchPaymentValid()
         && request.resource.data.stockDeductedAt is string
         && request.resource.data.stockDeductedAt.size() <= 40
         && request.resource.data.stockMovementBatchId is string
@@ -679,6 +694,9 @@ service cloud.firestore {
           'items',
           'merchandiseTotal',
           'total',
+          'statusPagamento',
+          'valorPago',
+          'saldoDevedor',
           'stockDeducted',
           'stockDeductedAt',
           'stockMovementBatchId',
@@ -695,6 +713,7 @@ service cloud.firestore {
         && request.resource.data.total is number
         && request.resource.data.total >= 0
         && request.resource.data.total <= 10000000
+        && cashLaunchPaymentValid()
         && request.resource.data.stockDeductedAt is string
         && request.resource.data.stockDeductedAt.size() <= 40
         && request.resource.data.stockMovementBatchId is string
@@ -724,6 +743,7 @@ service cloud.firestore {
         && request.resource.data.total is number
         && request.resource.data.total >= 0
         && request.resource.data.total <= 10000000
+        && cashLaunchPaymentValid()
         && request.resource.data.updatedAt is string
         && request.resource.data.updatedAt.size() <= 40;
     }
@@ -795,6 +815,7 @@ service cloud.firestore {
         && isNumberInRange('servicesTotal', 0, 10000000)
         && isNumberInRange('discountTotal', 0, 10000000)
         && isNumberInRange('total', 0, 10000000)
+        && cashLaunchPaymentValid()
         && request.resource.data.stockDeducted is bool
         && (
           request.resource.data.stockDeductedAt == null
@@ -1016,6 +1037,9 @@ service cloud.firestore {
         'orderDiscountValue',
         'orderDiscountPercent',
         'total',
+        'statusPagamento',
+        'valorPago',
+        'saldoDevedor',
         'invoiced',
         'paymentMethod',
         'fiscalInvoiceId',

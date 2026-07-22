@@ -1,6 +1,6 @@
 import { addDays, format, isAfter, isSameDay, parseISO, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Bar,
   BarChart,
@@ -13,7 +13,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { ArrowLeft, Plus } from 'lucide-react';
+import { ArrowLeft, Plus, Store } from 'lucide-react';
 import type { ExpenseRecord } from '../../types';
 
 type ExpensesViewProps = {
@@ -32,12 +32,20 @@ type ExpensesViewProps = {
   onPaymentMethodChange: (value: string) => void;
   onDateChange: (value: string) => void;
   onNoteChange: (value: string) => void;
-  onSaveExpense: () => Promise<void> | void;
+  onSaveExpense: (canonicalSupplier?: string) => Promise<void> | void;
   onDeleteExpense: (expenseId: string) => Promise<void> | void;
   onResetForm: () => void;
 };
 
 const paymentMethodColors = ['#ef4444', '#f97316', '#38bdf8', '#14b8a6', '#8b5cf6'];
+const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
+const normalizeSupplierKey = (value: string) => value
+  .trim()
+  .replace(/\s+/g, ' ')
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLocaleLowerCase('pt-BR');
 
 export const ExpensesView = ({
   expenseEntries,
@@ -60,6 +68,31 @@ export const ExpensesView = ({
   onResetForm,
 }: ExpensesViewProps) => {
   const [isExpenseFormOpen, setIsExpenseFormOpen] = useState(false);
+  const supplierSummaries = useMemo(() => {
+    const suppliers = new Map<string, { name: string; total: number; count: number }>();
+
+    [...expenseEntries]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .forEach((entry) => {
+        const name = (entry.supplier || '').trim().replace(/\s+/g, ' ');
+        const key = normalizeSupplierKey(name);
+        if (!key) return;
+
+        const current = suppliers.get(key) || { name, total: 0, count: 0 };
+        current.total += entry.amount;
+        current.count += 1;
+        suppliers.set(key, current);
+      });
+
+    return Array.from(suppliers.entries())
+      .map(([key, summary]) => ({ key, ...summary }))
+      .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'pt-BR'));
+  }, [expenseEntries]);
+
+  const canonicalSupplier = supplierSummaries.find(
+    (entry) => entry.key === normalizeSupplierKey(supplier)
+  )?.name || supplier.trim().replace(/\s+/g, ' ');
+
   const total = expenseEntries.reduce((sum, entry) => sum + entry.amount, 0);
   const last30Days = expenseEntries.filter((entry) => {
     const entryDate = parseISO(entry.date);
@@ -125,7 +158,7 @@ export const ExpensesView = ({
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              void onSaveExpense();
+              void onSaveExpense(canonicalSupplier);
             }}
             className="space-y-3 border-t border-slate-700/40 pt-3"
           >
@@ -135,9 +168,20 @@ export const ExpensesView = ({
                 <input
                   value={supplier}
                   onChange={(event) => onSupplierChange(event.target.value)}
+                  list="expense-supplier-list"
+                  required
                   placeholder="Loja ou distribuidor"
+                  autoComplete="off"
                   className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
                 />
+                <datalist id="expense-supplier-list">
+                  {supplierSummaries.map((entry) => (
+                    <option key={entry.key} value={entry.name}>{currency.format(entry.total)} em {entry.count} compra(s)</option>
+                  ))}
+                </datalist>
+                <p className="px-1 text-[9px] text-slate-500">
+                  Selecione um fornecedor existente ou digite um novo.
+                </p>
               </div>
               <div className="space-y-1 lg:col-span-2">
                 <label className="px-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Valor</label>
@@ -248,6 +292,49 @@ export const ExpensesView = ({
           </div>
         </div>
       </div>
+
+      <section className="space-y-3 rounded-2xl border border-slate-700/50 bg-slate-800/40 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Cadastro automatico</p>
+            <h3 className="text-sm font-bold text-white">Fornecedores</h3>
+            <p className="text-[10px] text-slate-500">Compras com o mesmo fornecedor sao somadas automaticamente.</p>
+          </div>
+          <span className="rounded-full bg-slate-900/70 px-2.5 py-1 text-[10px] font-bold text-slate-300">
+            {supplierSummaries.length} cadastrado(s)
+          </span>
+        </div>
+
+        {supplierSummaries.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-700 p-4 text-center text-xs text-slate-500">
+            O primeiro fornecedor aparecera aqui depois que o gasto for salvo.
+          </div>
+        ) : (
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {supplierSummaries.map((entry) => (
+              <button
+                key={entry.key}
+                type="button"
+                onClick={() => {
+                  onSupplierChange(entry.name);
+                  setIsExpenseFormOpen(true);
+                }}
+                className="flex items-center gap-3 rounded-xl border border-slate-700/50 bg-slate-900/40 p-3 text-left transition hover:border-primary/50 hover:bg-slate-900/70"
+                title={`Lancar novo gasto em ${entry.name}`}
+              >
+                <span className="rounded-lg bg-primary/10 p-2 text-primary">
+                  <Store className="h-4 w-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-bold text-white">{entry.name}</span>
+                  <span className="block text-[10px] text-slate-500">{entry.count} compra(s)</span>
+                </span>
+                <span className="text-xs font-black text-red-300">{currency.format(entry.total)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">

@@ -1,6 +1,7 @@
 import { ArrowLeft, CheckCircle2, DollarSign, ReceiptText, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { cn, safeFormat } from '../../lib/utils';
+import { getCashPaymentStatus, getCashReceivableAmount } from '../../lib/cashPayments';
 import type { CashRegisterLaunch, MaintenanceRecord } from '../../types';
 
 type PendenciesViewProps = {
@@ -21,8 +22,6 @@ const getDebt = (maintenance: MaintenanceRecord) => {
   const paid = Number(maintenance.valorPago) || 0;
   return Math.max(0, total - paid);
 };
-
-const getCashDebt = (launch: CashRegisterLaunch) => Math.max(0, Number(launch.total) || 0);
 
 const currency = (value: number) =>
   value.toLocaleString('pt-BR', {
@@ -50,10 +49,9 @@ export const PendenciesView = ({
   ), [maintenances]);
   const pendingCashRows = useMemo(() => (
     cashLaunches
-      .map((launch) => ({ launch, debt: getCashDebt(launch) }))
+      .map((launch) => ({ launch, debt: getCashReceivableAmount(launch) }))
       .filter(({ launch, debt }) => (
         debt > 0
-        && (launch.status === 'Pendente' || (launch.status === 'Finalizado' && !launch.invoiced))
       ))
       .sort((a, b) => {
         if (b.debt !== a.debt) return b.debt - a.debt;
@@ -80,7 +78,7 @@ export const PendenciesView = ({
       label: row.launch.orderNumber || 'Lancamento caixa',
       date: row.launch.openingDate || row.launch.createdAt,
       debt: row.debt,
-      status: row.launch.status === 'Finalizado' && !row.launch.invoiced ? 'Finalizado sem faturar' : row.launch.status,
+      status: getCashPaymentStatus(row.launch),
       launch: row.launch,
     })),
   ].sort((a, b) => {
@@ -99,7 +97,8 @@ export const PendenciesView = ({
     : combinedRows;
 
   const totalDue = combinedRows.reduce((sum, row) => sum + row.debt, 0);
-  const partialCount = pendingRows.filter(({ status }) => status.toLowerCase() === 'parcial').length;
+  const partialCount = pendingRows.filter(({ status }) => status.toLowerCase() === 'parcial').length
+    + pendingCashRows.filter(({ launch }) => getCashPaymentStatus(launch) === 'Parcial').length;
 
   return (
     <div className="light-readable-view space-y-4">
