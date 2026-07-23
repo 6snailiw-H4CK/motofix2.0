@@ -23,6 +23,7 @@ import {
   Warranty
 } from '../types';
 import { DEFAULT_SETTINGS } from '../constants/appDefaults';
+import { recordFirestoreListenerCreate, recordFirestoreSnapshot } from '../debug/firestoreDebug';
 
 export type CollectionListenerIssue = {
   key: string;
@@ -204,8 +205,10 @@ export function useUserCollections({
     };
 
     const clientsQuery = query(collection(db, 'users', userUid, 'clients'));
+    recordFirestoreListenerCreate('clients', { userUid });
     const unsubscribeClients = onSnapshot(clientsQuery, (snapshot) => {
       clearListenerIssue('clients');
+      recordFirestoreSnapshot('clients', { docs: snapshot.docs.length, userUid });
       const clientsData = mapActiveDocuments<Client>(snapshot.docs);
       setClients(clientsData);
     }, (error) => {
@@ -213,8 +216,10 @@ export function useUserCollections({
     });
 
     const maintenanceQuery = query(collection(db, 'users', userUid, 'maintenances'));
+    recordFirestoreListenerCreate('maintenances', { userUid });
     const unsubscribeMaintenances = onSnapshot(maintenanceQuery, (snapshot) => {
       clearListenerIssue('maintenances');
+      recordFirestoreSnapshot('maintenances', { docs: snapshot.docs.length, userUid });
       const maintenanceData = mapActiveDocuments<MaintenanceRecord>(snapshot.docs);
       setMaintenances(maintenanceData.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
     }, (error) => {
@@ -222,8 +227,10 @@ export function useUserCollections({
     });
 
     const warrantyQuery = query(collection(db, 'users', userUid, 'warranties'));
+    recordFirestoreListenerCreate('warranties', { userUid });
     const unsubscribeWarranties = onSnapshot(warrantyQuery, (snapshot) => {
       clearListenerIssue('warranties');
+      recordFirestoreSnapshot('warranties', { docs: snapshot.docs.length, userUid });
       const warrantyData = mapActiveDocuments<Warranty>(snapshot.docs);
       setWarranties(warrantyData.sort((a, b) => b.warrantyNumber - a.warrantyNumber));
     }, (error) => {
@@ -231,8 +238,10 @@ export function useUserCollections({
     });
 
     const appointmentsQuery = query(collection(db, 'users', userUid, 'appointments'));
+    recordFirestoreListenerCreate('appointments', { userUid });
     const unsubscribeAppointments = onSnapshot(appointmentsQuery, (snapshot) => {
       clearListenerIssue('appointments');
+      recordFirestoreSnapshot('appointments', { docs: snapshot.docs.length, userUid });
       const appointmentData = mapActiveDocuments<Appointment>(snapshot.docs);
       setAppointments(appointmentData.sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate)));
     }, (error) => {
@@ -240,8 +249,10 @@ export function useUserCollections({
     });
 
     const expensesQuery = query(collection(db, 'users', userUid, 'expenses'));
+    recordFirestoreListenerCreate('expenses', { userUid });
     const unsubscribeExpenses = onSnapshot(expensesQuery, (snapshot) => {
       clearListenerIssue('expenses');
+      recordFirestoreSnapshot('expenses', { docs: snapshot.docs.length, userUid });
       const expensesData = mapActiveDocuments<ExpenseRecord>(snapshot.docs);
       setExpenseEntries(expensesData.sort((a, b) => b.date.localeCompare(a.date)));
     }, (error) => {
@@ -249,8 +260,10 @@ export function useUserCollections({
     });
 
     const productsQuery = query(collection(db, 'users', userUid, 'products'));
+    recordFirestoreListenerCreate('products', { userUid });
     const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
       clearListenerIssue('products');
+      recordFirestoreSnapshot('products', { docs: snapshot.docs.length, userUid });
       const productsData = mapActiveDocuments<ProductCatalogItem>(snapshot.docs);
       setProductCatalog(productsData.sort((a, b) => a.description.localeCompare(b.description)));
     }, (error) => {
@@ -258,8 +271,10 @@ export function useUserCollections({
     });
 
     const cashLaunchesQuery = query(collection(db, 'users', userUid, 'cash_launches'));
+    recordFirestoreListenerCreate('cash_launches', { userUid });
     const unsubscribeCashLaunches = onSnapshot(cashLaunchesQuery, (snapshot) => {
       clearListenerIssue('cash_launches');
+      recordFirestoreSnapshot('cash_launches', { docs: snapshot.docs.length, userUid });
       const launchesData = mapActiveDocuments<CashRegisterLaunch>(snapshot.docs);
       setCashLaunches(mergeCashLaunches(launchesData));
     }, (error) => {
@@ -268,8 +283,10 @@ export function useUserCollections({
     });
 
     const fiscalCompaniesQuery = query(collection(db, 'users', userUid, 'fiscal_companies'));
+    recordFirestoreListenerCreate('fiscal_companies', { userUid });
     const unsubscribeFiscalCompanies = onSnapshot(fiscalCompaniesQuery, (snapshot) => {
       clearListenerIssue('fiscal_companies');
+      recordFirestoreSnapshot('fiscal_companies', { docs: snapshot.docs.length, userUid });
       const companiesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FiscalCompany));
       setFiscalCompanies(companiesData.sort((a, b) => a.legalName.localeCompare(b.legalName)));
     }, (error) => {
@@ -277,8 +294,10 @@ export function useUserCollections({
     });
 
     const fiscalInvoicesQuery = query(collection(db, 'users', userUid, 'fiscal_invoices'));
+    recordFirestoreListenerCreate('fiscal_invoices', { userUid });
     const unsubscribeFiscalInvoices = onSnapshot(fiscalInvoicesQuery, (snapshot) => {
       clearListenerIssue('fiscal_invoices');
+      recordFirestoreSnapshot('fiscal_invoices', { docs: snapshot.docs.length, userUid });
       const invoicesData = mapActiveDocuments<FiscalInvoice>(snapshot.docs);
       setFiscalInvoices(invoicesData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     }, (error) => {
@@ -286,8 +305,10 @@ export function useUserCollections({
     });
 
     const fiscalLogsQuery = query(collection(db, 'users', userUid, 'fiscal_logs'));
+    recordFirestoreListenerCreate('fiscal_logs', { userUid });
     const unsubscribeFiscalLogs = onSnapshot(fiscalLogsQuery, (snapshot) => {
       clearListenerIssue('fiscal_logs');
+      recordFirestoreSnapshot('fiscal_logs', { docs: snapshot.docs.length, userUid });
       const logsData = mapActiveDocuments<FiscalLog>(snapshot.docs);
       setFiscalLogs(logsData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     }, (error) => {
@@ -295,8 +316,10 @@ export function useUserCollections({
     });
 
     const operationalLogsQuery = query(collection(db, 'users', userUid, 'operational_logs'));
+    recordFirestoreListenerCreate('operational_logs', { userUid });
     const unsubscribeOperationalLogs = onSnapshot(operationalLogsQuery, (snapshot) => {
       clearListenerIssue('operational_logs');
+      recordFirestoreSnapshot('operational_logs', { docs: snapshot.docs.length, userUid });
       const logsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as OperationalLog));
       setOperationalLogs(logsData.sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 50));
     }, (error) => {
@@ -304,8 +327,10 @@ export function useUserCollections({
     });
 
     const settingsDoc = doc(db, 'users', userUid, 'settings', 'config');
+    recordFirestoreListenerCreate('settings', { userUid });
     const unsubscribeSettings = onSnapshot(settingsDoc, (snapshot) => {
       clearListenerIssue('settings');
+      recordFirestoreSnapshot('settings', { exists: snapshot.exists(), userUid });
       if (snapshot.exists()) {
         const data = snapshot.data();
         const updatedSettings = buildSettings(userUid, data);
@@ -350,8 +375,10 @@ export function useUserCollections({
     let unsubscribeUsers = () => {};
     if (userRole === 'admin' && userIsActive) {
       const usersQuery = collection(db, 'users');
+      recordFirestoreListenerCreate('admin_users', { userUid });
       unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
         clearListenerIssue('admin_users');
+        recordFirestoreSnapshot('admin_users', { docs: snapshot.docs.length, userUid });
         const usersData = snapshot.docs.map(doc => doc.data() as UserProfile);
         setAllUsers(usersData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
       }, (error) => {
@@ -365,8 +392,10 @@ export function useUserCollections({
     }
 
     const messageLogsQuery = query(collection(db, 'users', userUid, 'message_logs'));
+    recordFirestoreListenerCreate('message_logs', { userUid });
     const unsubscribeMessageLogs = onSnapshot(messageLogsQuery, (snapshot) => {
       clearListenerIssue('message_logs');
+      recordFirestoreSnapshot('message_logs', { docs: snapshot.docs.length, userUid });
       const logsData = mapActiveDocuments<MessageLog>(snapshot.docs);
       setMessageLogs(logsData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     }, (error) => {
