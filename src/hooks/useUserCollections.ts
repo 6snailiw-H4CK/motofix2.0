@@ -166,8 +166,11 @@ export function useUserCollections({
     const hasExpiredSubscription = userProfile?.subscriptionExpiresAt
       ? isBefore(parseISO(userProfile.subscriptionExpiresAt), new Date())
       : false;
+    const userUid = user?.uid;
+    const userRole = userProfile?.role;
+    const userIsActive = userProfile?.isActive;
 
-    if (!user || !userProfile) {
+    if (!userUid || !userProfile) {
       setCollectionListenerIssuesByKey({});
       return;
     }
@@ -200,7 +203,7 @@ export function useUserCollections({
       }));
     };
 
-    const clientsQuery = query(collection(db, 'users', user.uid, 'clients'));
+    const clientsQuery = query(collection(db, 'users', userUid, 'clients'));
     const unsubscribeClients = onSnapshot(clientsQuery, (snapshot) => {
       clearListenerIssue('clients');
       const clientsData = mapActiveDocuments<Client>(snapshot.docs);
@@ -209,7 +212,7 @@ export function useUserCollections({
       recordListenerIssue('clients', 'Clientes', error);
     });
 
-    const maintenanceQuery = query(collection(db, 'users', user.uid, 'maintenances'));
+    const maintenanceQuery = query(collection(db, 'users', userUid, 'maintenances'));
     const unsubscribeMaintenances = onSnapshot(maintenanceQuery, (snapshot) => {
       clearListenerIssue('maintenances');
       const maintenanceData = mapActiveDocuments<MaintenanceRecord>(snapshot.docs);
@@ -218,7 +221,7 @@ export function useUserCollections({
       recordListenerIssue('maintenances', 'Historico de servicos', error);
     });
 
-    const warrantyQuery = query(collection(db, 'users', user.uid, 'warranties'));
+    const warrantyQuery = query(collection(db, 'users', userUid, 'warranties'));
     const unsubscribeWarranties = onSnapshot(warrantyQuery, (snapshot) => {
       clearListenerIssue('warranties');
       const warrantyData = mapActiveDocuments<Warranty>(snapshot.docs);
@@ -227,7 +230,7 @@ export function useUserCollections({
       recordListenerIssue('warranties', 'Garantias', error);
     });
 
-    const appointmentsQuery = query(collection(db, 'users', user.uid, 'appointments'));
+    const appointmentsQuery = query(collection(db, 'users', userUid, 'appointments'));
     const unsubscribeAppointments = onSnapshot(appointmentsQuery, (snapshot) => {
       clearListenerIssue('appointments');
       const appointmentData = mapActiveDocuments<Appointment>(snapshot.docs);
@@ -236,7 +239,7 @@ export function useUserCollections({
       recordListenerIssue('appointments', 'Agenda', error);
     });
 
-    const expensesQuery = query(collection(db, 'users', user.uid, 'expenses'));
+    const expensesQuery = query(collection(db, 'users', userUid, 'expenses'));
     const unsubscribeExpenses = onSnapshot(expensesQuery, (snapshot) => {
       clearListenerIssue('expenses');
       const expensesData = mapActiveDocuments<ExpenseRecord>(snapshot.docs);
@@ -245,7 +248,7 @@ export function useUserCollections({
       recordListenerIssue('expenses', 'Gastos', error);
     });
 
-    const productsQuery = query(collection(db, 'users', user.uid, 'products'));
+    const productsQuery = query(collection(db, 'users', userUid, 'products'));
     const unsubscribeProducts = onSnapshot(productsQuery, (snapshot) => {
       clearListenerIssue('products');
       const productsData = mapActiveDocuments<ProductCatalogItem>(snapshot.docs);
@@ -254,7 +257,7 @@ export function useUserCollections({
       recordListenerIssue('products', 'Mercadorias', error);
     });
 
-    const cashLaunchesQuery = query(collection(db, 'users', user.uid, 'cash_launches'));
+    const cashLaunchesQuery = query(collection(db, 'users', userUid, 'cash_launches'));
     const unsubscribeCashLaunches = onSnapshot(cashLaunchesQuery, (snapshot) => {
       clearListenerIssue('cash_launches');
       const launchesData = mapActiveDocuments<CashRegisterLaunch>(snapshot.docs);
@@ -264,7 +267,7 @@ export function useUserCollections({
       setCashLaunches(mergeCashLaunches([]));
     });
 
-    const fiscalCompaniesQuery = query(collection(db, 'users', user.uid, 'fiscal_companies'));
+    const fiscalCompaniesQuery = query(collection(db, 'users', userUid, 'fiscal_companies'));
     const unsubscribeFiscalCompanies = onSnapshot(fiscalCompaniesQuery, (snapshot) => {
       clearListenerIssue('fiscal_companies');
       const companiesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FiscalCompany));
@@ -273,7 +276,7 @@ export function useUserCollections({
       recordListenerIssue('fiscal_companies', 'Empresas fiscais', error);
     });
 
-    const fiscalInvoicesQuery = query(collection(db, 'users', user.uid, 'fiscal_invoices'));
+    const fiscalInvoicesQuery = query(collection(db, 'users', userUid, 'fiscal_invoices'));
     const unsubscribeFiscalInvoices = onSnapshot(fiscalInvoicesQuery, (snapshot) => {
       clearListenerIssue('fiscal_invoices');
       const invoicesData = mapActiveDocuments<FiscalInvoice>(snapshot.docs);
@@ -282,7 +285,7 @@ export function useUserCollections({
       recordListenerIssue('fiscal_invoices', 'Notas fiscais', error);
     });
 
-    const fiscalLogsQuery = query(collection(db, 'users', user.uid, 'fiscal_logs'));
+    const fiscalLogsQuery = query(collection(db, 'users', userUid, 'fiscal_logs'));
     const unsubscribeFiscalLogs = onSnapshot(fiscalLogsQuery, (snapshot) => {
       clearListenerIssue('fiscal_logs');
       const logsData = mapActiveDocuments<FiscalLog>(snapshot.docs);
@@ -291,7 +294,7 @@ export function useUserCollections({
       recordListenerIssue('fiscal_logs', 'Logs fiscais', error);
     });
 
-    const operationalLogsQuery = query(collection(db, 'users', user.uid, 'operational_logs'));
+    const operationalLogsQuery = query(collection(db, 'users', userUid, 'operational_logs'));
     const unsubscribeOperationalLogs = onSnapshot(operationalLogsQuery, (snapshot) => {
       clearListenerIssue('operational_logs');
       const logsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as OperationalLog));
@@ -300,12 +303,12 @@ export function useUserCollections({
       recordListenerIssue('operational_logs', 'Logs operacionais', error);
     });
 
-    const settingsDoc = doc(db, 'users', user.uid, 'settings', 'config');
+    const settingsDoc = doc(db, 'users', userUid, 'settings', 'config');
     const unsubscribeSettings = onSnapshot(settingsDoc, (snapshot) => {
       clearListenerIssue('settings');
       if (snapshot.exists()) {
         const data = snapshot.data();
-        const updatedSettings = buildSettings(user.uid, data);
+        const updatedSettings = buildSettings(userUid, data);
         setSettings(updatedSettings);
         setSettingsLoaded(true);
 
@@ -321,7 +324,7 @@ export function useUserCollections({
           ).catch(e => console.error('Error updating settings with defaults', e));
         }
       } else {
-        const initialSettings = buildInitialSettings(user.uid, isNewUser);
+        const initialSettings = buildInitialSettings(userUid, isNewUser);
         queueFirestoreVoidWrite(
           () => setDoc(settingsDoc, initialSettings),
           'Criar configuracoes iniciais'
@@ -332,11 +335,11 @@ export function useUserCollections({
     }, (error) => {
       recordListenerIssue('settings', 'Configuracoes', error);
       setSettings((currentSettings) => (
-        currentSettings.userId === user.uid
+        currentSettings.userId === userUid
           ? currentSettings
           : {
             ...DEFAULT_SETTINGS,
-            userId: user.uid,
+            userId: userUid,
             businessName: '',
             isProfileComplete: false
           }
@@ -345,7 +348,7 @@ export function useUserCollections({
     });
 
     let unsubscribeUsers = () => {};
-    if (userProfile?.role === 'admin' && userProfile?.isActive) {
+    if (userRole === 'admin' && userIsActive) {
       const usersQuery = collection(db, 'users');
       unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
         clearListenerIssue('admin_users');
@@ -361,7 +364,7 @@ export function useUserCollections({
       });
     }
 
-    const messageLogsQuery = query(collection(db, 'users', user.uid, 'message_logs'));
+    const messageLogsQuery = query(collection(db, 'users', userUid, 'message_logs'));
     const unsubscribeMessageLogs = onSnapshot(messageLogsQuery, (snapshot) => {
       clearListenerIssue('message_logs');
       const logsData = mapActiveDocuments<MessageLog>(snapshot.docs);
@@ -386,7 +389,7 @@ export function useUserCollections({
       unsubscribeUsers();
       unsubscribeMessageLogs();
     };
-  }, [user, userProfile, isNewUser]);
+  }, [user?.uid, userProfile?.role, userProfile?.isActive, isNewUser]);
 
   return {
     allUsers,

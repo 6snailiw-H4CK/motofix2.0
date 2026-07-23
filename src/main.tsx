@@ -6,8 +6,14 @@ import { registerMotoFixServiceWorker } from './services/serviceWorkerRegistrati
 
 registerMotoFixServiceWorker();
 
+const enableStrictMode = import.meta.env.VITE_ENABLE_STRICT_MODE !== 'false';
+
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
+  enableStrictMode ? (
+    <StrictMode>
+      <App />
+    </StrictMode>
+  ) : (
     <App />
-  </StrictMode>,
+  ),
 );

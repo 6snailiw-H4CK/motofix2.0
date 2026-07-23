@@ -20,7 +20,7 @@ export const useOfflineDataPreload = ({
 }: UseOfflineDataPreloadParams) => {
   const preloadPromiseRef = useRef<Promise<void> | null>(null);
 
-  const runPreload = useCallback((force = false) => {
+  const runPreload = useCallback((force = false, reason = 'unknown') => {
     if (!user || !userProfile) return;
     if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
     if (preloadPromiseRef.current) return;
@@ -44,18 +44,22 @@ export const useOfflineDataPreload = ({
   }, [user, userProfile]);
 
   useEffect(() => {
-    runPreload(false);
+    runPreload(false, 'mount');
   }, [runPreload]);
 
   useEffect(() => {
-    const handleOnline = () => runPreload(true);
+    const handleOnline = () => {
+      runPreload(true, 'online');
+    };
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        runPreload(false);
+        runPreload(false, 'visibilitychange');
       }
     };
     const intervalId = window.setInterval(
-      () => runPreload(false),
+      () => {
+        runPreload(false, 'interval');
+      },
       Math.min(CHECK_PRELOAD_STALENESS_MS, OFFLINE_DATA_PRELOAD_STALE_MS)
     );
 
