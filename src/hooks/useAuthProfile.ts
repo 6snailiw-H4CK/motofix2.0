@@ -12,6 +12,33 @@ const applyClaimRole = (profile: UserProfile, isAdminClaim: boolean): UserProfil
   isActive: isAdminClaim ? true : profile.isActive,
 });
 
+const areUserProfilesEqual = (currentProfile: UserProfile | null, nextProfile: UserProfile | null) => {
+  if (!currentProfile || !nextProfile) {
+    return currentProfile === nextProfile;
+  }
+
+  return (
+    currentProfile.uid === nextProfile.uid &&
+    currentProfile.email === nextProfile.email &&
+    currentProfile.displayName === nextProfile.displayName &&
+    currentProfile.role === nextProfile.role &&
+    currentProfile.isActive === nextProfile.isActive &&
+    currentProfile.subscription.status === nextProfile.subscription.status &&
+    currentProfile.subscription.plan === nextProfile.subscription.plan &&
+    currentProfile.subscription.startsAt === nextProfile.subscription.startsAt &&
+    currentProfile.subscription.expiresAt === nextProfile.subscription.expiresAt &&
+    currentProfile.subscription.currentPeriodEnd === nextProfile.subscription.currentPeriodEnd &&
+    currentProfile.subscription.autoRenew === nextProfile.subscription.autoRenew &&
+    currentProfile.subscription.stripeCustomerId === nextProfile.subscription.stripeCustomerId &&
+    currentProfile.subscription.stripeSubscriptionId === nextProfile.subscription.stripeSubscriptionId &&
+    currentProfile.subscription.canceledAt === nextProfile.subscription.canceledAt &&
+    currentProfile.subscription.cancelReason === nextProfile.subscription.cancelReason &&
+    currentProfile.subscription.paymentMethodId === nextProfile.subscription.paymentMethodId &&
+    currentProfile.subscriptionExpiresAt === nextProfile.subscriptionExpiresAt &&
+    currentProfile.createdAt === nextProfile.createdAt
+  );
+};
+
 const getTokenResultWithOfflineFallback = async (firebaseUser: User) => {
   try {
     const forceRefresh = typeof navigator === 'undefined' ? true : navigator.onLine;
@@ -78,7 +105,12 @@ export function useAuthProfile() {
             );
           }
 
-          setUserProfile(claimProfile);
+          setUserProfile((currentProfile) => {
+            if (areUserProfilesEqual(currentProfile, claimProfile)) {
+              return currentProfile;
+            }
+            return claimProfile;
+          });
         } else {
           const newProfile: UserProfile = {
             uid: firebaseUser.uid,
@@ -98,7 +130,12 @@ export function useAuthProfile() {
             createdAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
           };
           await queueFirestoreVoidWrite(() => setDoc(userDoc, newProfile), 'Criar perfil de usuario');
-          setUserProfile(newProfile);
+          setUserProfile((currentProfile) => {
+            if (areUserProfilesEqual(currentProfile, newProfile)) {
+              return currentProfile;
+            }
+            return newProfile;
+          });
         }
         setLoading(false);
       } catch (error) {
