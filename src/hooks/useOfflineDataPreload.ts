@@ -6,6 +6,7 @@ import {
   shouldPreloadOfflineData,
 } from '../services/offlineDataPreload';
 import { UserProfile } from '../types';
+import { recordFirestorePreload } from '../debug/firestoreDebug';
 
 type UseOfflineDataPreloadParams = {
   user: User | null;
@@ -26,11 +27,17 @@ export const useOfflineDataPreload = ({
     if (preloadPromiseRef.current) return;
     if (!force && !shouldPreloadOfflineData(user.uid)) return;
 
+    const startedAt = Date.now();
     preloadPromiseRef.current = preloadUserOfflineData({
       userId: user.uid,
       includeAdminUsers: userProfile.role === 'admin' && userProfile.isActive,
     })
       .then((result) => {
+        recordFirestorePreload(reason, Date.now() - startedAt, {
+          status: result.status,
+          loadedDocuments: result.loadedDocuments,
+          failedTargets: result.failedTargets,
+        });
         if (result.status === 'partial') {
           console.warn('Dados offline preparados parcialmente:', result.failedTargets);
         }

@@ -12,6 +12,7 @@ import {
   type DocumentData,
 } from 'firebase/firestore';
 import { db } from '../firebase';
+import { recordFirestoreRead } from '../debug/firestoreDebug';
 
 export const OFFLINE_DATA_PRELOAD_STORAGE_KEY = 'motofix:offline-data-preload-state';
 export const OFFLINE_DATA_PRELOAD_STALE_MS = 24 * 60 * 60 * 1000;
@@ -190,6 +191,7 @@ const preloadCollectionPages = async (
       ? query(collectionRef, orderBy(documentId()), startAfter(checkpoint), limit(PRELOAD_PAGE_SIZE))
       : query(collectionRef, orderBy(documentId()), limit(PRELOAD_PAGE_SIZE));
     const snapshot = await getDocsFromServer(pageQuery);
+    recordFirestoreRead(`preload:${targetKey}`, { userId, size: snapshot.size });
 
     if (snapshot.empty) {
       updateCheckpoint(userId, targetKey, null);
@@ -263,6 +265,7 @@ export const preloadUserOfflineData = async ({
       label: 'Perfil do usuario',
       load: async () => {
         const snapshot = await getDocFromServer(doc(db, 'users', userId));
+        recordFirestoreRead('preload:profile', { userId });
         return snapshot.exists() ? 1 : 0;
       },
     },
@@ -271,6 +274,7 @@ export const preloadUserOfflineData = async ({
       label: 'Configuracoes',
       load: async () => {
         const snapshot = await getDocFromServer(doc(db, 'users', userId, 'settings', 'config'));
+        recordFirestoreRead('preload:settings', { userId });
         return snapshot.exists() ? 1 : 0;
       },
     },
