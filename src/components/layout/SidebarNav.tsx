@@ -65,13 +65,6 @@ export const getPrimaryNavItems = (isAdmin: boolean, fiscalModuleAvailable: bool
     group: 'primary',
   },
   {
-    id: 'financial-health',
-    icon: BarChart3,
-    label: 'Saúde Financeira',
-    match: ['financial-health'],
-    group: 'primary',
-  },
-  {
     id: 'clients-schedule',
     icon: Users,
     label: 'Clientes',
@@ -125,13 +118,6 @@ export const getPrimaryNavItems = (isAdmin: boolean, fiscalModuleAvailable: bool
     icon: Package,
     label: 'Mercadorias',
     match: ['products'],
-    group: 'tools',
-  },
-  {
-    id: 'whatsapp',
-    icon: MessageCircle,
-    label: 'WhatsApp IA',
-    match: ['whatsapp'],
     group: 'tools',
   },
   ...(fiscalModuleAvailable
