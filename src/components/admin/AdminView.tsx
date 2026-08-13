@@ -1,5 +1,5 @@
 import { format, isBefore, parseISO } from 'date-fns';
-import { Lock, Shield, ShieldCheck, UserCheck, UserX } from 'lucide-react';
+import { Lock, Shield, ShieldCheck, TrendingUp, UserCheck, UserX } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { UserProfile } from '../../types';
 
@@ -9,6 +9,7 @@ type AdminViewProps = {
   onToggleUserStatus: (user: UserProfile) => Promise<void> | void;
   onUpdateSubscription: (uid: string, days: number) => Promise<void> | void;
   onSetSubscriptionDate: (uid: string, date: string) => Promise<void> | void;
+  onOpenFinancialHealth?: () => void;
 };
 
 export const AdminView = ({
@@ -17,6 +18,7 @@ export const AdminView = ({
   onToggleUserStatus,
   onUpdateSubscription,
   onSetSubscriptionDate,
+  onOpenFinancialHealth,
 }: AdminViewProps) => (
   <div className="space-y-4 overflow-hidden">
     <div className="flex min-w-0 items-center justify-between gap-3">
@@ -26,6 +28,25 @@ export const AdminView = ({
         <span className="text-xs font-bold text-primary">ADMIN</span>
       </div>
     </div>
+
+    {onOpenFinancialHealth && (
+      <div className="rounded-2xl border border-slate-700 bg-slate-800/40 p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-bold">Ferramentas financeiras</p>
+            <p className="text-xs text-slate-400">Relatorios e metas financeiras</p>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenFinancialHealth}
+            className="inline-flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-bold text-primary hover:bg-primary/20"
+          >
+            <TrendingUp className="w-4 h-4" />
+            Abrir Saúde Financeira
+          </button>
+        </div>
+      </div>
+    )}
 
     <div className="grid grid-cols-1 gap-3">
       {users.map((appUser) => {

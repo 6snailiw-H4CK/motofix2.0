@@ -110,41 +110,14 @@ export const ClientsView = ({
 
   return (
     <div className="space-y-3">
-      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[1fr_auto_auto_auto]">
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-[1fr_auto]">
         <button
           type="button"
           onClick={onNewRecord}
           className="w-full bg-primary p-3 rounded-xl flex items-center justify-center gap-2 text-white hover:bg-primary/90 transition-all shadow-lg shadow-primary/10"
         >
           <Plus className="w-3.5 h-3.5" />
-          <span className="font-bold text-xs">Novo Registro</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={onNewClient}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-xs font-bold text-primary transition-all hover:border-primary/60 hover:bg-primary/15"
-        >
-          <UserPlus className="h-4 w-4" />
-          Novo Cliente
-        </button>
-
-        <button
-          type="button"
-          onClick={onNewProduct}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-xs font-bold text-primary transition-all hover:border-primary/60 hover:bg-primary/15"
-        >
-          <PackagePlus className="h-4 w-4" />
-          Nova Peca
-        </button>
-
-        <button
-          type="button"
-          onClick={onOpenCashRegister}
-          className="inline-flex items-center justify-center gap-2 rounded-xl border border-primary/30 bg-primary/10 px-4 py-3 text-xs font-bold text-primary transition-all hover:border-primary/60 hover:bg-primary/15"
-        >
-          <ReceiptText className="h-4 w-4" />
-          Lancamentos Caixa
+          <span className="font-bold text-xs">Registrar serviço</span>
         </button>
       </div>
 

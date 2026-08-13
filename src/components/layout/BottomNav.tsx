@@ -1,12 +1,11 @@
 import {
-  BarChart3,
+    BarChart3,
   Calendar,
   ClipboardList,
   DollarSign,
   FileText,
   History,
   LayoutDashboard,
-  MessageCircle,
   MoreHorizontal,
   Package,
   ReceiptText,
@@ -14,7 +13,6 @@ import {
   Settings as SettingsIcon,
   Shield,
   ShieldCheck,
-  TrendingUp,
   Users,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
@@ -81,15 +79,13 @@ export const BottomNav = ({ view, fiscalModuleAvailable, isAdmin, onViewChange }
       title: 'Atendimento',
       items: [
         { id: 'clients-schedule', icon: Users, label: 'Clientes', match: ['clients-schedule', 'clients-schedule-add'], shortLabel: 'Clientes' },
-        { id: 'whatsapp', icon: MessageCircle, label: 'WhatsApp IA', match: ['whatsapp'], shortLabel: 'WhatsApp' },
         { id: 'returns', icon: RefreshCw, label: 'Retornos', match: ['returns'], shortLabel: 'Retornos' },
         { id: 'warranties', icon: ShieldCheck, label: 'Garantias', match: ['warranties', 'new-warranty'], shortLabel: 'Garantias' },
       ],
     },
-    {
+        {
       title: 'Financeiro',
       items: [
-        { id: 'financial-health', icon: TrendingUp, label: 'Saúde Financeira', match: ['financial-health'], shortLabel: 'Saúde Fin.' },
         { id: 'cash-register', icon: ReceiptText, label: 'Lancamentos Caixa', match: ['cash-register'], shortLabel: 'Caixa' },
         { id: 'expenses', icon: DollarSign, label: 'Gastos', match: ['expenses'], shortLabel: 'Gastos' },
         { id: 'general-report', icon: BarChart3, label: 'Relatorios', match: ['general-report', 'report'], shortLabel: 'Relatorios' },
@@ -109,7 +105,7 @@ export const BottomNav = ({ view, fiscalModuleAvailable, isAdmin, onViewChange }
   const moreItems = moreGroups.flatMap((group) => group.items);
   const isMoreActive = moreItems.some((item) => item.match?.includes(view) || view === item.id);
 
-  const handleViewChange = (itemView: AppView) => {
+    const handleViewChange = (itemView: AppView) => {
     setIsMoreOpen(false);
     onViewChange(itemView);
   };

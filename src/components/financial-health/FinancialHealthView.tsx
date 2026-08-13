@@ -120,12 +120,13 @@ export function FinancialHealthView({
                 Acompanhe o desempenho financeiro e tome melhores decisões
               </p>
             </div>
-            <button
-              onClick={() => onViewChange('dashboard')}
+                        <button
+              onClick={() => onViewChange('admin')}
               className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700"
             >
               ← Voltar
             </button>
+
           </div>
         </div>
       </div>

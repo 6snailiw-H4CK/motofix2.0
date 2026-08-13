@@ -65,7 +65,6 @@ const ProductsView = lazy(() => import('../products/ProductsView').then((module)
 const ReportView = lazy(() => import('../dashboard/ReportView').then((module) => ({ default: module.ReportView })));
 const ReturnsView = lazy(() => import('../returns/ReturnsView').then((module) => ({ default: module.ReturnsView })));
 const SettingsView = lazy(() => import('../settings/SettingsView').then((module) => ({ default: module.SettingsView })));
-const WhatsAppView = lazy(() => import('../whatsapp/WhatsAppView').then((module) => ({ default: module.WhatsAppView })));
 const CheckoutScreen = lazy(() => import('../checkout/CheckoutScreen').then((module) => ({ default: module.CheckoutScreen })));
 const WarrantiesView = lazy(() => import('../warranties/WarrantiesView').then((module) => ({ default: module.WarrantiesView })));
 const WarrantyForm = lazy(() => import('../Forms/WarrantyForm').then((module) => ({ default: module.WarrantyForm })));
@@ -511,10 +510,6 @@ export const AppViewRenderer = ({
       );
     }
 
-    if (view === 'whatsapp') {
-      return <WhatsAppView />;
-    }
-
     if (view === 'appointments') {
       return (
         <AppointmentsView
@@ -755,7 +750,7 @@ export const AppViewRenderer = ({
       );
     }
 
-    if (view === 'admin' && userProfile?.role === 'admin') {
+        if (view === 'admin' && userProfile?.role === 'admin') {
       return (
         <AdminView
           users={allUsers}
@@ -763,11 +758,12 @@ export const AppViewRenderer = ({
           onToggleUserStatus={adminActions.toggleUserStatus}
           onUpdateSubscription={adminActions.updateSubscription}
           onSetSubscriptionDate={adminActions.setSubscriptionDate}
+          onOpenFinancialHealth={() => setView('financial-health')}
         />
       );
     }
 
-    if (view === 'financial-health') {
+    if (view === 'financial-health' && userProfile?.role === 'admin') {
       return (
         <FinancialHealthView
           maintenances={maintenances}
@@ -780,6 +776,7 @@ export const AppViewRenderer = ({
         />
       );
     }
+
 
     return null;
   })();
