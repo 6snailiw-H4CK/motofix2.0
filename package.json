@@ -26,7 +26,6 @@
     "admin:set-claim": "node scripts/set-admin-claim.mjs"
   },
   "dependencies": {
-    "@open-wa/wa-automate": "^4.76.0",
     "@stripe/react-stripe-js": "^6.1.0",
     "@stripe/stripe-js": "^9.0.1",
     "@tailwindcss/vite": "^4.1.14",

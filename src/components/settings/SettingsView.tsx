@@ -48,6 +48,8 @@ type SettingsViewProps = {
   onExportCashLaunchesEmergencyCsv: () => void;
   onExportWarrantiesEmergencyCsv: () => void;
   onExportOperationalBackup: () => void;
+  onExportFullBackup: () => void;
+  onImportFullBackup: (file: File) => Promise<void> | void;
   onImportClientsBackup: (file: File) => Promise<void> | void;
   isImportingClients: boolean;
   onExportProductsBackup: () => void;
@@ -80,6 +82,8 @@ export const SettingsView = ({
   onExportCashLaunchesEmergencyCsv,
   onExportWarrantiesEmergencyCsv,
   onExportOperationalBackup,
+  onExportFullBackup,
+  onImportFullBackup,
   onImportClientsBackup,
   isImportingClients,
   onExportProductsBackup,

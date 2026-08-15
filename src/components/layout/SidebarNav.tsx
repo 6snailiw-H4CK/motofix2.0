@@ -79,13 +79,6 @@ export const getPrimaryNavItems = (isAdmin: boolean, fiscalModuleAvailable: bool
     group: 'primary',
   },
   {
-    id: 'general-report',
-    icon: BarChart3,
-    label: 'Relatorios',
-    match: ['general-report', 'report'],
-    group: 'tools',
-  },
-  {
     id: 'history',
     icon: BarChart3,
     label: 'Historico',

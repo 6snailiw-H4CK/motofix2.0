@@ -1,5 +1,5 @@
 import { format, isBefore, parseISO } from 'date-fns';
-import { Lock, Shield, ShieldCheck, TrendingUp, UserCheck, UserX } from 'lucide-react';
+import { FileText, Lock, Shield, ShieldCheck, TrendingUp, UserCheck, UserX } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { UserProfile } from '../../types';
 
@@ -10,6 +10,7 @@ type AdminViewProps = {
   onUpdateSubscription: (uid: string, days: number) => Promise<void> | void;
   onSetSubscriptionDate: (uid: string, date: string) => Promise<void> | void;
   onOpenFinancialHealth?: () => void;
+  onOpenGeneralReport?: () => void;
 };
 
 export const AdminView = ({
@@ -19,6 +20,7 @@ export const AdminView = ({
   onUpdateSubscription,
   onSetSubscriptionDate,
   onOpenFinancialHealth,
+  onOpenGeneralReport,
 }: AdminViewProps) => (
   <div className="space-y-4 overflow-hidden">
     <div className="flex min-w-0 items-center justify-between gap-3">
@@ -29,22 +31,45 @@ export const AdminView = ({
       </div>
     </div>
 
-    {onOpenFinancialHealth && (
-      <div className="rounded-2xl border border-slate-700 bg-slate-800/40 p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-bold">Ferramentas financeiras</p>
-            <p className="text-xs text-slate-400">Relatorios e metas financeiras</p>
+    {(onOpenFinancialHealth || onOpenGeneralReport) && (
+      <div className="grid gap-3 md:grid-cols-2">
+        {onOpenFinancialHealth && (
+          <div className="rounded-2xl border border-slate-700 bg-slate-800/40 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold">Ferramentas financeiras</p>
+                <p className="text-xs text-slate-400">Relatorios e metas financeiras</p>
+              </div>
+              <button
+                type="button"
+                onClick={onOpenFinancialHealth}
+                className="inline-flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-bold text-primary hover:bg-primary/20"
+              >
+                <TrendingUp className="w-4 h-4" />
+                Saúde Financeira
+              </button>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={onOpenFinancialHealth}
-            className="inline-flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-bold text-primary hover:bg-primary/20"
-          >
-            <TrendingUp className="w-4 h-4" />
-            Abrir Saúde Financeira
-          </button>
-        </div>
+        )}
+
+        {onOpenGeneralReport && (
+          <div className="rounded-2xl border border-slate-700 bg-slate-800/40 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold">Relatorios</p>
+                <p className="text-xs text-slate-400">Painel geral do sistema</p>
+              </div>
+              <button
+                type="button"
+                onClick={onOpenGeneralReport}
+                className="inline-flex items-center gap-2 rounded-lg border border-sky-400/40 bg-sky-500/10 px-3 py-2 text-sm font-bold text-sky-300 hover:bg-sky-500/20"
+              >
+                <FileText className="w-4 h-4" />
+                Abrir
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     )}
 

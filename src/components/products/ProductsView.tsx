@@ -190,6 +190,41 @@ export const ProductsView = ({
     setForm((current) => ({ ...current, ...patch }));
   };
 
+  const [ncmList, setNcmList] = useState<Array<{ ncm: string; descricao: string; search: string }>>([]);
+  const [ncmQuery, setNcmQuery] = useState('');
+  const [ncmSuggestionsVisible, setNcmSuggestionsVisible] = useState(false);
+  const [descriptionQuery, setDescriptionQuery] = useState('');
+
+  const removeDiacritics = (s: string) => String(s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+
+  useEffect(() => {
+    let mounted = true;
+    fetch('/data/ncm.json')
+      .then((res) => res.json())
+      .then((data) => {
+        if (!mounted) return;
+        let items: any[] = [];
+        if (Array.isArray(data)) items = data;
+        else if (data && Array.isArray((data as any).Nomenclaturas)) items = (data as any).Nomenclaturas;
+
+        const normalized = items.map((item: any) => {
+          if (!item) return null;
+          if (typeof item === 'string') return { ncm: String(item).replace(/\D/g, ''), descricao: '', search: removeDiacritics(String(item)) };
+          const rawCode = String(item.ncm || item.Codigo || item.Codigo_NCM || item.CodigoNCM || item.CodigoNcm || item.Code || '').replace(/\D/g, '');
+          const descricao = String(item.descricao || item.Descricao || item.descricao_concat || item.description || item.label || '');
+          const search = removeDiacritics(descricao.toLowerCase() + ' ' + rawCode);
+          const code = rawCode || String(item.Codigo || '').replace(/\D/g, '');
+          return { ncm: (code || '').padStart(0, '0'), descricao: descricao || '', search };
+        }).filter(Boolean) as Array<{ ncm: string; descricao: string; search: string }>;
+
+        setNcmList(normalized.filter((it) => it.ncm));
+      }).catch(() => {
+        // ignore
+      });
+
+    return () => { mounted = false; };
+  }, []);
+
   const resetVariationDraft = () => {
     setVariationName('');
     setVariationPriceInput('');
@@ -347,23 +382,110 @@ export const ProductsView = ({
                 placeholder="Ex: 163"
               />
             </label>
-            <label className="space-y-1">
+            <label className="relative space-y-1">
               <span className={labelClass}>NCM</span>
               <input
-                value={form.ncm}
-                onChange={(event) => updateForm({ ncm: event.target.value })}
+                value={ncmQuery || form.ncm}
+                onChange={(event) => {
+                  const v = event.target.value.replace(/\D/g, '');
+                  setNcmQuery(v);
+                  updateForm({ ncm: v });
+                  setNcmSuggestionsVisible(Boolean(v) || v === '');
+                }}
+                onFocus={() => setNcmSuggestionsVisible(true)}
+                onBlur={() => setTimeout(() => setNcmSuggestionsVisible(false), 150)}
                 className={inputClass}
                 placeholder="Ex: 73151210"
+                inputMode="numeric"
               />
+
+              {ncmSuggestionsVisible && ncmQuery !== undefined && ncmList.length > 0 && (
+                <ul className="absolute z-40 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-slate-700/70 bg-slate-900/95 p-1 text-sm">
+                  {(() => {
+                    const q = String(ncmQuery || form.ncm || '').toLowerCase();
+                    if (!q) return null;
+                    const matches = ncmList.filter((item) => item.ncm.startsWith(q) || item.descricao.toLowerCase().includes(q)).slice(0, 12);
+                    if (matches.length === 0) return <li className="px-3 py-2 text-slate-500">Nenhum resultado</li>;
+                    return matches.map((item) => (
+                      <li
+                        key={item.ncm + item.descricao}
+                        role="button"
+                        tabIndex={0}
+                        onMouseDown={(ev) => { ev.preventDefault(); updateForm({ ncm: item.ncm }); setNcmQuery(item.ncm); setNcmSuggestionsVisible(false); }}
+                        onKeyDown={(ev) => { if (ev.key === 'Enter') { ev.preventDefault(); updateForm({ ncm: item.ncm }); setNcmQuery(item.ncm); setNcmSuggestionsVisible(false); } }}
+                        className="cursor-pointer rounded-lg px-3 py-2 hover:bg-slate-800/60"
+                        title={item.descricao}
+                      >
+                        <div className="font-black text-white">{item.ncm}</div>
+                        <div className="text-[12px] text-slate-400">{item.descricao}</div>
+                      </li>
+                    ));
+                  })()
+                  }
+                </ul>
+              )}
             </label>
             <label className="space-y-1 sm:col-span-2 xl:col-span-1 2xl:col-span-2">
               <span className={labelClass}>Descricao</span>
-              <textarea
-                value={form.description}
-                onChange={(event) => updateForm({ description: event.target.value })}
-                className={cn(inputClass, 'min-h-24 resize-none')}
-                placeholder="Nome da mercadoria"
-              />
+              <div className="relative">
+                <textarea
+                  value={form.description}
+                  onChange={(event) => {
+                    const v = event.target.value;
+                    updateForm({ description: v });
+                    setDescriptionQuery(v);
+                    setNcmSuggestionsVisible(Boolean(v && v.trim()));
+                  }}
+                  onFocus={() => setNcmSuggestionsVisible(Boolean(form.description && form.description.trim()))}
+                  onBlur={() => setTimeout(() => setNcmSuggestionsVisible(false), 150)}
+                  className={cn(inputClass, 'min-h-24 resize-none')}
+                  placeholder="Nome da mercadoria"
+                />
+
+                {ncmSuggestionsVisible && descriptionQuery !== undefined && ncmList.length > 0 && (
+                  <ul className="absolute z-40 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-slate-700/70 bg-slate-900/95 p-1 text-sm">
+                    {(() => {
+                      const q = String(descriptionQuery || '').toLowerCase().trim();
+                      if (!q) return null;
+                      const normalize = (s: string) => String(s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/[^\w\s]/g, ' ');
+                      const tokens = normalize(q).split(/\s+/).filter(Boolean);
+                      const matches = ncmList.filter((item) => {
+                        const text = String(item.search || removeDiacritics(item.descricao || '')).toLowerCase();
+                        const words = text.split(/\s+/).filter(Boolean);
+
+                        return tokens.every((t) => {
+                          if (!t) return true;
+                          if ((item.ncm || '').startsWith(t)) return true;
+                          if (text.includes(t)) return true;
+
+                          // try fuzzy singular/plural handling and prefix matches
+                          const t0 = t.replace(/s$/u, '');
+                          return words.some((w) => {
+                            const w0 = w.replace(/s$/u, '');
+                            return w.includes(t) || w0.includes(t0) || t.includes(w) || t0.includes(w0) || w.startsWith(t) || w0.startsWith(t0);
+                          });
+                        });
+                      }).slice(0, 50);
+                      if (matches.length === 0) return <li className="px-3 py-2 text-slate-500">Nenhum NCM compatível encontrado</li>;
+                      return matches.map((item) => (
+                        <li
+                          key={item.ncm + item.descricao}
+                          role="button"
+                          tabIndex={0}
+                          onMouseDown={(ev) => { ev.preventDefault(); updateForm({ ncm: item.ncm }); setNcmQuery(item.ncm); setNcmSuggestionsVisible(false); }}
+                          onKeyDown={(ev) => { if (ev.key === 'Enter') { ev.preventDefault(); updateForm({ ncm: item.ncm }); setNcmQuery(item.ncm); setNcmSuggestionsVisible(false); } }}
+                          className="cursor-pointer rounded-lg px-3 py-2 hover:bg-slate-800/60"
+                          title={item.descricao}
+                        >
+                          <div className="font-black text-white">{item.ncm}</div>
+                          <div className="text-[12px] text-slate-400">{item.descricao}</div>
+                        </li>
+                      ));
+                    })()
+                    }
+                  </ul>
+                )}
+              </div>
             </label>
             <label className="space-y-1">
               <span className={labelClass}>Venda R$</span>
