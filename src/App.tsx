@@ -111,6 +111,11 @@ export default function App() {
       return;
     }
 
+    if (nextView === 'general-report' && userProfile?.role !== 'admin') {
+      setView('dashboard');
+      return;
+    }
+
     if (nextView === 'admin') {
       setAdminPinError(null);
       setAdminPinValue('');
@@ -119,7 +124,7 @@ export default function App() {
     }
 
     setView(nextView);
-  }, [fiscalModuleAvailable, setView]);
+  }, [fiscalModuleAvailable, setView, userProfile?.role]);
 
   const handleAdminPinSubmit = useCallback((input: string) => {
     if (input === '1570') {

@@ -368,7 +368,7 @@ export const registerWhatsAppRoutes = (options: RegisterWhatsAppRoutesOptions) =
   options.app.get("/api/whatsapp/health", (_req, res) => {
     res.json({
       status: "ok",
-      provider: "open-wa",
+      provider: "manual",
       aiConfigured: Boolean(process.env.WHATSAPP_AI_API_KEY || process.env.OPENAI_API_KEY),
       timestamp: new Date().toISOString(),
     });

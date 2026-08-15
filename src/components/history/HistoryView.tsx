@@ -52,7 +52,7 @@ type HistoryViewProps = {
   onDeleteMaintenanceClick: (record: MaintenanceRecord) => void;
   onDeleteMessageLogClick: (log: MessageLog) => void;
   onOpenCashLaunch: (launch: CashRegisterLaunch) => void;
-  onOpenGeneralReport: () => void;
+  onOpenGeneralReport?: () => void;
 };
 
 const CASH_LAUNCH_SERVICE_TYPE = 'Lancamento Caixa';
@@ -301,18 +301,20 @@ export const HistoryView = ({
             )}
           </button>
 
-          <button
-            type="button"
-            onClick={onOpenGeneralReport}
-            className="rounded-2xl border border-sky-500/20 bg-slate-800/40 p-2.5 text-right transition-all hover:border-sky-400/50 hover:bg-slate-800/60 sm:p-3"
-          >
-            <div className="mb-2 flex items-center justify-end gap-2 text-sky-400">
-              <FileText className="h-3.5 w-3.5" />
-              <p className="text-[10px] font-bold uppercase tracking-widest">Relatorio</p>
-            </div>
-            <p className="text-sm font-bold text-white">Detalhado</p>
-            <p className="mt-1 text-[9px] text-slate-500">Geral do app</p>
-          </button>
+          {onOpenGeneralReport && (
+            <button
+              type="button"
+              onClick={onOpenGeneralReport}
+              className="rounded-2xl border border-sky-500/20 bg-slate-800/40 p-2.5 text-right transition-all hover:border-sky-400/50 hover:bg-slate-800/60 sm:p-3"
+            >
+              <div className="mb-2 flex items-center justify-end gap-2 text-sky-400">
+                <FileText className="h-3.5 w-3.5" />
+                <p className="text-[10px] font-bold uppercase tracking-widest">Relatorio</p>
+              </div>
+              <p className="text-sm font-bold text-white">Detalhado</p>
+              <p className="mt-1 text-[9px] text-slate-500">Geral do app</p>
+            </button>
+          )}
         </div>
       </div>
 

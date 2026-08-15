@@ -593,7 +593,7 @@ export const AppViewRenderer = ({
             setCashLaunchToOpenId(launch.id);
             setView('cash-register');
           }}
-          onOpenGeneralReport={() => setView('general-report')}
+          onOpenGeneralReport={userProfile?.role === 'admin' ? () => setView('general-report') : undefined}
         />
       );
     }
@@ -634,6 +634,10 @@ export const AppViewRenderer = ({
     }
 
     if (view === 'general-report') {
+      if (userProfile?.role !== 'admin') {
+        return null;
+      }
+
       return (
         <GeneralReportView
           cashLaunches={cashLaunches}
@@ -699,6 +703,7 @@ export const AppViewRenderer = ({
           onExportMotorcyclesEmergencyCsv={() => exportMotorcyclesCsv(clients)}
           onExportCashLaunchesEmergencyCsv={() => exportCashLaunchesCsv(cashLaunches)}
           onExportWarrantiesEmergencyCsv={() => exportWarrantiesCsv(warranties)}
+          onExportOperationalBackup={exportFullBackup}
           onExportFullBackup={exportFullBackup}
           onImportFullBackup={importFullBackup}
           onImportClientsBackup={clientActions.importClientsBackup}
@@ -759,6 +764,7 @@ export const AppViewRenderer = ({
           onUpdateSubscription={adminActions.updateSubscription}
           onSetSubscriptionDate={adminActions.setSubscriptionDate}
           onOpenFinancialHealth={() => setView('financial-health')}
+          onOpenGeneralReport={() => setView('general-report')}
         />
       );
     }

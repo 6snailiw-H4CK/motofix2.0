@@ -24,7 +24,7 @@ export type WhatsAppSessionRecord = {
   id?: string;
   userId: string;
   sessionId: string;
-  provider: "open-wa";
+  provider: "manual" | "open-wa";
   phoneNumber?: string;
   connected: boolean;
   status: WhatsAppSessionStatus;

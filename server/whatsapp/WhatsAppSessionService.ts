@@ -2,8 +2,6 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import * as QRCode from "qrcode";
-import type { Client as OpenWaClient } from "@open-wa/wa-automate";
-import type { ChatId } from "@open-wa/wa-automate/dist/api/model/aliases";
 import { whatsappStore } from "./whatsappStore";
 import { whatsAppAiService } from "./WhatsAppAiService";
 import type {
@@ -15,14 +13,22 @@ import type {
   WhatsAppStoreContext,
 } from "./types";
 
-type OpenWaModule = typeof import("@open-wa/wa-automate");
+type WhatsAppProviderClient = {
+  sendText: (chatId: string, text: string) => Promise<unknown>;
+  getHostNumber?: () => Promise<string | undefined>;
+  logout?: (preserveSessionData?: boolean) => Promise<unknown>;
+  kill?: (...args: unknown[]) => Promise<unknown> | unknown;
+  onStateChanged?: (handler: (waState: unknown) => void) => Promise<unknown> | unknown;
+  onLogout?: (handler: () => void) => Promise<unknown> | unknown;
+  onMessage?: (handler: (message: any) => void, options?: any) => Promise<unknown> | unknown;
+};
 
 type RuntimeSession = {
   userId: string;
   sessionId: string;
   status: WhatsAppSessionStatus;
   connected: boolean;
-  client?: OpenWaClient;
+  client?: WhatsAppProviderClient;
   connectingPromise?: Promise<void>;
   phoneNumber?: string;
   qrCode?: string;
@@ -61,7 +67,7 @@ const safeSessionId = (userId: string) => {
 
 const publicSession = (state: RuntimeSession): WhatsAppSessionPublic => ({
   sessionId: state.sessionId,
-  provider: "open-wa",
+  provider: "manual",
   phoneNumber: state.phoneNumber,
   connected: state.connected,
   status: state.status,
@@ -107,7 +113,7 @@ const toWhatsAppSendError = (providerResult: unknown) => {
   const raw = typeof providerResult === "string" ? providerResult.trim() : "";
   const isContactRestriction = /not a contact|unlock this feature|license|get\.openwa/i.test(raw);
   const message = isContactRestriction
-    ? "O open-wa recusou o envio porque este numero nao e um contato ou conversa existente nesta sessao. Salve o numero no WhatsApp da oficina, peca para o cliente enviar uma mensagem primeiro, ou use uma licenca/API oficial para iniciar conversas."
+    ? "O fornecedor de WhatsApp foi removido. O envio manual foi mantido, mas a conversao automatica de contatos/agenda com Open-WA foi desativada."
     : "O WhatsApp nao confirmou o envio da mensagem.";
 
   return Object.assign(new Error(message), {
@@ -129,7 +135,7 @@ const getMessageId = (message: any) => {
   return normalizeText(rawId, 240) || randomUUID();
 };
 
-const asChatId = (value: string) => value as ChatId;
+const asChatId = (value: string) => value;
 
 const sessionDataFilePath = (sessionId: string) => path.join(SESSION_DATA_PATH, `${sessionId}.data.json`);
 
@@ -173,6 +179,22 @@ export class WhatsAppSessionService {
     return state;
   }
 
+  private async safeClientAction(
+    client: WhatsAppProviderClient | undefined,
+    method: "kill" | "logout",
+    ...args: unknown[]
+  ) {
+    if (!client || typeof client[method] !== "function") {
+      return undefined;
+    }
+
+    try {
+      return await (client[method] as (...args: unknown[]) => Promise<unknown> | unknown)(...args);
+    } catch {
+      return undefined;
+    }
+  }
+
   private async captureQr(context: WhatsAppStoreContext, state: RuntimeSession, data: unknown) {
     const raw = String(data || "").trim();
     if (!raw) return;
@@ -198,7 +220,7 @@ export class WhatsAppSessionService {
     });
   }
 
-  private attachQrListeners(openWa: OpenWaModule, context: WhatsAppStoreContext, state: RuntimeSession) {
+  private attachQrListeners(openWa: any, context: WhatsAppStoreContext, state: RuntimeSession) {
     if (state.listenersAttached) return;
 
     const qrListener = (data: unknown, emittedSessionId: string) => {
@@ -211,8 +233,14 @@ export class WhatsAppSessionService {
       void this.captureQr(context, state, data);
     };
 
-    openWa.ev.on(`qr.${state.sessionId}`, qrListener);
-    openWa.ev.on(`qrData.${state.sessionId}`, qrDataListener);
+    const eventBus = openWa?.ev;
+    if (!eventBus || typeof eventBus.on !== "function") {
+      state.listenersAttached = true;
+      return;
+    }
+
+    eventBus.on(`qr.${state.sessionId}`, qrListener);
+    eventBus.on(`qrData.${state.sessionId}`, qrDataListener);
     state.listenersAttached = true;
   }
 
@@ -325,7 +353,24 @@ export class WhatsAppSessionService {
     try {
       await fs.mkdir(SESSION_DATA_PATH, { recursive: true });
 
-      const openWa = await import("@open-wa/wa-automate");
+      let openWa: any;
+      try {
+        const dynamicImport = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<any>;
+        openWa = await dynamicImport("@open-wa/wa-automate");
+      } catch (importError) {
+        const message = "Automacao do WhatsApp foi desativada: o pacote @open-wa/wa-automate foi removido. O envio manual continua disponivel quando houver um provedor externo configurado.";
+        state.connected = false;
+        state.status = "error";
+        state.error = message;
+        await whatsappStore.saveSession(context, state.userId, {
+          sessionId: state.sessionId,
+          connected: false,
+          status: "error",
+          error: message,
+        });
+        return;
+      }
+
       this.attachQrListeners(openWa, context, state);
 
       await this.markState(context, state, "connecting");
@@ -419,7 +464,7 @@ export class WhatsAppSessionService {
   async reconnect(context: WhatsAppStoreContext, userId: string) {
     const state = this.getRuntime(userId);
     if (state.client) {
-      await state.client.kill("MotoFix reconnect").catch(() => false);
+      await this.safeClientAction(state.client, "kill", "MotoFix reconnect");
       state.client = undefined;
     }
     state.connected = false;
@@ -437,8 +482,8 @@ export class WhatsAppSessionService {
   async disconnect(context: WhatsAppStoreContext, userId: string, preserveSessionData = false) {
     const state = this.getRuntime(userId);
     if (state.client) {
-      await state.client.logout(preserveSessionData).catch(() => false);
-      await state.client.kill("MotoFix disconnect").catch(() => false);
+      await this.safeClientAction(state.client, "logout", preserveSessionData);
+      await this.safeClientAction(state.client, "kill", "MotoFix disconnect");
     }
 
     state.client = undefined;
@@ -508,9 +553,6 @@ export class WhatsAppSessionService {
     if (!text) {
       throw Object.assign(new Error("Mensagem obrigatoria."), { status: 400 });
     }
-    if (!state.client || !state.connected) {
-      throw Object.assign(new Error("WhatsApp nao conectado para esta oficina."), { status: 409 });
-    }
 
     const timestamp = nowIso();
     const baseMessage: Omit<WhatsAppMessageRecord, "id" | "userId" | "createdAt" | "updatedAt"> = {
@@ -525,6 +567,10 @@ export class WhatsAppSessionService {
     };
 
     try {
+      if (!state.client || !state.connected) {
+        throw Object.assign(new Error("WhatsApp automatizado desativado. Configure um provedor manual ou reconecte a sessão do WhatsApp para continuar."), { status: 409 });
+      }
+
       const sentId = await state.client.sendText(asChatId(to), text);
       assertOpenWaSendResult(sentId);
 

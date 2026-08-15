@@ -1,5 +1,4 @@
 import {
-    BarChart3,
   Calendar,
   ClipboardList,
   DollarSign,
@@ -88,7 +87,6 @@ export const BottomNav = ({ view, fiscalModuleAvailable, isAdmin, onViewChange }
       items: [
         { id: 'cash-register', icon: ReceiptText, label: 'Lancamentos Caixa', match: ['cash-register'], shortLabel: 'Caixa' },
         { id: 'expenses', icon: DollarSign, label: 'Gastos', match: ['expenses'], shortLabel: 'Gastos' },
-        { id: 'general-report', icon: BarChart3, label: 'Relatorios', match: ['general-report', 'report'], shortLabel: 'Relatorios' },
         { id: 'products', icon: Package, label: 'Mercadorias', match: ['products'], shortLabel: 'Mercadorias' },
       ],
     },
