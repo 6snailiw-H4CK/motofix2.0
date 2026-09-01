@@ -2,11 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { ArrowRight, BarChart3, Calendar, DollarSign, ShieldCheck, TrendingUp, Users } from 'lucide-react';
 import { getRedirectResult, signInWithPopup, signInWithRedirect } from 'firebase/auth';
 import { auth, googleProvider } from '../../firebase';
+import { LandingPage } from './LandingPage';
+import { LegalPage } from './LegalPage';
+import { LoginPage } from './LoginPage';
 
 export const AuthScreen = () => {
-  const salesMessage = 'Olá, gostaria de receber uma proposta do MotoFix para minha oficina.';
-  const whatsappSalesUrl = `https://wa.me/556999944024?text=${encodeURIComponent(salesMessage)}`;
-  const [authView, setAuthView] = useState<'landing' | 'login' | 'sales'>('landing');
+  const supportWhatsAppUrl = 'https://wa.me/556999944024';
+  const [authView, setAuthView] = useState<'landing' | 'login' | 'sales' | 'privacy' | 'terms'>('landing');
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -18,6 +20,11 @@ export const AuthScreen = () => {
         section.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     }, 120);
+  };
+
+  const startFounderPlanFlow = () => {
+    sessionStorage.setItem('motofix-checkout-intent', 'monthly');
+    setAuthView('login');
   };
 
   useEffect(() => {
@@ -141,6 +148,35 @@ export const AuthScreen = () => {
     };
   }, []);
 
+  if (authView === 'landing') {
+    return (
+      <LandingPage
+        onLogin={() => setAuthView('login')}
+        onFounderPlan={startFounderPlanFlow}
+        onNavigate={navigateToSection}
+        onOpenLegal={(kind) => setAuthView(kind)}
+      />
+    );
+  }
+
+  if (authView === 'privacy' || authView === 'terms') {
+    return <LegalPage kind={authView} onBack={() => setAuthView('landing')} />;
+  }
+
+  if (authView === 'login') {
+    return (
+      <LoginPage
+        authError={authError}
+        isSigningIn={isSigningIn}
+        onBack={() => setAuthView('landing')}
+        onGoogleLogin={() => void handleGoogleLogin()}
+        onRedirectLogin={() => void handleRedirectLogin()}
+      />
+    );
+  }
+
+  const legacyAuthView = String(authView);
+
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-slate-950 text-slate-100">
       <div className="parallax-layer pointer-events-none absolute left-1/2 top-0 h-[36rem] w-[36rem] -translate-x-1/2 -translate-y-1/3 rounded-full bg-[#f97316]/20 blur-3xl" style={{ '--parallax-speed': '0.14' } as React.CSSProperties} />
@@ -178,7 +214,7 @@ export const AuthScreen = () => {
       </div>
 
       <main className="relative z-10 mx-auto max-w-7xl px-6 py-12 pt-28 pb-28 sm:px-8 lg:px-10">
-        {authView === 'landing' && (
+        {legacyAuthView === 'landing' && (
           <>
             {/* HERO SECTION */}
             <section className="grid gap-12 xl:grid-cols-[1fr_1fr] items-center scroll-reveal pb-12 border-b border-white/10">
@@ -195,11 +231,11 @@ export const AuthScreen = () => {
 
                 {/* CTA Buttons */}
                 <div className="flex flex-col sm:flex-row gap-4 pt-4">
-                  <button 
-                    onClick={() => window.open(whatsappSalesUrl, '_blank')}
+                  <button
+                    onClick={startFounderPlanFlow}
                     className="px-8 py-4 rounded-full bg-gradient-to-r from-red-500 to-orange-500 text-white font-bold shadow-xl shadow-red-500/20 transition hover:shadow-red-500/30 hover:scale-105"
                   >
-                    Ver demo pelo WhatsApp
+                    Quero o Plano Fundador
                   </button>
                   <button 
                     onClick={handleGoogleLogin}
@@ -376,7 +412,7 @@ export const AuthScreen = () => {
                     <li>✔ Registro de garantias e histórico de motos</li>
                   </ul>
                   <button
-                    onClick={() => window.open(whatsappSalesUrl, '_blank')}
+                    onClick={startFounderPlanFlow}
                     className="w-full rounded-full bg-gradient-to-r from-red-500 to-orange-500 px-8 py-4 text-lg font-bold text-white shadow-lg shadow-red-500/30 transition hover:opacity-95"
                   >
                     Quero o Plano Fundador
@@ -387,10 +423,10 @@ export const AuthScreen = () => {
               <div className="text-center">
                 <p className="text-slate-300">Dúvidas?
                   <button 
-                    onClick={() => window.open(whatsappSalesUrl, '_blank')}
+                    onClick={startFounderPlanFlow}
                     className="ml-2 text-red-400 hover:text-red-300 font-semibold underline"
                   >
-                    Fale com nosso time
+                    Fale com o suporte
                   </button>
                 </p>
               </div>
@@ -424,11 +460,11 @@ export const AuthScreen = () => {
                 <p className="text-lg text-slate-300 max-w-2xl mx-auto">Comece hoje com uma consultoria gratuita. Nosso time especializado está pronto para desenhar a solução perfeita para você.</p>
                 
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                  <button 
-                    onClick={() => window.open(whatsappSalesUrl, '_blank')}
+                  <button
+                    onClick={startFounderPlanFlow}
                     className="px-8 py-4 rounded-full bg-gradient-to-r from-red-500 to-orange-500 text-white font-bold shadow-lg shadow-red-500/30 transition hover:scale-105 hover:shadow-red-500/50"
                   >
-                    Agende uma consultoria - Grátis
+                    Quero o Plano Fundador
                   </button>
                   <button 
                     type="button"
@@ -446,8 +482,8 @@ export const AuthScreen = () => {
                   <div className="text-3xl mb-3">💬</div>
                   <p className="font-bold text-white mb-2">Chat via WhatsApp</p>
                   <p className="text-sm text-slate-400 mb-4">Fale com nosso time em tempo real</p>
-                  <a 
-                    href={whatsappSalesUrl} 
+                  <a
+                    href={supportWhatsAppUrl}
                     target="_blank" 
                     rel="noreferrer"
                     className="inline-block px-4 py-2 rounded-full bg-white/10 text-red-400 hover:bg-white/20 transition text-sm font-semibold"
@@ -484,7 +520,7 @@ export const AuthScreen = () => {
           </>
         )}
 
-        {authView === 'login' && (
+        {legacyAuthView === 'login' && (
           <section className="max-w-md rounded-3xl border border-white/10 bg-slate-900/90 p-8 shadow-2xl shadow-slate-950/40">
             <button onClick={() => setAuthView('landing')} className="mb-6 text-sm text-slate-400 transition hover:text-white">← Voltar</button>
             <h2 className="text-3xl font-bold text-white">Entrar no MotoFix</h2>
@@ -530,10 +566,10 @@ export const AuthScreen = () => {
                   Entre como cliente fundador do MotoFix por R$ 49,90/mês, com implantação guiada, suporte pelo WhatsApp e acompanhamento nos primeiros 7 dias.
                 </p>
                 <button 
-                  onClick={() => window.open(whatsappSalesUrl, '_blank')}
+                  onClick={startFounderPlanFlow}
                   className="mx-auto flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-red-500 to-orange-500 px-8 py-4 text-lg font-bold text-white shadow-2xl shadow-red-500/40 transition hover:scale-105 animate-fade-up animation-delay-300"
                 >
-                  Ver demo pelo WhatsApp
+                  Quero o Plano Fundador
                   <ArrowRight className="h-5 w-5" />
                 </button>
               </div>
@@ -591,10 +627,10 @@ export const AuthScreen = () => {
               <h2 className="text-3xl sm:text-4xl font-bold text-white">Pronto para começar?</h2>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
                 <button 
-                  onClick={() => window.open(whatsappSalesUrl, '_blank')}
+                  onClick={startFounderPlanFlow}
                   className="rounded-full bg-gradient-to-r from-red-500 to-orange-500 px-8 py-4 font-bold text-white shadow-lg shadow-red-500/40 transition hover:scale-105"
                 >
-                  Ver demo pelo WhatsApp
+                  Quero o Plano Fundador
                 </button>
                 <button 
                   onClick={handleGoogleLogin}

@@ -1,231 +1,42 @@
-import { type FormEvent, useCallback, useMemo, useState } from 'react';
-import { ArrowLeft, Bell, Bike, CheckCircle } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { ArrowLeft, Bike, CheckCircle, Loader2 } from 'lucide-react';
 import { signOut } from 'firebase/auth';
-import { toast as sonnerToast } from 'sonner';
+import { toast } from 'sonner';
 import { auth } from '../../firebase';
-import { createCheckoutSession, getStripePublishableKey } from '../../services/stripeService';
-import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
-import { loadStripe, type Stripe, type StripeElementsOptions } from '@stripe/stripe-js';
+import { createCheckoutSession, getSubscriptionStatus } from '../../services/stripeService';
 
-type CheckoutScreenProps = {
-  userId: string;
-  userEmail: string;
-  onPaymentSuccess: () => void;
-};
+type CheckoutScreenProps = { userId: string; userEmail: string; onPaymentSuccess: () => void };
 
-type CheckoutFormProps = {
-  onPaymentSuccess: () => void;
-  isConfirming: boolean;
-  setIsConfirming: (value: boolean) => void;
-  setErrorMessage: (value: string | null) => void;
-};
+export const CheckoutScreen = ({ onPaymentSuccess }: CheckoutScreenProps) => {
+  const [processing, setProcessing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const refresh = useCallback(async () => {
+    const status = await getSubscriptionStatus();
+    if (status.hasActiveSubscription) onPaymentSuccess();
+    return status;
+  }, [onPaymentSuccess]);
 
-const CheckoutForm = ({ onPaymentSuccess, isConfirming, setIsConfirming, setErrorMessage }: CheckoutFormProps) => {
-  const stripe = useStripe();
-  const elements = useElements();
+  useEffect(() => { void refresh().catch(() => undefined); }, [refresh]);
+  const startCheckout = useCallback(async () => {
+    try { setProcessing(true); window.location.assign((await createCheckoutSession('monthly')).url); }
+    catch (error) { console.error('Stripe Checkout failed', error); toast.error('Nao foi possivel iniciar o checkout seguro.'); }
+    finally { setProcessing(false); }
+  }, []);
+  const confirm = useCallback(async () => {
+    try { setConfirming(true); const status = await refresh(); if (!status.hasActiveSubscription) toast.message('Pagamento recebido. Estamos confirmando sua assinatura...'); }
+    catch { toast.error('Nao foi possivel consultar a assinatura. Tente novamente em instantes.'); }
+    finally { setConfirming(false); }
+  }, [refresh]);
 
-  const handleSubmit = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-
-      if (!stripe || !elements) {
-        setErrorMessage('Stripe ainda não está pronto. Aguarde alguns segundos.');
-        return;
-      }
-
-      setIsConfirming(true);
-      setErrorMessage(null);
-
-      const result = await stripe.confirmPayment({
-        elements,
-        confirmParams: {
-          return_url: window.location.href,
-        },
-        redirect: 'if_required',
-      });
-
-      if (result.error) {
-        setErrorMessage(result.error.message ?? 'Erro ao confirmar pagamento.');
-      } else if (result.paymentIntent?.status === 'succeeded') {
-        onPaymentSuccess();
-      }
-
-      setIsConfirming(false);
-    },
-    [elements, onPaymentSuccess, setErrorMessage, setIsConfirming, stripe]
-  );
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="space-y-4 rounded-3xl border border-slate-700/50 bg-slate-900/60 p-6">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <Bell className="w-10 h-10 text-primary" />
-          <h3 className="text-xl font-bold text-white">Pagamento seguro</h3>
-          <p className="text-sm text-slate-400">Insira seus dados para ativar a assinatura.</p>
-        </div>
-
-        <div className="rounded-3xl bg-slate-950/80 p-4">
-          <PaymentElement />
-        </div>
-      </div>
-
-      <button
-        type="submit"
-        disabled={!stripe || !elements || isConfirming}
-        className="w-full px-4 py-3 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 disabled:from-slate-600 disabled:to-slate-600 text-white font-bold rounded-xl transition-all active:scale-95"
-      >
-        {isConfirming ? 'Confirmando...' : 'Confirmar pagamento'}
-      </button>
-    </form>
-  );
-};
-
-export const CheckoutScreen = ({ userId, userEmail, onPaymentSuccess }: CheckoutScreenProps) => {
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [showPaymentForm, setShowPaymentForm] = useState(false);
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [stripePromise, setStripePromise] = useState<Promise<Stripe | null> | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isConfirming, setIsConfirming] = useState(false);
-
-  const handleCheckout = useCallback(async () => {
-    try {
-      setIsProcessing(true);
-      setErrorMessage(null);
-
-      if (!userEmail) {
-        throw new Error('É necessário possuir um e-mail cadastrado para processar o pagamento.');
-      }
-
-      const [publishableKey, session] = await Promise.all([
-        getStripePublishableKey(),
-        createCheckoutSession({
-          userId,
-          userEmail,
-          priceId: import.meta.env.VITE_STRIPE_PRICE_ID || 'price_monthly_49_90',
-        }),
-      ]);
-
-      setStripePromise(loadStripe(publishableKey));
-      setClientSecret(session.clientSecret);
-      setShowPaymentForm(true);
-    } catch (error) {
-      console.error('Erro ao iniciar checkout:', error);
-      sonnerToast.error('Erro ao processar pagamento. Verifique se o servidor Stripe está ativo.');
-      setErrorMessage('Não foi possível iniciar a sessão de pagamento.');
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [userEmail, userId]);
-
-  const stripeOptions = useMemo<StripeElementsOptions | null>(() => {
-    if (!clientSecret) return null;
-    return {
-      clientSecret,
-      appearance: {
-        theme: 'night',
-        variables: {
-          colorPrimary: '#8b5cf6',
-          colorBackground: '#020617',
-          colorText: '#f8fafc',
-          colorDanger: '#ef4444',
-        },
-      },
-    };
-  }, [clientSecret]);
-
-  return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-b from-black via-slate-900 to-black overflow-hidden">
-      <div className="fixed top-0 left-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2 pointer-events-none" />
-      <div className="fixed bottom-0 right-0 w-96 h-96 bg-primary/5 rounded-full blur-3xl translate-x-1/2 translate-y-1/2 pointer-events-none" />
-
-      <div className="relative z-10 border-b border-slate-800/50 px-6 py-4">
-        <button onClick={() => signOut(auth)} className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
-          <ArrowLeft className="w-4 h-4" />
-          <span className="text-sm">Sair</span>
-        </button>
-      </div>
-
-      <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 py-12">
-        <div className="max-w-xl w-full space-y-8">
-          {errorMessage ? (
-            <div className="rounded-3xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
-              {errorMessage}
-            </div>
-          ) : null}
-
-          {!showPaymentForm ? (
-            <>
-              <div className="space-y-6 text-center">
-                <div className="inline-block">
-                  <div className="bg-gradient-to-br from-primary/30 to-primary/10 backdrop-blur-xl p-4 rounded-2xl border border-primary/20">
-                    <Bike className="w-12 h-12 text-primary" />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <h2 className="text-3xl font-bold text-white">Ative sua assinatura</h2>
-                  <p className="text-slate-400 text-sm">Acesse todas as features do MotoFix Manager</p>
-                </div>
-              </div>
-
-              <div className="bg-gradient-to-br from-slate-800/50 to-slate-800/20 backdrop-blur-sm border border-slate-700/50 rounded-2xl p-8 space-y-6">
-                <div className="text-center space-y-2">
-                  <div className="flex items-baseline justify-center gap-1">
-                    <span className="text-5xl font-bold text-white">R$ 49</span>
-                    <span className="text-slate-400">,90</span>
-                  </div>
-                  <p className="text-slate-400 text-sm">por mÃªs</p>
-                </div>
-
-                <div className="space-y-3 border-y border-slate-700/50 py-6">
-                  {[
-                    'Dashboard com anÃ¡lise de receita',
-                    'GestÃ£o de clientes e veÃ­culos',
-                    'Alertas inteligentes via WhatsApp',
-                    'Certificados e garantias automÃ¡ticas',
-                    'Suporte prioritÃ¡rio'
-                  ].map(item => (
-                    <div key={item} className="flex items-start gap-3">
-                      <CheckCircle className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
-                      <span className="text-sm text-slate-300">{item}</span>
-                    </div>
-                  ))}
-                </div>
-
-                <button
-                  onClick={handleCheckout}
-                  disabled={isProcessing}
-                  className="w-full px-4 py-3 bg-gradient-to-r from-primary to-primary/80 hover:from-primary/90 hover:to-primary/70 disabled:from-slate-600 disabled:to-slate-600 text-white font-bold rounded-xl transition-all active:scale-95"
-                >
-                  {isProcessing ? 'Processando...' : 'Pagar agora com PIX ou CartÃ£o'}
-                </button>
-
-                <p className="text-xs text-slate-500 text-center">
-                  Cancelar assinatura a qualquer momento. Sem compromisso.
-                </p>
-              </div>
-            </>
-          ) : (
-            <div className="bg-gradient-to-br from-slate-800/50 to-slate-800/20 backdrop-blur-sm border border-slate-700/50 rounded-2xl p-8 text-center space-y-4">
-              <div className="bg-slate-800/50 rounded-xl p-6 space-y-3">
-                <Bell className="w-8 h-8 text-primary mx-auto" />
-                <h3 className="text-white font-bold">FormulÃ¡rio de pagamento</h3>
-                <p className="text-sm text-slate-400">O Stripe Payment Element serÃ¡ carregado aqui</p>
-                <p className="text-xs text-slate-500 bg-slate-900/50 p-3 rounded">
-                  âš ï¸ Aguardando integraÃ§Ã£o do backend com Stripe para processar pagamentos
-                </p>
-              </div>
-              <button
-                onClick={() => setShowPaymentForm(false)}
-                className="w-full px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition"
-              >
-                Voltar
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
+  return <div className="min-h-screen flex flex-col bg-gradient-to-b from-black via-slate-900 to-black">
+    <div className="border-b border-slate-800/50 px-6 py-4"><button onClick={() => signOut(auth)} className="flex items-center gap-2 text-slate-400 hover:text-white"><ArrowLeft className="h-4 w-4" />Sair</button></div>
+    <main className="flex flex-1 items-center justify-center px-4 py-12"><div className="max-w-xl w-full space-y-8 text-center">
+      <div><div className="inline-block rounded-2xl border border-primary/20 bg-primary/10 p-4"><Bike className="h-12 w-12 text-primary" /></div><h2 className="mt-5 text-3xl font-bold text-white">Ative sua assinatura</h2><p className="mt-2 text-sm text-slate-400">O pagamento e a ativacao sao confirmados pelo Stripe.</p></div>
+      <section className="space-y-6 rounded-2xl border border-slate-700/50 bg-slate-800/30 p-8"><div><span className="text-5xl font-bold text-white">R$ 49</span><span className="text-slate-400">,90/mês</span></div>
+        <div className="space-y-3 border-y border-slate-700/50 py-6 text-left">{['Dashboard financeiro', 'Gestao de clientes e veiculos', 'Alertas via WhatsApp', 'Certificados e garantias', 'Suporte prioritario'].map(item => <div key={item} className="flex gap-3 text-sm text-slate-300"><CheckCircle className="h-5 w-5 shrink-0 text-primary" />{item}</div>)}</div>
+        <button onClick={startCheckout} disabled={processing} className="w-full rounded-xl bg-primary px-4 py-3 font-bold text-white disabled:bg-slate-600">{processing ? 'Redirecionando...' : 'Assinar com Stripe'}</button>
+        <button onClick={confirm} disabled={confirming} className="text-sm text-slate-400 hover:text-white">{confirming ? <Loader2 className="inline h-4 w-4 animate-spin" /> : 'Ja paguei — confirmar assinatura'}</button>
+      </section><p className="text-xs text-slate-500">Pagamento recebido? Estamos confirmando sua assinatura. O acesso so e liberado apos a confirmacao do webhook.</p>
+    </div></main>
+  </div>;
 };

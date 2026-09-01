@@ -1,93 +1,30 @@
 import axios from 'axios';
 import { auth } from '../firebase';
 
-const STRIPE_API_URL = import.meta.env.VITE_STRIPE_API_URL || 'http://localhost:3001';
-
-const getAuthHeaders = async () => {
+const configuredStripeApiUrl = import.meta.env.VITE_STRIPE_API_URL?.trim();
+const isProductionLocalhostUrl = import.meta.env.PROD && configuredStripeApiUrl?.includes('localhost');
+const STRIPE_API_URL = configuredStripeApiUrl && !isProductionLocalhostUrl
+  ? configuredStripeApiUrl
+  : window.location.origin;
+const authHeaders = async () => {
   const token = await auth.currentUser?.getIdToken();
-  if (!token) {
-    throw new Error('Usuario precisa estar autenticado para acessar pagamentos.');
-  }
-
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${token}`,
-  };
+  if (!token) throw new Error('Usuario precisa estar autenticado para acessar pagamentos.');
+  return { Authorization: `Bearer ${token}` };
 };
 
-interface CreateCheckoutSessionParams {
-  userId: string;
-  userEmail: string;
-  priceId: string;
-}
-
-interface CreateCheckoutSessionResponse {
-  clientSecret: string;
-  sessionId: string;
-}
-
-/**
- * Cria uma sessão de checkout no Stripe retornando o client secret
- * para inicializar o Payment Element
- */
-export const createCheckoutSession = async ({
-  userId,
-  userEmail,
-  priceId,
-}: CreateCheckoutSessionParams): Promise<CreateCheckoutSessionResponse> => {
-  try {
-    const response = await axios.post(
-      `${STRIPE_API_URL}/api/payments/create-checkout`,
-      {
-        userId,
-        userEmail,
-        priceId,
-      },
-      {
-        headers: await getAuthHeaders(),
-      }
-    );
-
-    return response.data;
-  } catch (error) {
-    console.error('Erro ao criar sessão de checkout:', error);
-    throw error;
-  }
+// The UID is deliberately not a client parameter: the server derives it from Firebase.
+export const createCheckoutSession = async (planId = 'monthly'): Promise<{ url: string }> => {
+  const { data } = await axios.post(`${STRIPE_API_URL}/api/stripe/create-checkout-session`, { planId }, { headers: await authHeaders() });
+  return data;
 };
 
-/**
- * Verifica o status do pagamento
- */
-export const checkPaymentStatus = async (
-  sessionId: string
-): Promise<{ status: string; paid: boolean }> => {
-  try {
-    const response = await axios.get(
-      `${STRIPE_API_URL}/api/payments/session/${sessionId}`,
-      {
-        headers: await getAuthHeaders(),
-      }
-    );
-
-    return response.data;
-  } catch (error) {
-    console.error('Erro ao verificar status do pagamento:', error);
-    throw error;
-  }
+export type BillingStatus = { status?: string; currentPeriodEnd?: string | null; hasActiveSubscription: boolean };
+export const getSubscriptionStatus = async (): Promise<BillingStatus> => {
+  const { data } = await axios.get(`${STRIPE_API_URL}/api/stripe/subscription`, { headers: await authHeaders() });
+  return data;
 };
 
-/**
- * Obtém o Stripe publishable key
- */
-export const getStripePublishableKey = async (): Promise<string> => {
-  try {
-    const response = await axios.get(
-      `${STRIPE_API_URL}/api/payments/publishable-key`
-    );
-
-    return response.data.publishableKey;
-  } catch (error) {
-    console.error('Erro ao obter Stripe key:', error);
-    throw error;
-  }
+export const createCustomerPortalSession = async (): Promise<{ url: string }> => {
+  const { data } = await axios.post(`${STRIPE_API_URL}/api/stripe/create-customer-portal-session`, {}, { headers: await authHeaders() });
+  return data;
 };

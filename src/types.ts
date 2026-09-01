@@ -437,7 +437,7 @@ export interface Settings {
 }
 
 export interface Subscription {
-  status: 'active' | 'inactive' | 'canceled' | 'trial' | 'past_due';
+  status: 'active' | 'inactive' | 'canceled' | 'trial' | 'trialing' | 'past_due' | 'unpaid' | 'incomplete' | 'incomplete_expired' | 'paused';
   plan: 'free' | 'monthly' | 'annual';
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
@@ -457,6 +457,17 @@ export interface UserProfile {
   role: 'admin' | 'user';
   isActive: boolean;
   subscription: Subscription;
+  billing?: {
+    stripeCustomerId?: string | null;
+    stripeSubscriptionId?: string | null;
+    stripeCheckoutSessionId?: string | null;
+    planId?: string | null;
+    status?: Subscription['status'];
+    currentPeriodStart?: string | null;
+    currentPeriodEnd?: string | null;
+    cancelAtPeriodEnd?: boolean;
+    activationSource?: 'stripe' | 'manual';
+  };
   subscriptionExpiresAt?: string; // ISO timestamp
   createdAt: string;
 }

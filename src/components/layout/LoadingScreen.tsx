@@ -2,9 +2,7 @@ import { Bike, MessageCircle } from 'lucide-react';
 import { auth } from '../../firebase';
 
 export const LoadingScreen = () => {
-  const userId = auth.currentUser?.uid || 'seu-id';
-  const activationMessage = `Ol\u00e1, quero ativar meu acesso no MotoFix! Meu ID \u00e9: ${userId}`;
-  const whatsappUrl = `https://wa.me/556999944024?text=${encodeURIComponent(activationMessage)}`;
+  const whatsappUrl = 'https://wa.me/556999944024';
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-background-dark">

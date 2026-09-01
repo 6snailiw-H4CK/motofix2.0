@@ -24,14 +24,23 @@ const parseOrigins = (value?: string) => String(value || "")
   .filter(Boolean)
   .filter((item) => item !== "MY_APP_URL");
 
-const getAllowedOrigins = () => new Set([
-  ...DEFAULT_DEV_ORIGINS,
-  ...parseOrigins(process.env.APP_URL),
-  ...parseOrigins(process.env.FRONTEND_URL),
-  ...parseOrigins(process.env.CORS_ORIGINS),
-]);
+export const getAllowedOrigins = (environmentName = process.env.NODE_ENV || "development") => {
+  const explicit = new Set([
+    ...parseOrigins(process.env.APP_URL),
+    ...parseOrigins(process.env.FRONTEND_URL),
+    ...parseOrigins(process.env.CORS_ORIGINS),
+  ]);
 
-const getRequestOrigins = (req: Request) => {
+  if (environmentName !== "production") {
+    for (const origin of DEFAULT_DEV_ORIGINS) explicit.add(origin);
+  }
+
+  return explicit;
+};
+
+const getRequestOrigins = (req: Request, environmentName = process.env.NODE_ENV || "development") => {
+  if (environmentName === "production") return new Set<string>();
+
   const host = req.headers.host;
   if (!host) return new Set<string>();
 
@@ -52,10 +61,13 @@ const normalizePathForRateLimit = (path: string) => path
 
 const getClientIp = (req: Request) => String(req.ip || req.socket.remoteAddress || "unknown").trim();
 
-const isOriginAllowed = (req: Request, origin?: string) => {
+export const isOriginAllowed = (req: Request, origin?: string, environmentName = process.env.NODE_ENV || "development") => {
   if (!origin) return true;
   const normalizedOrigin = origin.replace(/\/$/, "");
-  return getAllowedOrigins().has(normalizedOrigin) || getRequestOrigins(req).has(normalizedOrigin);
+  const allowedOrigins = getAllowedOrigins(environmentName);
+  if (allowedOrigins.has(normalizedOrigin)) return true;
+  if (environmentName !== "production") return getRequestOrigins(req, environmentName).has(normalizedOrigin);
+  return false;
 };
 
 export const securityHeaders = (_req: Request, res: Response, next: NextFunction) => {

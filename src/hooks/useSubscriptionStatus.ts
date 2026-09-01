@@ -13,7 +13,12 @@ type UseSubscriptionStatusResult = {
 
 export const useSubscriptionStatus = ({ userProfile }: UseSubscriptionStatusParams): UseSubscriptionStatusResult => {
   const isExpired = useMemo(() => {
-    if (!userProfile?.subscriptionExpiresAt) return false;
+    const billing = userProfile?.billing;
+    if (billing?.status) {
+      if (!['active', 'trialing'].includes(billing.status)) return true;
+      return !billing.currentPeriodEnd || isBefore(parseISO(billing.currentPeriodEnd), new Date());
+    }
+    if (!userProfile?.subscriptionExpiresAt) return false; // compatibility for manually migrated accounts
     return isBefore(parseISO(userProfile.subscriptionExpiresAt), new Date());
   }, [userProfile]);
 
