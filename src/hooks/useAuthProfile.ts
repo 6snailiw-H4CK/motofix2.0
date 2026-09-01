@@ -94,17 +94,6 @@ export function useAuthProfile() {
           const profileData = userSnap.data() as UserProfile;
           const claimProfile = applyClaimRole(profileData, isAdminClaim);
 
-          if (isAdminClaim && (profileData.role !== 'admin' || profileData.isActive !== true)) {
-            await queueFirestoreVoidWrite(
-              () => setDoc(userDoc, {
-                role: 'admin',
-                isActive: true,
-                updatedAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
-              }, { merge: true }),
-              'Atualizar perfil admin'
-            );
-          }
-
           setUserProfile((currentProfile) => {
             if (areUserProfilesEqual(currentProfile, claimProfile)) {
               return currentProfile;

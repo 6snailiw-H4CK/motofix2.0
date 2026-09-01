@@ -44,14 +44,7 @@ const isAdminDataResetUser = async (
   options: RegisterDataResetRoutesOptions,
   decoded: DecodedIdToken
 ) => {
-  if (!options.db) return false;
-  if (decoded.admin === true) return true;
-
-  const userSnapshot = await options.db.collection("users").doc(decoded.uid).get();
-  if (!userSnapshot.exists) return false;
-
-  const userData = userSnapshot.data() as { isActive?: boolean; role?: string } | undefined;
-  return userData?.isActive === true && userData.role === "admin";
+  return decoded.admin === true;
 };
 
 const requireDataResetAuth = (options: RegisterDataResetRoutesOptions) => async (

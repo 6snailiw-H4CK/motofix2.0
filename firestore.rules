@@ -16,16 +16,8 @@ service cloud.firestore {
         && request.auth.token.admin == true;
     }
 
-    // Allow admins based on the user profile document as a fallback until
-    // claims are synchronized. This is necessary for the admin panel to work.
     function isAdmin() {
-      return hasAdminClaim()
-        || (
-          signedIn()
-          && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
-          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isActive == true
-        );
+      return hasAdminClaim();
     }
 
     function isActiveOwner(userId) {
@@ -58,6 +50,13 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).changedKeys().hasOnly(['isActive'])
         && resource.data.isActive == true
         && request.resource.data.isActive == false;
+    }
+
+    // Browser-admin compatibility for the legacy manual migration flow only.
+    // Stripe billing fields are never writable by any browser client.
+    function validAdminManualActivation() {
+      return request.resource.data.diff(resource.data).changedKeys()
+        .hasOnly(['isActive', 'subscriptionExpiresAt', 'updatedAt']);
     }
 
     function canReadUserData(userId) {
@@ -1136,7 +1135,7 @@ service cloud.firestore {
       allow get: if isOwner(userId) || isAdmin();
       allow list: if isAdmin();
       allow create: if validUserProfileCreate(userId) || isAdmin();
-      allow update: if isAdmin() || (isOwner(userId) && validOwnerAutoDeactivate());
+      allow update: if (isAdmin() && validAdminManualActivation()) || (isOwner(userId) && validOwnerAutoDeactivate());
       allow delete: if false;
     }
 

@@ -1,4 +1,4 @@
-import { addDays, format, isAfter, isSameDay, parseISO, subMonths } from 'date-fns';
+import { format, startOfMonth, subMonths } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { useMemo, useState } from 'react';
 import {
@@ -13,7 +13,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { ArrowLeft, Plus, Store } from 'lucide-react';
+import { ArrowLeft, Plus, Store, X } from 'lucide-react';
 import type { ExpenseRecord } from '../../types';
 
 type ExpensesViewProps = {
@@ -47,6 +47,26 @@ const normalizeSupplierKey = (value: string) => value
   .replace(/[\u0300-\u036f]/g, '')
   .toLocaleLowerCase('pt-BR');
 
+const formatDateForDisplay = (value: string) => {
+  const [year, month, day] = value.split('-');
+  return year && month && day ? `${day}/${month}/${year}` : '';
+};
+
+const parseDisplayDate = (value: string) => {
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+  if (!match) return null;
+
+  const [, day, month, year] = match;
+  const parsed = new Date(Number(year), Number(month) - 1, Number(day));
+  if (
+    parsed.getFullYear() !== Number(year) ||
+    parsed.getMonth() !== Number(month) - 1 ||
+    parsed.getDate() !== Number(day)
+  ) return null;
+
+  return `${year}-${month}-${day}`;
+};
+
 export const ExpensesView = ({
   expenseEntries,
   description,
@@ -68,38 +88,45 @@ export const ExpensesView = ({
   onResetForm,
 }: ExpensesViewProps) => {
   const [isExpenseFormOpen, setIsExpenseFormOpen] = useState(false);
+  const [openSupplierKey, setOpenSupplierKey] = useState<string | null>(null);
+  const [periodStart, setPeriodStart] = useState(() => format(startOfMonth(subMonths(new Date(), 11)), 'yyyy-MM-dd'));
+  const [periodEnd, setPeriodEnd] = useState(() => format(new Date(), 'yyyy-MM-dd'));
+  const [periodStartInput, setPeriodStartInput] = useState(() => formatDateForDisplay(periodStart));
+  const [periodEndInput, setPeriodEndInput] = useState(() => formatDateForDisplay(periodEnd));
+  const filteredExpenseEntries = useMemo(
+    () => expenseEntries.filter((entry) => entry.date >= periodStart && entry.date <= periodEnd),
+    [expenseEntries, periodEnd, periodStart]
+  );
   const supplierSummaries = useMemo(() => {
-    const suppliers = new Map<string, { name: string; total: number; count: number }>();
+    const suppliers = new Map<string, { name: string; total: number; count: number; entries: ExpenseRecord[] }>();
 
-    [...expenseEntries]
+    [...filteredExpenseEntries]
       .sort((a, b) => a.date.localeCompare(b.date))
       .forEach((entry) => {
         const name = (entry.supplier || '').trim().replace(/\s+/g, ' ');
-        const key = normalizeSupplierKey(name);
-        if (!key) return;
+        const key = normalizeSupplierKey(name) || '__sem_fornecedor__';
+        const displayName = name || 'Sem fornecedor';
 
-        const current = suppliers.get(key) || { name, total: 0, count: 0 };
+        const current = suppliers.get(key) || { name: displayName, total: 0, count: 0, entries: [] };
         current.total += entry.amount;
         current.count += 1;
+        current.entries.push(entry);
         suppliers.set(key, current);
       });
 
     return Array.from(suppliers.entries())
       .map(([key, summary]) => ({ key, ...summary }))
       .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'pt-BR'));
-  }, [expenseEntries]);
+  }, [filteredExpenseEntries]);
 
   const canonicalSupplier = supplierSummaries.find(
     (entry) => entry.key === normalizeSupplierKey(supplier)
   )?.name || supplier.trim().replace(/\s+/g, ' ');
+  const openSupplier = supplierSummaries.find((entry) => entry.key === openSupplierKey);
 
-  const total = expenseEntries.reduce((sum, entry) => sum + entry.amount, 0);
-  const last30Days = expenseEntries.filter((entry) => {
-    const entryDate = parseISO(entry.date);
-    return isAfter(entryDate, addDays(new Date(), -30)) || isSameDay(entryDate, new Date());
-  });
+  const total = filteredExpenseEntries.reduce((sum, entry) => sum + entry.amount, 0);
 
-  const byPaymentMethod = expenseEntries.reduce((acc, entry) => {
+  const byPaymentMethod = filteredExpenseEntries.reduce((acc, entry) => {
     acc[entry.paymentMethod] = (acc[entry.paymentMethod] || 0) + entry.amount;
     return acc;
   }, {} as Record<string, number>);
@@ -111,13 +138,13 @@ export const ExpensesView = ({
     const monthKey = format(monthDate, 'yyyy-MM');
     return {
       month: format(monthDate, 'MMM', { locale: ptBR }),
-      total: expenseEntries
+      total: filteredExpenseEntries
         .filter((entry) => entry.date.startsWith(monthKey))
         .reduce((sum, entry) => sum + entry.amount, 0),
     };
   });
 
-  const averagePerRecord = last30Days.length ? total / last30Days.length : 0;
+  const averagePerRecord = filteredExpenseEntries.length ? total / filteredExpenseEntries.length : 0;
 
   return (
     <div className="space-y-3.5">
@@ -210,6 +237,21 @@ export const ExpensesView = ({
                   className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
                 />
               </div>
+              <div className="col-span-2 space-y-1 lg:col-span-3">
+                <label className="px-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Forma de pagamento</label>
+                <select
+                  value={paymentMethod}
+                  onChange={(event) => onPaymentMethodChange(event.target.value)}
+                  required
+                  className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">Selecione</option>
+                  <option value="Dinheiro">Dinheiro</option>
+                  <option value="Pix">Pix</option>
+                  <option value="Debito">Debito</option>
+                  <option value="Credito">Credito</option>
+                </select>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-2 sm:flex sm:justify-end">
@@ -232,22 +274,66 @@ export const ExpensesView = ({
         )}
       </section>
 
+      <section className="rounded-2xl border border-slate-700/50 bg-slate-800/40 p-3">
+        <div className="mb-2">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Periodo de consulta</p>
+          <p className="text-[10px] text-slate-500">Veja quanto foi gasto entre as datas selecionadas.</p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2 sm:max-w-md">
+          <label className="space-y-1">
+            <span className="px-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Inicio</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="dd/mm/aaaa"
+              value={periodStartInput}
+              onChange={(event) => {
+                const value = event.target.value;
+                setPeriodStartInput(value);
+                const parsed = parseDisplayDate(value);
+                if (parsed) setPeriodStart(parsed);
+              }}
+              className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="px-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Fim</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="dd/mm/aaaa"
+              value={periodEndInput}
+              onChange={(event) => {
+                const value = event.target.value;
+                setPeriodEndInput(value);
+                const parsed = parseDisplayDate(value);
+                if (parsed) setPeriodEnd(parsed);
+              }}
+              className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
+            />
+          </label>
+        </div>
+        {periodStart > periodEnd && (
+          <p className="mt-2 text-[10px] font-bold text-red-400">A data inicial deve ser anterior a data final.</p>
+        )}
+      </section>
+
       <div className="grid gap-3 xl:grid-cols-[0.85fr_1fr]">
         <div className="grid grid-cols-3 gap-2">
           <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
             <p className="text-[8px] font-bold uppercase tracking-widest text-slate-500">Total</p>
             <p className="mt-1 text-lg font-black text-white">R$ {total.toFixed(2)}</p>
-            <p className="mt-1 text-[9px] text-slate-400">{expenseEntries.length} registro(s)</p>
+            <p className="mt-1 text-[9px] text-slate-400">{filteredExpenseEntries.length} registro(s) no periodo</p>
           </div>
           <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
-            <p className="text-[8px] font-bold uppercase tracking-widest text-slate-500">30 dias</p>
-            <p className="mt-1 text-lg font-black text-white">{last30Days.length}</p>
-            <p className="mt-1 text-[9px] text-slate-400">registros</p>
+            <p className="text-[8px] font-bold uppercase tracking-widest text-slate-500">Periodo</p>
+            <p className="mt-1 text-lg font-black text-white">{filteredExpenseEntries.length}</p>
+            <p className="mt-1 text-[9px] text-slate-400">registros no periodo</p>
           </div>
           <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
             <p className="text-[8px] font-bold uppercase tracking-widest text-slate-500">Media</p>
             <p className="mt-1 text-lg font-black text-white">R$ {averagePerRecord.toFixed(2)}</p>
-            <p className="mt-1 text-[9px] text-slate-400">por gasto</p>
+            <p className="mt-1 text-[9px] text-slate-400">por gasto no periodo</p>
           </div>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
@@ -298,7 +384,7 @@ export const ExpensesView = ({
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Cadastro automatico</p>
             <h3 className="text-sm font-bold text-white">Fornecedores</h3>
-            <p className="text-[10px] text-slate-500">Compras com o mesmo fornecedor sao somadas automaticamente.</p>
+            <p className="text-[10px] text-slate-500">Clique em um fornecedor para consultar todos os gastos registrados.</p>
           </div>
           <span className="rounded-full bg-slate-900/70 px-2.5 py-1 text-[10px] font-bold text-slate-300">
             {supplierSummaries.length} cadastrado(s)
@@ -315,12 +401,9 @@ export const ExpensesView = ({
               <button
                 key={entry.key}
                 type="button"
-                onClick={() => {
-                  onSupplierChange(entry.name);
-                  setIsExpenseFormOpen(true);
-                }}
+                onClick={() => setOpenSupplierKey(entry.key)}
                 className="flex items-center gap-3 rounded-xl border border-slate-700/50 bg-slate-900/40 p-3 text-left transition hover:border-primary/50 hover:bg-slate-900/70"
-                title={`Lancar novo gasto em ${entry.name}`}
+                title={`Ver gastos de ${entry.name}`}
               >
                 <span className="rounded-lg bg-primary/10 p-2 text-primary">
                   <Store className="h-4 w-4" />
@@ -336,45 +419,55 @@ export const ExpensesView = ({
         )}
       </section>
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-bold">Ultimos gastos registrados</p>
-          <span className="text-[10px] text-slate-400">{expenseEntries.length} registro(s)</span>
-        </div>
-        {expenseEntries.length === 0 ? (
-          <div className="rounded-xl border border-slate-700/40 bg-slate-800/50 p-5 text-center text-xs text-slate-400">
-            Nenhum gasto registrado ainda.
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {expenseEntries.map((expense) => (
-              <div
-                key={expense.id}
-                className="flex flex-col gap-2 rounded-xl border border-slate-700/40 bg-slate-800/30 p-3 md:flex-row md:items-center md:justify-between"
-              >
-                <div>
-                  <p className="text-sm font-semibold text-white">{expense.description}</p>
-                  <p className="mt-0.5 text-[10px] text-slate-500">
-                    {expense.paymentMethod} - {expense.date}
-                    {expense.supplier ? ` - Fornecedor: ${expense.supplier}` : ''}
-                  </p>
-                  {expense.note && <p className="mt-1 text-[10px] text-slate-400">{expense.note}</p>}
-                </div>
-                <div className="flex items-center gap-3 md:flex-col md:items-end">
-                  <p className="text-sm font-bold text-white">R$ {expense.amount.toFixed(2)}</p>
-                  <button
-                    type="button"
-                    onClick={() => void onDeleteExpense(expense.id)}
-                    className="text-[10px] font-bold uppercase tracking-widest text-red-400 hover:text-red-300"
-                  >
-                    Excluir
-                  </button>
-                </div>
+      {openSupplier && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm">
+          <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-950 shadow-2xl shadow-black">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-800 p-4">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Historico do fornecedor</p>
+                <h3 className="text-lg font-black text-white">{openSupplier.name}</h3>
+                <p className="mt-1 text-xs text-slate-500">
+                  {openSupplier.count} gasto(s) - {currency.format(openSupplier.total)} no total
+                </p>
               </div>
-            ))}
+              <button
+                type="button"
+                onClick={() => setOpenSupplierKey(null)}
+                className="grid h-8 w-8 place-items-center rounded-lg bg-slate-900 text-slate-400 hover:text-white"
+                aria-label="Fechar historico do fornecedor"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 space-y-2 overflow-y-auto p-3">
+              {[...openSupplier.entries].reverse().map((expense) => (
+                <div
+                  key={expense.id}
+                  className="flex flex-col gap-2 rounded-xl border border-slate-700/40 bg-slate-900/40 p-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-white">{expense.description || 'Gasto sem descricao'}</p>
+                    <p className="mt-0.5 text-[10px] text-slate-500">
+                      {expense.date} - {expense.paymentMethod}
+                    </p>
+                    {expense.note && <p className="mt-1 text-[10px] text-slate-400">{expense.note}</p>}
+                  </div>
+                  <div className="flex shrink-0 items-center justify-between gap-3 sm:flex-col sm:items-end">
+                    <p className="text-sm font-bold text-white">{currency.format(expense.amount)}</p>
+                    <button
+                      type="button"
+                      onClick={() => void onDeleteExpense(expense.id)}
+                      className="text-[10px] font-bold uppercase tracking-widest text-red-400 hover:text-red-300"
+                    >
+                      Excluir
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

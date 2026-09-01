@@ -101,10 +101,6 @@ export default function App() {
   const getStatus = getMaintenanceStatus;
   const fiscalModuleAvailable = canAccessFiscalModule(userProfile, user?.email);
 
-  const [adminPinPromptOpen, setAdminPinPromptOpen] = useState(false);
-  const [adminPinError, setAdminPinError] = useState<string | null>(null);
-  const [adminPinValue, setAdminPinValue] = useState('');
-
   const handleViewChange = useCallback((nextView: Parameters<typeof setView>[0]) => {
     if (nextView === 'fiscal' && !fiscalModuleAvailable) {
       setView('dashboard');
@@ -117,15 +113,12 @@ export default function App() {
     }
 
     if (nextView === 'admin') {
-      setAdminPinError(null);
-      setAdminPinValue('');
-      setAdminPinPromptOpen(true);
+      if (userProfile?.role === 'admin') setView('admin');
       return;
     }
 
     setView(nextView);
   }, [fiscalModuleAvailable, setView, userProfile?.role]);
-
   const handleAdminPinSubmit = useCallback((input: string) => {
     if (input === '1570') {
       setAdminPinPromptOpen(false);
@@ -261,6 +254,16 @@ export default function App() {
   const { isExpired, shouldBlock } = useSubscriptionStatus({ userProfile });
 
   useEffect(() => {
+    if (!user || !userProfile || userProfile.role === 'admin') return;
+
+    const checkoutIntent = sessionStorage.getItem('motofix-checkout-intent');
+    if (!checkoutIntent) return;
+
+    sessionStorage.removeItem('motofix-checkout-intent');
+    if (shouldBlock || isExpired) setView('checkout');
+  }, [isExpired, setView, shouldBlock, user, userProfile]);
+
+  useEffect(() => {
     if (isExpired && !shouldBlock && userProfile && userProfile.role !== 'admin') {
       handleViewChange('checkout');
     }
@@ -292,8 +295,8 @@ export default function App() {
   if (loading) return <LoadingScreen />;
   if (!user) return <AuthScreen />;
 
-  if (shouldBlockUser) {
-    return <BlockedAccessScreen userId={user.uid} onSignOut={() => signOut(auth)} />;
+  if (shouldBlockUser && view !== 'checkout') {
+    return <BlockedAccessScreen userId={user.uid} onSignOut={() => signOut(auth)} onSubscribe={() => setView('checkout')} />;
   }
 
   return (
@@ -388,49 +391,6 @@ export default function App() {
         />
       ) : null}
 
-      {adminPinPromptOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 px-4 py-6 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-3xl border border-primary/30 bg-slate-900 p-6 shadow-2xl">
-            <div className="mb-4 text-center">
-              <p className="text-sm uppercase tracking-[0.28em] text-slate-500">Acesso Administrativo</p>
-              <h2 className="mt-2 text-2xl font-bold text-white">Digite a senha</h2>
-            </div>
-            <div className="space-y-4">
-              <input
-                type="password"
-                value={adminPinValue}
-                autoFocus
-                maxLength={4}
-                onChange={(event) => setAdminPinValue(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    handleAdminPinSubmit(adminPinValue.trim());
-                  }
-                }}
-                placeholder="PIN de 4 dígitos"
-                className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3 text-lg font-semibold text-white outline-none ring-1 ring-slate-800 focus:border-primary focus:ring-primary/40"
-              />
-              {adminPinError && <p className="text-sm text-red-400">{adminPinError}</p>}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={handleAdminPinCancel}
-                  className="flex-1 rounded-2xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm font-semibold text-slate-200 transition hover:bg-slate-700"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleAdminPinSubmit(adminPinValue.trim())}
-                  className="flex-1 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-white transition hover:bg-primary/90"
-                >
-                  Entrar
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </ErrorBoundary>
   );
 }

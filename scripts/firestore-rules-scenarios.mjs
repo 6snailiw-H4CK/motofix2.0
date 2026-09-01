@@ -51,16 +51,15 @@ const scenarios = [
     ]
   },
   {
-    name: '🔑 Admin via documento (role field) deletando qualquer cash_launch',
+    name: '🚫 Role no documento não concede privilégio administrativo',
     user: { uid: 'admin-999', role: 'admin', isActive: true, admin: false },
     resource: { userId: 'user-123', deletedAt: null },
     operation: 'update com soft-delete',
-    expected: '✅ PERMITIDO',
+    expected: '❌ NEGADO',
     rules: [
-      'isAdmin() verifica documento role',
-      'get(/users/admin-999).data.role == "admin" = true',
-      'get(/users/admin-999).data.isActive == true = true',
-      'Segunda condição em isAdmin() = true → PERMITIDO'
+      'isAdmin() verifica somente request.auth.token.admin == true',
+      'role == "admin" no documento não é consultado pelas regras',
+      'Sem custom claim → permission-denied'
     ]
   },
   {
@@ -96,7 +95,7 @@ const scenarios = [
     expected: '❌ NEGADO',
     rules: [
       'match /users/{userId}: allow list: if isAdmin()',
-      'isAdmin() = false (não tem claim e não tem role=admin)',
+      'isAdmin() = false (não tem custom claim admin)',
       'Condição falhou → permission-denied'
     ]
   },
@@ -108,7 +107,7 @@ const scenarios = [
     expected: '✅ PERMITIDO',
     rules: [
       'match /users/{userId}: allow list: if isAdmin()',
-      'isAdmin() verifica role == "admin" && isActive == true',
+      'isAdmin() verifica request.auth.token.admin == true',
       'isAdmin() = true → PERMITIDO'
     ]
   },
@@ -184,10 +183,10 @@ scenarios.forEach((scenario, idx) => {
 
 console.log('=' .repeat(60));
 console.log('\n📊 Resumo de Testes de Autorização:\n');
-console.log('✅ 5 cenários de PERMISSÃO CONCEDIDA (esperado):');
+console.log('✅ 4 cenários de PERMISSÃO CONCEDIDA (esperado):');
 console.log('   • Owner operando sobre próprio recurso');
 console.log('   • Admin via custom claim');
-console.log('   • Admin via role documento');
+console.log('   • Admin via custom claim');
 console.log('   • Admin operações em recursos alheios');
 console.log('   • Soft-delete com metadados válidos\n');
 
@@ -199,7 +198,7 @@ console.log('   • Validação de soft-delete fields falhando');
 console.log('   • Operações sem ownership ou admin status\n');
 
 console.log('🔒 Proteções de Segurança Validadas:\n');
-console.log('   ✅ Dual admin check (custom claim + role documento)');
+console.log('   ✅ Admin check exclusivo por custom claim');
 console.log('   ✅ isActive validation em todas as operações');
 console.log('   ✅ Ownership validation (userId match)');
 console.log('   ✅ Soft-delete metadata validation');
@@ -211,8 +210,8 @@ console.log('=' .repeat(60) + '\n');
 
 console.log('✅ Análise de Cenários Completada!\n');
 console.log('🚀 Próximas Etapas:');
-console.log('   1. Verificar perfis de usuário em production');
-console.log('   2. Validar que admins têm role="admin" com isActive=true');
+console.log('   1. Verificar custom claims admin em production');
+console.log('   2. Confirmar que role no documento não concede privilégio');
 console.log('   3. Testar soft-delete em aplicação');
 console.log('   4. Monitorar erros de permissão em logs\n');
 
