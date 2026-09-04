@@ -30,7 +30,7 @@ export const LoginPage = ({ authError, isSigningIn, onBack, onGoogleLogin, onRed
           <span className="login-google-mark">G</span>
           {isSigningIn ? 'Entrando...' : 'Entrar com Google'}
         </button>
-        {authError && <button type="button" className="login-redirect" onClick={onRedirectLogin} disabled={isSigningIn}>Entrar redirecionando</button>}
+        <button type="button" className="login-redirect" onClick={onRedirectLogin} disabled={isSigningIn}>Entrar redirecionando</button>
         <p className="login-help">Ao entrar, você concorda com os termos de uso do MotoFix.</p>
       </section>
     </main>

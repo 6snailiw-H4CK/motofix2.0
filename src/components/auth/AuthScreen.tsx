@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowRight, BarChart3, Calendar, DollarSign, ShieldCheck, TrendingUp, Users } from 'lucide-react';
-import { getRedirectResult, signInWithPopup, signInWithRedirect } from 'firebase/auth';
+import { signInWithPopup, signInWithRedirect } from 'firebase/auth';
 import { auth, googleProvider } from '../../firebase';
 import { LandingPage } from './LandingPage';
 import { LegalPage } from './LegalPage';
 import { LoginPage } from './LoginPage';
 
-export const AuthScreen = () => {
+export const AuthScreen = ({ initialAuthError = null }: { initialAuthError?: string | null }) => {
   const supportWhatsAppUrl = 'https://wa.me/556999944024';
-  const [authView, setAuthView] = useState<'landing' | 'login' | 'sales' | 'privacy' | 'terms'>('landing');
+  const [authView, setAuthView] = useState<'landing' | 'login' | 'sales' | 'privacy' | 'terms'>(initialAuthError ? 'login' : 'landing');
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
@@ -101,52 +101,19 @@ export const AuthScreen = () => {
 
     try {
       sessionStorage.setItem('motofix-auth-redirect-started', '1');
-      await signInWithRedirect(auth, googleProvider);
+      await Promise.race([
+        signInWithRedirect(auth, googleProvider),
+        new Promise<never>((_, reject) => {
+          window.setTimeout(() => reject(new Error('Timeout iniciando login por redirecionamento')), 10000);
+        }),
+      ]);
     } catch (error) {
       console.error('Erro no login por redirecionamento:', error);
+      sessionStorage.removeItem('motofix-auth-redirect-started');
       setAuthError(getAuthErrorMessage(error));
       setIsSigningIn(false);
     }
   };
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const finishRedirectLogin = async () => {
-      const hadRedirectAttempt = sessionStorage.getItem('motofix-auth-redirect-started') === '1';
-
-      try {
-        const result = await getRedirectResult(auth);
-        if (cancelled) return;
-
-        if (result?.user) {
-          sessionStorage.removeItem('motofix-auth-redirect-started');
-          setAuthError(null);
-          setIsSigningIn(false);
-          return;
-        }
-
-        if (hadRedirectAttempt) {
-          setAuthError(
-            'O Google retornou para o app, mas o Firebase nao confirmou a sessao. Verifique dominios autorizados, cookies/persistencia do navegador e a configuracao do Firebase Auth.'
-          );
-          setIsSigningIn(false);
-        }
-      } catch (error) {
-        if (cancelled) return;
-        console.error('Erro ao finalizar login por redirecionamento:', error);
-        sessionStorage.removeItem('motofix-auth-redirect-started');
-        setAuthError(getAuthErrorMessage(error));
-        setIsSigningIn(false);
-      }
-    };
-
-    finishRedirectLogin();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   if (authView === 'landing') {
     return (
