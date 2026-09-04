@@ -51,7 +51,7 @@ import { canonicalServiceType, getServiceTypeKey } from './lib/serviceTypes';
 // --- Main App ---
 
 export default function App() {
-  const { user, userProfile, loading, isNewUser } = useAuthProfile();
+  const { user, userProfile, loading, authLoading, profileLoading, subscriptionResolved, isNewUser, authInitializationError } = useAuthProfile();
   const {
     allUsers,
     clients,
@@ -119,24 +119,6 @@ export default function App() {
 
     setView(nextView);
   }, [fiscalModuleAvailable, setView, userProfile?.role]);
-  const handleAdminPinSubmit = useCallback((input: string) => {
-    if (input === '1570') {
-      setAdminPinPromptOpen(false);
-      setAdminPinError(null);
-      setAdminPinValue('');
-      setView('admin');
-      return;
-    }
-
-    setAdminPinError('Senha incorreta. Tente novamente.');
-  }, [setView]);
-
-  const handleAdminPinCancel = useCallback(() => {
-    setAdminPinPromptOpen(false);
-    setAdminPinError(null);
-    setAdminPinValue('');
-  }, []);
-
   const handleExpenseSaved = useCallback(() => setView('expenses'), [setView]);
   const openWarrantyForm = useCallback(() => setView('new-warranty'), [setView]);
   const handleWarrantySaved = useCallback(() => setView('warranties'), [setView]);
@@ -251,7 +233,7 @@ export default function App() {
     serviceListFilter,
   });
 
-  const { isExpired, shouldBlock } = useSubscriptionStatus({ userProfile });
+  const { isExpired, shouldBlock, subscriptionActive } = useSubscriptionStatus({ userProfile });
 
   useEffect(() => {
     if (!user || !userProfile || userProfile.role === 'admin') return;
@@ -275,7 +257,41 @@ export default function App() {
     }
   }, [fiscalModuleAvailable, setView, view]);
 
-  const shouldBlockUser = shouldBlock;
+  const billingLoading = !!user && (profileLoading || !subscriptionResolved);
+  const authenticated = !!user;
+  const shouldBlockUser = authenticated && !billingLoading && (!userProfile || (!subscriptionActive && userProfile.role !== 'admin'));
+  const diagnosticNow = new Date();
+  const diagnosticPeriodEnd = userProfile?.billing?.currentPeriodEnd || null;
+  const diagnosticPeriodEndDate = diagnosticPeriodEnd ? new Date(diagnosticPeriodEnd) : null;
+  const diagnosticPeriodFuture = !!diagnosticPeriodEndDate && !Number.isNaN(diagnosticPeriodEndDate.getTime()) && diagnosticPeriodEndDate > diagnosticNow;
+  const diagnosticReason = !authenticated
+    ? 'usuário não autenticado'
+    : billingLoading
+      ? 'billing ainda carregando'
+      : !userProfile
+        ? 'perfil não carregado'
+        : !userProfile.billing?.status
+          ? 'billing.status ausente'
+          : !['active', 'trialing'].includes(userProfile.billing.status)
+            ? `billing.status=${userProfile.billing.status}`
+            : !diagnosticPeriodFuture
+              ? 'currentPeriodEnd ausente, inválido ou passado'
+              : 'subscriptionActive=false apesar de status/período';
+
+  useEffect(() => {
+    if (import.meta.env.DEV && shouldBlockUser) console.info('[Subscription Gate Diagnostic]', {
+      uid: user?.uid || null,
+      profileLoaded: !!userProfile,
+      billingStatus: userProfile?.billing?.status || null,
+      cancelAtPeriodEnd: userProfile?.billing?.cancelAtPeriodEnd || false,
+      currentPeriodEnd: diagnosticPeriodEnd,
+      subscriptionResolved,
+      subscriptionActive,
+      isExpired,
+      shouldBlock: shouldBlockUser,
+      reason: diagnosticReason,
+    });
+  }, [diagnosticPeriodEnd, diagnosticReason, isExpired, shouldBlockUser, subscriptionActive, subscriptionResolved, user, userProfile]);
 
   const {
     chartData,
@@ -292,11 +308,32 @@ export default function App() {
   });
 
   // Early returns AFTER all hooks
-  if (loading) return <LoadingScreen />;
-  if (!user) return <AuthScreen />;
+  if (authLoading || loading || (authenticated && billingLoading)) return <LoadingScreen />;
+  if (!user) return <AuthScreen initialAuthError={authInitializationError} />;
 
   if (shouldBlockUser && view !== 'checkout') {
-    return <BlockedAccessScreen userId={user.uid} onSignOut={() => signOut(auth)} onSubscribe={() => setView('checkout')} />;
+    return <BlockedAccessScreen
+      userId={user.uid}
+      onSignOut={() => signOut(auth)}
+      onSubscribe={() => setView('checkout')}
+      subscriptionDiagnostic={{
+        authenticated,
+        profileLoaded: !!userProfile,
+        profileUid: userProfile?.uid || null,
+        billingLoaded: !!userProfile?.billing,
+        billingStatus: userProfile?.billing?.status || null,
+        cancelAtPeriodEnd: userProfile?.billing?.cancelAtPeriodEnd || false,
+        currentPeriodEnd: diagnosticPeriodEnd,
+        formattedCurrentPeriodEnd: diagnosticPeriodEndDate && !Number.isNaN(diagnosticPeriodEndDate.getTime()) ? diagnosticPeriodEndDate.toLocaleString('pt-BR') : 'inválido/não informado',
+        now: diagnosticNow.toLocaleString('pt-BR'),
+        periodFuture: diagnosticPeriodFuture,
+        subscriptionResolved,
+        subscriptionActive,
+        isExpired,
+        shouldBlock: shouldBlockUser,
+        reason: diagnosticReason,
+      }}
+    />;
   }
 
   return (

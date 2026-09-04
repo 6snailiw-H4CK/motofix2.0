@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import express from "express";
 import Stripe from "stripe";
@@ -15,9 +16,70 @@ const handledEventTypes = new Set([
   "invoice.paid",
   "invoice.payment_failed",
 ]);
-const stripeStatus = (value: unknown) => typeof value === "string" ? value : "inactive";
-const iso = (seconds: unknown) => typeof seconds === "number" ? new Date(seconds * 1000).toISOString() : null;
+const stripeStatus = (value: unknown) => typeof value === "string" && value.length > 0 ? value : null;
+const iso = (seconds: unknown) => typeof seconds === "number" && Number.isFinite(seconds) ? new Date(seconds * 1000).toISOString() : null;
 const objectId = (value: unknown) => typeof value === "string" ? value : (value as { id?: string } | null)?.id ?? null;
+const isValidIso = (value: unknown): value is string => typeof value === "string" && !Number.isNaN(Date.parse(value));
+
+type UnknownRecord = Record<string, unknown>;
+type SubscriptionPeriod = { start: number | null; end: number | null };
+type CompleteSubscriptionPayload = UnknownRecord & { status: string };
+
+const asRecord = (value: unknown): UnknownRecord | null => (
+  typeof value === "object" && value !== null ? value as UnknownRecord : null
+);
+
+const unixTimestamp = (value: unknown) => (
+  typeof value === "number" && Number.isFinite(value) ? value : null
+);
+
+const metadataValue = (value: unknown, key: string) => {
+  const metadata = asRecord(asRecord(value)?.metadata);
+  const metadataEntry = metadata?.[key];
+  return typeof metadataEntry === "string" ? metadataEntry : null;
+};
+
+export const getSubscriptionPeriod = (subscription: unknown): SubscriptionPeriod => {
+  const payload = asRecord(subscription);
+  const items = asRecord(payload?.items);
+  const firstItem = Array.isArray(items?.data) ? asRecord(items.data[0]) : null;
+  const periodStart = firstItem && Object.prototype.hasOwnProperty.call(firstItem, "current_period_start")
+    ? firstItem.current_period_start
+    : payload?.current_period_start;
+  const periodEnd = firstItem && Object.prototype.hasOwnProperty.call(firstItem, "current_period_end")
+    ? firstItem.current_period_end
+    : payload?.current_period_end;
+
+  return {
+    start: unixTimestamp(periodStart),
+    end: unixTimestamp(periodEnd),
+  };
+};
+
+const subscriptionCancelAtPeriodEnd = (subscription: unknown) => {
+  const value = asRecord(subscription)?.cancel_at_period_end;
+  return typeof value === "boolean" ? value : null;
+};
+
+export const isCompleteSubscriptionPayload = (subscription: unknown): subscription is CompleteSubscriptionPayload => {
+  const value = asRecord(subscription);
+  return !!value && stripeStatus(value.status) !== null && getSubscriptionPeriod(subscription).end !== null;
+};
+
+export const mergeBillingFields = (currentBilling: Record<string, unknown>, input: {
+  customerId?: string | null; subscriptionId?: string | null; status?: string | null;
+  planId?: string | null; start?: string | null; end?: string | null;
+  cancelAtPeriodEnd?: boolean;
+}) => ({
+  ...currentBilling,
+  ...(input.customerId !== null && input.customerId !== undefined ? { stripeCustomerId: input.customerId } : {}),
+  ...(input.subscriptionId !== null && input.subscriptionId !== undefined ? { stripeSubscriptionId: input.subscriptionId } : {}),
+  ...(input.status !== null && input.status !== undefined ? { status: input.status } : {}),
+  ...(input.planId !== null && input.planId !== undefined ? { planId: input.planId } : {}),
+  ...(isValidIso(input.start) ? { currentPeriodStart: input.start } : {}),
+  ...(isValidIso(input.end) ? { currentPeriodEnd: input.end } : {}),
+  ...(input.cancelAtPeriodEnd !== null && input.cancelAtPeriodEnd !== undefined ? { cancelAtPeriodEnd: input.cancelAtPeriodEnd } : {}),
+});
 
 export const isBillingEventNewer = (current: { created?: unknown; eventId?: unknown } | null | undefined, incoming: { created: number; eventId: string }) => {
   if (!current || typeof current.created !== "number") return true;
@@ -29,8 +91,79 @@ export const isBillingStatusActive = (status: string, currentPeriodEnd: string |
   status === "trialing" || (status === "active" && !!currentPeriodEnd && new Date(currentPeriodEnd).getTime() > now)
 );
 
+export const canRequestSubscriptionCancellation = (billing: { status?: string | null; cancelAtPeriodEnd?: boolean }) => (
+  (billing.status === "active" || billing.status === "trialing") && billing.cancelAtPeriodEnd !== true
+);
+
+export const clearCancellationRequestLock = async (userRef: { set: (data: unknown, options: { merge: boolean }) => Promise<unknown> }) => {
+  await userRef.set({ billing: { cancellationRequestLock: FieldValue.delete() } }, { merge: true });
+};
+
+export const buildCheckoutIdempotencyKey = (
+  uid: string,
+  planId: string,
+  billing: {
+    stripeCustomerId?: string | null;
+    stripeSubscriptionId?: string | null;
+    stripeCheckoutSessionId?: string | null;
+    lastStripeEventCreated?: unknown;
+  },
+) => {
+  const seed = [
+    uid,
+    planId,
+    billing.stripeCustomerId ?? "new-customer",
+    billing.stripeSubscriptionId ?? "no-subscription",
+    billing.stripeCheckoutSessionId ?? "fresh-intent",
+    typeof billing.lastStripeEventCreated === "number" ? String(billing.lastStripeEventCreated) : "no-event",
+  ].join(":");
+
+  return crypto.createHash("sha256").update(seed).digest("hex");
+};
+
+export const isUserAlreadySubscribedForCheckout = async (stripe: Stripe, billing: {
+  status?: string | null;
+  currentPeriodEnd?: string | null;
+  stripeCustomerId?: string | null;
+  stripeSubscriptionId?: string | null;
+}) => {
+  const status = typeof billing.status === "string" ? billing.status : "inactive";
+  const currentPeriodEnd = typeof billing.currentPeriodEnd === "string" ? billing.currentPeriodEnd : null;
+  const existingSubscriptionId = typeof billing.stripeSubscriptionId === "string" ? billing.stripeSubscriptionId : null;
+  const hasStripeIdentifier = !!(existingSubscriptionId || billing.stripeCustomerId);
+
+  if (hasStripeIdentifier) {
+    let subscription: { status?: string } | null = null;
+    if (existingSubscriptionId) {
+      try {
+        subscription = await stripe.subscriptions.retrieve(existingSubscriptionId);
+      } catch {
+        subscription = null;
+      }
+    }
+
+    if (!subscription && billing.stripeCustomerId) {
+      try {
+        const list = await stripe.subscriptions.list({ customer: billing.stripeCustomerId, status: "all", limit: 50 });
+        subscription = list.data.find((item) => ["active", "trialing", "canceled", "unpaid", "incomplete", "incomplete_expired", "past_due"].includes(item.status)) ?? null;
+      } catch {
+        subscription = null;
+      }
+    }
+
+    const stripeStatus = subscription?.status ?? "inactive";
+    if (stripeStatus === "active" || stripeStatus === "trialing") return true;
+    if (["canceled", "unpaid", "incomplete", "incomplete_expired", "past_due"].includes(stripeStatus)) return false;
+    if (stripeStatus === "inactive" && !(status === "active" || status === "trialing")) return false;
+    return false;
+  }
+
+  if (!(status === "active" || status === "trialing")) return false;
+  return !!(currentPeriodEnd && new Date(currentPeriodEnd).getTime() > Date.now());
+};
+
 export const shouldPreserveBillingWithoutSubscription = (eventType: string, subscription: unknown) => (
-  (eventType === "invoice.paid" || eventType === "invoice.payment_failed") && !subscription
+  eventType !== "customer.subscription.deleted" && !isCompleteSubscriptionPayload(subscription)
 );
 
 export const requireFirebaseAuth = (auth: Auth | null, initialized: boolean) => async (req: PaymentRequest, res: Response, next: NextFunction) => {
@@ -85,15 +218,10 @@ const writeBilling = async (db: Firestore, uid: string, input: {
     const currentBilling = user.get("billing") || {};
     if (!isBillingEventNewer(currentBilling, { created: input.eventCreated, eventId: input.eventId })) return false;
 
-    const active = isBillingStatusActive(input.status, input.end);
+    const mergedBilling = mergeBillingFields(currentBilling, input);
+    const active = isBillingStatusActive(mergedBilling.status, mergedBilling.currentPeriodEnd);
     const billing: Record<string, unknown> = {
-      stripeCustomerId: input.customerId,
-      stripeSubscriptionId: input.subscriptionId,
-      status: input.status,
-      planId: input.planId ?? null,
-      currentPeriodStart: input.start ?? null,
-      currentPeriodEnd: input.end ?? null,
-      cancelAtPeriodEnd: input.cancelAtPeriodEnd ?? false,
+      ...mergedBilling,
       activationSource: "stripe",
       lastStripeEventId: input.eventId,
       lastStripeEventCreated: input.eventCreated,
@@ -105,13 +233,13 @@ const writeBilling = async (db: Firestore, uid: string, input: {
     transaction.set(userRef, {
       billing,
       subscription: {
-        status: input.status,
-        plan: input.planId === "pro" ? "annual" : "monthly",
-        stripeCustomerId: input.customerId,
-        stripeSubscriptionId: input.subscriptionId,
-        currentPeriodEnd: input.end ?? null,
+        status: mergedBilling.status,
+        plan: mergedBilling.planId === "pro" ? "annual" : "monthly",
+        stripeCustomerId: mergedBilling.stripeCustomerId,
+        stripeSubscriptionId: mergedBilling.stripeSubscriptionId,
+        currentPeriodEnd: mergedBilling.currentPeriodEnd,
       },
-      subscriptionExpiresAt: input.end ?? null,
+      subscriptionExpiresAt: mergedBilling.currentPeriodEnd,
       isActive: active,
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
@@ -141,21 +269,34 @@ export const registerStripeBillingRoutes = (app: any, options: { stripe: Stripe;
     if (!successUrl || !cancelUrl) return res.status(503).json({ error: "URLs do Stripe Checkout nao configuradas." });
     try {
       const userRef = db.collection("users").doc(uid);
+      const userSnapshot = await userRef.get();
+      const billing = userSnapshot.get("billing") || {};
+      const alreadySubscribed = await isUserAlreadySubscribedForCheckout(stripe, billing);
+      if (alreadySubscribed) {
+        return res.status(409).json({
+          error: "subscription_already_active",
+          message: "Usuário já possui uma assinatura ativa.",
+        });
+      }
+
       const lockAcquired = await db.runTransaction(async transaction => {
         const current = await transaction.get(userRef);
-        const billing = current.get("billing") || {};
+        const latestBilling = current.get("billing") || {};
         const now = Date.now();
-        const end = billing.currentPeriodEnd ? new Date(billing.currentPeriodEnd).getTime() : 0;
-        if (allowedStatuses.has(billing.status) && (billing.status === "trialing" || end > now)) return false;
-        if (typeof billing.checkoutSessionLock === "number" && billing.checkoutSessionLock > now - 5 * 60_000) return false;
+        const end = latestBilling.currentPeriodEnd ? new Date(latestBilling.currentPeriodEnd).getTime() : 0;
+        if (allowedStatuses.has(latestBilling.status) && (latestBilling.status === "trialing" || end > now)) return false;
+        if (typeof latestBilling.checkoutSessionLock === "number" && latestBilling.checkoutSessionLock > now - 5 * 60_000) return false;
         transaction.set(userRef, { billing: { checkoutSessionLock: now } }, { merge: true });
         return true;
       });
-      if (!lockAcquired) return res.status(409).json({ error: "Ja existe uma assinatura ativa ou checkout em andamento." });
+      if (!lockAcquired) return res.status(409).json({
+        error: "subscription_already_active",
+        message: "Usuário já possui uma assinatura ativa.",
+      });
       const user = await userRef.get();
-      const billing = user.get("billing") || {};
-      const knownCustomer = billing.stripeCustomerId;
-      const existingSessionId = billing.stripeCheckoutSessionId;
+      const refreshedBilling = user.get("billing") || {};
+      const knownCustomer = refreshedBilling.stripeCustomerId;
+      const existingSessionId = refreshedBilling.stripeCheckoutSessionId;
       if (typeof existingSessionId === "string") {
         const existingSession = await stripe.checkout.sessions.retrieve(existingSessionId);
         if (existingSession.status === "open" && existingSession.url) {
@@ -178,11 +319,17 @@ export const registerStripeBillingRoutes = (app: any, options: { stripe: Stripe;
         await userRef.set({ billing: { stripeCustomerId: customerId, updatedAt: FieldValue.serverTimestamp() } }, { merge: true });
       }
       const metadata = { firebaseUid: uid, internalUserId: uid, planId };
+      const checkoutIntentKey = buildCheckoutIdempotencyKey(uid, planId, {
+        stripeCustomerId: customerId,
+        stripeSubscriptionId: refreshedBilling.stripeSubscriptionId ?? null,
+        stripeCheckoutSessionId: existingSessionId ?? null,
+        lastStripeEventCreated: refreshedBilling.lastStripeEventCreated ?? null,
+      });
       const session = await stripe.checkout.sessions.create({
         mode: "subscription", customer: customerId, client_reference_id: uid, metadata,
         subscription_data: { metadata }, line_items: [{ price: priceId, quantity: 1 }],
         success_url: successUrl, cancel_url: cancelUrl,
-      });
+      }, { idempotencyKey: checkoutIntentKey });
       await userRef.set({
         billing: {
           stripeCheckoutSessionId: session.id,
@@ -202,7 +349,68 @@ export const registerStripeBillingRoutes = (app: any, options: { stripe: Stripe;
   app.get("/api/stripe/subscription", auth, async (req: PaymentRequest, res: Response) => {
     const user = await db.collection("users").doc(req.paymentAuth!.uid).get();
     const billing = user.get("billing") || {};
-    return res.json({ ...billing, hasActiveSubscription: isBillingStatusActive(billing.status, billing.currentPeriodEnd) });
+    let stripeAmount: number | null = null;
+    let stripeCurrency: string | null = null;
+    let stripeInterval: string | null = null;
+    if (typeof billing.stripeSubscriptionId === "string") {
+      const subscription = await stripe.subscriptions.retrieve(billing.stripeSubscriptionId).catch(() => null) as any;
+      const price = subscription?.items?.data?.[0]?.price;
+      stripeAmount = typeof price?.unit_amount === "number" ? price.unit_amount : null;
+      stripeCurrency = typeof price?.currency === "string" ? price.currency : null;
+      stripeInterval = typeof price?.recurring?.interval === "string" ? price.recurring.interval : null;
+    }
+    return res.json({
+      ...billing,
+      email: req.paymentAuth!.email || null,
+      displayName: req.paymentAuth!.name || null,
+      amount: stripeAmount,
+      currency: stripeCurrency,
+      interval: stripeInterval,
+      hasActiveSubscription: isBillingStatusActive(billing.status, billing.currentPeriodEnd),
+    });
+  });
+
+  app.post("/api/stripe/cancel-subscription", auth, async (req: PaymentRequest, res: Response) => {
+    const uid = req.paymentAuth!.uid;
+    const userRef = db.collection("users").doc(uid);
+    let lockAcquiredByRequest = false;
+    try {
+      const lockAcquired = await db.runTransaction(async transaction => {
+        const user = await transaction.get(userRef);
+        const billing = user.get("billing") || {};
+        if (!canRequestSubscriptionCancellation(billing)) return false;
+        const now = Date.now();
+        if (typeof billing.cancellationRequestLock === "number" && billing.cancellationRequestLock > now - 30_000) return false;
+        transaction.set(userRef, { billing: { cancellationRequestLock: now } }, { merge: true });
+        return true;
+      });
+      if (!lockAcquired) return res.status(409).json({ error: "cancellation_already_requested" });
+      lockAcquiredByRequest = true;
+
+      const billing = (await userRef.get()).get("billing") || {};
+      const subscriptionId = typeof billing.stripeSubscriptionId === "string" ? billing.stripeSubscriptionId : null;
+      if (!subscriptionId) {
+        await clearCancellationRequestLock(userRef);
+        lockAcquiredByRequest = false;
+        return res.status(404).json({ error: "Stripe subscription not found." });
+      }
+      const subscription = await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: true });
+      const subscriptionPeriod = getSubscriptionPeriod(subscription);
+      const currentPeriodEnd = iso(subscriptionPeriod.end) ?? billing.currentPeriodEnd ?? null;
+      await userRef.set({ billing: {
+        cancelAtPeriodEnd: true,
+        currentPeriodEnd,
+        cancellationRequestLock: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      } }, { merge: true });
+      return res.json({ cancelAtPeriodEnd: true, currentPeriodEnd });
+    } catch (error) {
+      if (lockAcquiredByRequest) {
+        await clearCancellationRequestLock(userRef).catch(() => undefined);
+      }
+      console.error("[STRIPE][ERROR] Subscription cancellation failed", { uid, error });
+      return res.status(500).json({ error: "Nao foi possivel agendar o cancelamento." });
+    }
   });
 
   app.post("/api/stripe/create-customer-portal-session", auth, async (req: PaymentRequest, res: Response) => {
@@ -253,12 +461,12 @@ export const registerStripeBillingRoutes = (app: any, options: { stripe: Stripe;
       }
       const currentUser = await db.collection("users").doc(uid).get();
       const currentBilling = currentUser.get("billing") || {};
-      let subscription: any = object.object === "subscription" ? object : null;
+      let subscription: unknown = object.object === "subscription" ? object : null;
       const knownSubscriptionId = subscriptionId || objectId(currentBilling.stripeSubscriptionId);
       if (!subscription && knownSubscriptionId) {
         subscription = await stripe.subscriptions.retrieve(knownSubscriptionId).catch(() => null);
       }
-      const effectiveSubscriptionId = objectId(subscription?.id) || knownSubscriptionId;
+      const effectiveSubscriptionId = objectId(subscription) || knownSubscriptionId;
       if (shouldPreserveBillingWithoutSubscription(event.type, subscription)) {
         await eventRef.set({
           status: "processed",
@@ -266,18 +474,33 @@ export const registerStripeBillingRoutes = (app: any, options: { stripe: Stripe;
           stripeCustomerId: customerId,
           stripeSubscriptionId: effectiveSubscriptionId,
           billingPreserved: true,
-          preservationReason: "Complementary invoice event without a resolvable Subscription",
+          preservationReason: "Event without a complete Stripe Subscription",
           processedAt: FieldValue.serverTimestamp(),
         }, { merge: true });
         console.info("[STRIPE] Billing preserved", { eventId: event.id, type: event.type, uid });
         return res.json({ received: true, billingPreserved: true });
       }
-      const status = event.type === "customer.subscription.deleted" ? "canceled" : stripeStatus(subscription?.status);
-      const planId = subscription?.metadata?.planId || object.metadata?.planId || null;
-      const start = iso(subscription?.current_period_start);
-      const end = iso(subscription?.current_period_end);
+      const status = event.type === "customer.subscription.deleted"
+        ? "canceled"
+        : stripeStatus(asRecord(subscription)?.status);
+      if (status === null) {
+        await eventRef.set({
+          status: "processed",
+          firebaseUid: uid,
+          stripeCustomerId: customerId,
+          stripeSubscriptionId: effectiveSubscriptionId,
+          billingPreserved: true,
+          preservationReason: "Stripe Subscription status unavailable",
+          processedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+        return res.json({ received: true, billingPreserved: true });
+      }
+      const subscriptionPeriod = getSubscriptionPeriod(subscription);
+      const planId = metadataValue(subscription, "planId") ?? metadataValue(object, "planId");
+      const start = iso(subscriptionPeriod.start);
+      const end = iso(subscriptionPeriod.end);
       if (handledEventTypes.has(event.type)) {
-        await writeBilling(db, uid, { customerId, subscriptionId: effectiveSubscriptionId, sessionId: object.id?.startsWith("cs_") ? object.id : null, status, planId, start, end, cancelAtPeriodEnd: Boolean(subscription?.cancel_at_period_end), eventId: event.id, eventType: event.type, eventCreated: event.created, amount: object.amount_paid ?? null });
+        await writeBilling(db, uid, { customerId, subscriptionId: effectiveSubscriptionId, sessionId: object.id?.startsWith("cs_") ? object.id : null, status, planId, start, end, cancelAtPeriodEnd: subscriptionCancelAtPeriodEnd(subscription), eventId: event.id, eventType: event.type, eventCreated: event.created, amount: object.amount_paid ?? null });
       }
       await eventRef.set({ status: "processed", firebaseUid: uid, stripeCustomerId: customerId, stripeSubscriptionId: effectiveSubscriptionId, processedAt: FieldValue.serverTimestamp() }, { merge: true });
       console.info("[STRIPE] Billing updated", { eventId: event.id, type: event.type, uid, status });

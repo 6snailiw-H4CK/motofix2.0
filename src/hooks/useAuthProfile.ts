@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { addDays, format } from 'date-fns';
-import { getIdTokenResult, onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc, getDocFromCache, setDoc } from 'firebase/firestore';
-import { auth, db } from '../firebase';
-import { queueFirestoreVoidWrite, readFirestoreWithCacheFallback } from '../services/firestoreOfflineQueue';
+import { getIdTokenResult, getRedirectResult, onAuthStateChanged, User } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { auth, authPersistenceReady, db } from '../firebase';
+import { queueFirestoreVoidWrite } from '../services/firestoreOfflineQueue';
 import { UserProfile } from '../types';
 
 const applyClaimRole = (profile: UserProfile, isAdminClaim: boolean): UserProfile => ({
@@ -68,24 +68,27 @@ export function useAuthProfile() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [subscriptionResolved, setSubscriptionResolved] = useState(false);
   const [isNewUser, setIsNewUser] = useState<boolean | null>(null);
+  const [authInitializationError, setAuthInitializationError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
 
-    const loadUserProfile = async (firebaseUser: User) => {
+    let authGeneration = 0;
+
+    const loadUserProfile = async (firebaseUser: User, generation: number) => {
       try {
         const tokenResult = await getTokenResultWithOfflineFallback(firebaseUser);
         const isAdminClaim = tokenResult?.claims.admin === true;
         const userDoc = doc(db, 'users', firebaseUser.uid);
-        const userSnap = await readFirestoreWithCacheFallback(
-          () => getDoc(userDoc),
-          () => getDocFromCache(userDoc),
-          'Carregar perfil de usuario',
-          5000
-        );
+        const userSnap = await Promise.race([
+          getDoc(userDoc),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout carregando perfil remoto')), 5000)),
+        ]);
 
-        if (!isMounted) return;
+        if (!isMounted || generation !== authGeneration || auth.currentUser?.uid !== firebaseUser.uid) return;
 
         const userExists = userSnap.exists();
         setIsNewUser(!userExists);
@@ -127,30 +130,57 @@ export function useAuthProfile() {
           });
         }
         setLoading(false);
+        setProfileLoading(false);
+        setSubscriptionResolved(true);
       } catch (error) {
         console.error('Failed to load user profile:', error);
-        if (isMounted) {
-          setUserProfile((currentProfile) => (
-            currentProfile?.uid === firebaseUser.uid ? currentProfile : null
-          ));
+        if (isMounted && generation === authGeneration && auth.currentUser?.uid === firebaseUser.uid) {
+          setUserProfile(null);
           setIsNewUser(false);
           setLoading(false);
+          setProfileLoading(false);
+          setSubscriptionResolved(true);
         }
       }
     };
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
-      if (firebaseUser) {
-        setUser(firebaseUser);
-        setLoading(true);
-        loadUserProfile(firebaseUser);
-      } else if (isMounted) {
-        setUser(null);
+    let unsubscribeAuth = () => undefined;
+    const initializeAuth = async () => {
+      try {
+        await authPersistenceReady;
+        const redirectResult = await getRedirectResult(auth);
+        sessionStorage.removeItem('motofix-auth-redirect-started');
+        if (redirectResult?.user && isMounted) setAuthInitializationError(null);
+      } catch (error) {
+        if (isMounted) {
+          const code = typeof error === 'object' && error && 'code' in error ? String((error as { code?: string }).code) : '';
+          const message = typeof error === 'object' && error && 'message' in error ? String((error as { message?: string }).message) : '';
+          setAuthInitializationError(code ? `${code}: ${message}` : message || 'Falha ao restaurar a sessão do Firebase Auth.');
+        }
+        sessionStorage.removeItem('motofix-auth-redirect-started');
+      }
+
+      if (!isMounted) return;
+      unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
+        authGeneration += 1;
+        const generation = authGeneration;
         setUserProfile(null);
         setIsNewUser(null);
-        setLoading(false);
-      }
-    });
+        setSubscriptionResolved(false);
+        if (firebaseUser) {
+          setUser(firebaseUser);
+          setLoading(true);
+          setProfileLoading(true);
+          void loadUserProfile(firebaseUser, generation);
+        } else if (isMounted) {
+          setUser(null);
+          setLoading(false);
+          setProfileLoading(false);
+        }
+      });
+    };
+
+    void initializeAuth();
 
     return () => {
       isMounted = false;
@@ -158,5 +188,14 @@ export function useAuthProfile() {
     };
   }, []);
 
-  return { user, userProfile, loading, isNewUser };
+  return {
+    user,
+    userProfile,
+    loading,
+    authLoading: loading && !user,
+    profileLoading,
+    subscriptionResolved,
+    isNewUser,
+    authInitializationError,
+  };
 }

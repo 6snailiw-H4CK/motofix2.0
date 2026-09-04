@@ -1,4 +1,4 @@
-import { type Dispatch, type KeyboardEvent, type SetStateAction, useRef, useState } from 'react';
+import { type Dispatch, type KeyboardEvent, type SetStateAction, useEffect, useRef, useState } from 'react';
 import { format, isBefore, parseISO } from 'date-fns';
 import {
   AlertTriangle,
@@ -21,6 +21,7 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
+import { cancelSubscription, createCustomerPortalSession, getSubscriptionStatus, type BillingStatus } from '../../services/stripeService';
 import type { OfflineSyncStatus } from '../../hooks/useOfflineSyncStatus';
 import { APP_VERSION, DEFAULT_SERVICE_TYPES } from '../../constants/appDefaults';
 import { FailedWritesPanel } from './FailedWritesPanel';
@@ -101,8 +102,47 @@ export const SettingsView = ({
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetConfirmation, setResetConfirmation] = useState('');
   const [resetBackupReady, setResetBackupReady] = useState(false);
+  const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
+  const [isCancelingSubscription, setIsCancelingSubscription] = useState(false);
+  const [billingMessage, setBillingMessage] = useState<string | null>(null);
   const clientImportInputRef = useRef<HTMLInputElement | null>(null);
   const productImportInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    void getSubscriptionStatus().then(setBillingStatus).catch(() => setBillingMessage('Nao foi possivel carregar a assinatura.'));
+  }, []);
+
+  const subscriptionEnd = billingStatus?.currentPeriodEnd || userProfile?.billing?.currentPeriodEnd || userProfile?.subscriptionExpiresAt || null;
+  const subscriptionStatus = billingStatus?.status || userProfile?.billing?.status || userProfile?.subscription?.status || 'inactive';
+  const subscriptionIsActive = subscriptionStatus === 'active' || subscriptionStatus === 'trialing';
+  const subscriptionPrice = typeof billingStatus?.amount === 'number'
+    ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: (billingStatus.currency || 'brl').toUpperCase() }).format(billingStatus.amount / 100)
+    : 'Nao informado';
+  const subscriptionInterval = billingStatus?.interval === 'year' ? 'Anual' : billingStatus?.interval === 'month' ? 'Mensal' : 'Nao informado';
+  const formattedSubscriptionEnd = subscriptionEnd ? format(parseISO(subscriptionEnd), 'dd/MM/yyyy') : 'Nao informado';
+  const remainingDays = subscriptionEnd ? Math.max(0, Math.ceil((parseISO(subscriptionEnd).getTime() - Date.now()) / 86_400_000)) : null;
+
+  const handleCancelSubscription = async () => {
+    if (!subscriptionIsActive || billingStatus?.cancelAtPeriodEnd || isCancelingSubscription) return;
+    const confirmed = window.confirm(`Tem certeza que deseja cancelar sua assinatura?\n\nA assinatura sera cancelada ao final do periodo atual. Seu acesso permanece ativo ate ${formattedSubscriptionEnd}.`);
+    if (!confirmed) return;
+    setIsCancelingSubscription(true);
+    setBillingMessage(null);
+    try {
+      const result = await cancelSubscription();
+      setBillingStatus((current) => ({ ...(current || {}), cancelAtPeriodEnd: result.cancelAtPeriodEnd, currentPeriodEnd: result.currentPeriodEnd, hasActiveSubscription: true }));
+      setBillingMessage(`Cancelamento agendado. Seu acesso permanece disponivel ate ${result.currentPeriodEnd ? format(parseISO(result.currentPeriodEnd), 'dd/MM/yyyy') : formattedSubscriptionEnd}.`);
+    } catch {
+      setBillingMessage('Nao foi possivel agendar o cancelamento.');
+    } finally {
+      setIsCancelingSubscription(false);
+    }
+  };
+
+  const handleOpenCustomerPortal = async () => {
+    const { url } = await createCustomerPortalSession();
+    window.location.assign(url);
+  };
 
   const updateSettings = (patch: Partial<Settings>) => {
     setSettings((current) => ({ ...current, ...patch }));
@@ -380,6 +420,33 @@ export const SettingsView = ({
           </div>
         </div>
       )}
+
+      <div className="rounded-2xl border border-primary/30 bg-primary/10 p-4">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Minha assinatura</p>
+            <h4 className="mt-1 text-lg font-bold text-white">{billingStatus?.planId === 'pro' ? 'MotoFix Pro' : 'MotoFix Premium'}</h4>
+            <p className="mt-1 text-sm text-slate-300">{billingStatus?.displayName || userProfile?.displayName || 'Usuario MotoFix'}</p>
+          </div>
+          <span className={cn('inline-flex h-8 items-center rounded-lg border px-3 text-xs font-bold', subscriptionIsActive ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200' : 'border-slate-600 bg-slate-900/40 text-slate-300')}>
+            {billingStatus?.cancelAtPeriodEnd ? 'Cancelamento agendado' : subscriptionIsActive ? 'Ativa' : 'Inativa'}
+          </span>
+        </div>
+        <div className="mt-4 grid gap-3 text-sm md:grid-cols-2 lg:grid-cols-3">
+          <div><span className="text-slate-500">E-mail</span><p className="font-bold text-white">{billingStatus?.email || userEmail || 'Nao informado'}</p></div>
+          <div><span className="text-slate-500">Valor</span><p className="font-bold text-white">{subscriptionPrice}</p></div>
+          <div><span className="text-slate-500">Periodicidade</span><p className="font-bold text-white">{subscriptionInterval}</p></div>
+          <div><span className="text-slate-500">Inicio</span><p className="font-bold text-white">{billingStatus?.currentPeriodStart ? format(parseISO(billingStatus.currentPeriodStart), 'dd/MM/yyyy') : 'Nao informado'}</p></div>
+          <div><span className="text-slate-500">Proxima cobranca / termino</span><p className="font-bold text-white">{formattedSubscriptionEnd}</p></div>
+          <div><span className="text-slate-500">Tempo restante</span><p className="font-bold text-white">{remainingDays === null ? 'Nao informado' : `${remainingDays} dia(s)`}</p></div>
+        </div>
+        {billingMessage && <p className="mt-4 rounded-lg border border-slate-700 bg-slate-950/35 p-3 text-sm text-slate-200">{billingMessage}</p>}
+        <div className="mt-4 flex flex-wrap gap-2">
+          {subscriptionIsActive && !billingStatus?.cancelAtPeriodEnd && <button type="button" onClick={() => void handleCancelSubscription()} disabled={isCancelingSubscription} className="rounded-lg border border-red-400/40 px-3 py-2 text-sm font-bold text-red-200 disabled:opacity-50">{isCancelingSubscription ? 'Agendando...' : 'Cancelar assinatura'}</button>}
+          {subscriptionIsActive && billingStatus?.cancelAtPeriodEnd && <span className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-bold text-amber-100">Seu acesso permanece disponivel ate {formattedSubscriptionEnd}.</span>}
+          <button type="button" onClick={() => void handleOpenCustomerPortal()} className="rounded-lg border border-slate-600 px-3 py-2 text-sm font-bold text-slate-200">Gerenciar assinatura no Stripe</button>
+        </div>
+      </div>
 
       <input
         ref={clientImportInputRef}

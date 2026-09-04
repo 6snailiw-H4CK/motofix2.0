@@ -60,11 +60,11 @@ export const db = initializeOfflineFirestore();
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-if (canUseWindow()) {
-  setPersistence(auth, browserLocalPersistence).catch((error) => {
+export const authPersistenceReady = canUseWindow()
+  ? setPersistence(auth, browserLocalPersistence).catch((error) => {
     console.warn('Falha ao configurar persistencia local do Firebase Auth:', error);
-  });
-}
+  })
+  : Promise.resolve();
 
 // Configura o Google Provider para sempre pedir a conta (ajuda no teste)
 googleProvider.setCustomParameters({ prompt: 'select_account' });

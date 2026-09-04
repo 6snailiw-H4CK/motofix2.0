@@ -18,7 +18,19 @@ export const createCheckoutSession = async (planId = 'monthly'): Promise<{ url: 
   return data;
 };
 
-export type BillingStatus = { status?: string; currentPeriodEnd?: string | null; hasActiveSubscription: boolean };
+export type BillingStatus = {
+  email?: string | null;
+  displayName?: string | null;
+  status?: string;
+  planId?: string | null;
+  amount?: number | null;
+  currency?: string | null;
+  interval?: string | null;
+  currentPeriodStart?: string | null;
+  currentPeriodEnd?: string | null;
+  cancelAtPeriodEnd?: boolean;
+  hasActiveSubscription: boolean;
+};
 export const getSubscriptionStatus = async (): Promise<BillingStatus> => {
   const { data } = await axios.get(`${STRIPE_API_URL}/api/stripe/subscription`, { headers: await authHeaders() });
   return data;
@@ -26,5 +38,10 @@ export const getSubscriptionStatus = async (): Promise<BillingStatus> => {
 
 export const createCustomerPortalSession = async (): Promise<{ url: string }> => {
   const { data } = await axios.post(`${STRIPE_API_URL}/api/stripe/create-customer-portal-session`, {}, { headers: await authHeaders() });
+  return data;
+};
+
+export const cancelSubscription = async (): Promise<{ cancelAtPeriodEnd: boolean; currentPeriodEnd: string | null }> => {
+  const { data } = await axios.post(`${STRIPE_API_URL}/api/stripe/cancel-subscription`, {}, { headers: await authHeaders() });
   return data;
 };
