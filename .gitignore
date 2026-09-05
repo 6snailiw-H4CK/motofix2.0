@@ -61,3 +61,5 @@ session/
 storage/whatsapp-sessions/
 storage/**/_IGNORE_*/
 storage/**/*.data.json
+
+scripts/cliente-removido-test-token.json
