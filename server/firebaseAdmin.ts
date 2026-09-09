@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { cert, getApps, initializeApp, type App, type ServiceAccount } from "firebase-admin/app";
+import { applicationDefault, cert, getApps, initializeApp, type App, type ServiceAccount } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
 
@@ -13,13 +13,17 @@ type FirebaseAdminState = {
   error: unknown;
 };
 
-const serviceAccountFile = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || "./firebase-service-account.json";
-const serviceAccountFilePath = path.resolve(process.cwd(), serviceAccountFile);
+const configuredServiceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH?.trim() || null;
+const serviceAccountFilePath = configuredServiceAccountPath
+  ? path.resolve(process.cwd(), configuredServiceAccountPath)
+  : "Application Default Credentials";
 
 const initializeFirebaseAdmin = (): FirebaseAdminState => {
   try {
     const app = getApps()[0] || initializeApp({
-      credential: cert(JSON.parse(fs.readFileSync(serviceAccountFilePath, "utf8")) as ServiceAccount),
+      credential: configuredServiceAccountPath
+        ? cert(JSON.parse(fs.readFileSync(serviceAccountFilePath, "utf8")) as ServiceAccount)
+        : applicationDefault(),
     });
     const db = getFirestore(app);
     db.settings({ ignoreUndefinedProperties: true });

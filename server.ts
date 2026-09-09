@@ -29,6 +29,7 @@ async function startServer() {
   const app = express();
   const httpServer = createHttpServer(app);
   const port = Number(process.env.PORT || 3001);
+  const isProduction = process.env.NODE_ENV === "production";
   app.set("trust proxy", 1);
   app.disable("x-powered-by");
   app.use(requestId);
@@ -36,10 +37,12 @@ async function startServer() {
   app.use(cors);
   app.use("/api", scopedRateLimit({ name: "api-global", windowMs: 60_000, maxRequests: intEnv("API_RATE_LIMIT_GLOBAL_PER_MINUTE", 300) }));
   app.use("/api", rateLimit({ windowMs: 60_000, maxRequests: intEnv("API_RATE_LIMIT_ROUTE_PER_MINUTE", 120) }));
-  app.use("/api/whatsapp/connect", scopedRateLimit({ name: "whatsapp-connect", windowMs: 10 * 60_000, maxRequests: intEnv("WHATSAPP_CONNECT_RATE_LIMIT_PER_10_MINUTES", 5) }));
-  app.use("/api/whatsapp/reconnect", scopedRateLimit({ name: "whatsapp-reconnect", windowMs: 10 * 60_000, maxRequests: intEnv("WHATSAPP_CONNECT_RATE_LIMIT_PER_10_MINUTES", 5) }));
-  app.use("/api/whatsapp/reconnectentado", scopedRateLimit({ name: "whatsapp-reconnect-legacy", windowMs: 10 * 60_000, maxRequests: intEnv("WHATSAPP_CONNECT_RATE_LIMIT_PER_10_MINUTES", 5) }));
-  app.use("/api/whatsapp/send", scopedRateLimit({ name: "whatsapp-send", windowMs: 60_000, maxRequests: intEnv("WHATSAPP_SEND_RATE_LIMIT_PER_MINUTE", 30) }));
+  if (!isProduction) {
+    app.use("/api/whatsapp/connect", scopedRateLimit({ name: "whatsapp-connect", windowMs: 10 * 60_000, maxRequests: intEnv("WHATSAPP_CONNECT_RATE_LIMIT_PER_10_MINUTES", 5) }));
+    app.use("/api/whatsapp/reconnect", scopedRateLimit({ name: "whatsapp-reconnect", windowMs: 10 * 60_000, maxRequests: intEnv("WHATSAPP_CONNECT_RATE_LIMIT_PER_10_MINUTES", 5) }));
+    app.use("/api/whatsapp/reconnectentado", scopedRateLimit({ name: "whatsapp-reconnect-legacy", windowMs: 10 * 60_000, maxRequests: intEnv("WHATSAPP_CONNECT_RATE_LIMIT_PER_10_MINUTES", 5) }));
+    app.use("/api/whatsapp/send", scopedRateLimit({ name: "whatsapp-send", windowMs: 60_000, maxRequests: intEnv("WHATSAPP_SEND_RATE_LIMIT_PER_MINUTE", 30) }));
+  }
   app.use("/api/whatsapp/reminders/send-due", scopedRateLimit({ name: "whatsapp-reminders-send-due", windowMs: 60_000, maxRequests: intEnv("WHATSAPP_REMINDERS_RATE_LIMIT_PER_MINUTE", 5) }));
   app.use("/api/fiscal/companies", scopedRateLimit({ name: "fiscal-company-write", windowMs: 10 * 60_000, maxRequests: intEnv("FISCAL_COMPANY_WRITE_RATE_LIMIT_PER_10_MINUTES", 20), skip: (req) => req.method === "GET" }));
   app.use("/api/fiscal/companies/:companyId/certificate", scopedRateLimit({ name: "fiscal-certificate", windowMs: 15 * 60_000, maxRequests: intEnv("FISCAL_CERTIFICATE_RATE_LIMIT_PER_15_MINUTES", 3) }));
@@ -53,11 +56,15 @@ async function startServer() {
   app.use(express.urlencoded({ extended: false, limit: "64kb", parameterLimit: 100 }));
   app.get("/api/health", (_req, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
   registerFiscalRoutes({ app, auth: adminAuth, db, firebaseInitialized });
-  registerWhatsAppRoutes({ app, auth: adminAuth, db, firebaseInitialized });
+  if (!isProduction) {
+    registerWhatsAppRoutes({ app, auth: adminAuth, db, firebaseInitialized });
+  }
   registerBackupRoutes({ app, auth: adminAuth, db, firebaseInitialized });
   registerDataResetRoutes({ app, auth: adminAuth, db, firebaseInitialized });
   startAutomaticBackupScheduler({ db, auth: adminAuth, firebaseInitialized, enabled: process.env.AUTOMATIC_BACKUP_ENABLED !== "false" });
-  startWhatsAppScheduler({ db, enabled: process.env.WHATSAPP_SCHEDULER_ENABLED !== "false" });
+  if (!isProduction) {
+    startWhatsAppScheduler({ db, enabled: process.env.WHATSAPP_SCHEDULER_ENABLED !== "false" });
+  }
   app.use("/api", apiNotFound);
   app.use(errorHandler);
   if (process.env.NODE_ENV !== "production") {
