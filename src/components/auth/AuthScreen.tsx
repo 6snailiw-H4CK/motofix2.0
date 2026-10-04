@@ -3,12 +3,16 @@ import { ArrowRight, BarChart3, Calendar, DollarSign, ShieldCheck, TrendingUp, U
 import { getRedirectResult, signInWithPopup, signInWithRedirect } from 'firebase/auth';
 import { auth, googleProvider } from '../../firebase';
 
-export const AuthScreen = () => {
+type AuthScreenProps = {
+  initialAuthError?: string | null;
+};
+
+export const AuthScreen = ({ initialAuthError }: AuthScreenProps) => {
   const salesMessage = 'Olá, gostaria de receber uma proposta do MotoFix para minha oficina.';
   const whatsappSalesUrl = `https://wa.me/556999944024?text=${encodeURIComponent(salesMessage)}`;
   const [authView, setAuthView] = useState<'landing' | 'login' | 'sales'>('landing');
   const [isSigningIn, setIsSigningIn] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(initialAuthError ?? null);
 
   const navigateToSection = (sectionId: string) => {
     setAuthView('landing');
