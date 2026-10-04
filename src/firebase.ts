@@ -4,6 +4,7 @@ import {
   CACHE_SIZE_UNLIMITED,
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -21,7 +22,9 @@ import {
 } from 'firebase/firestore';
 
 // Pega as configurações do arquivo .env ou do ambiente de build
-const env = import.meta.env as Record<string, string | undefined>;
+const env = typeof import.meta !== 'undefined' && 'env' in import.meta
+  ? (import.meta as any).env
+  : process.env as Record<string, string | undefined>;
 
 const firebaseConfig = {
   apiKey: env.VITE_FIREBASE_API_KEY,
@@ -60,11 +63,11 @@ export const db = initializeOfflineFirestore();
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
 
-export const authPersistenceReady = canUseWindow()
-  ? setPersistence(auth, browserLocalPersistence).catch((error) => {
+if (canUseWindow()) {
+  setPersistence(auth, browserLocalPersistence).catch((error) => {
     console.warn('Falha ao configurar persistencia local do Firebase Auth:', error);
-  })
-  : Promise.resolve();
+  });
+}
 
 // Configura o Google Provider para sempre pedir a conta (ajuda no teste)
 googleProvider.setCustomParameters({ prompt: 'select_account' });
@@ -80,6 +83,7 @@ export {
   onSnapshot,
   addDoc,
   updateDoc,
+  deleteDoc,
   serverTimestamp,
   waitForPendingWrites,
   signInWithPopup,
