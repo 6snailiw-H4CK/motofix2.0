@@ -1,4 +1,5 @@
-import { ArrowLeft, CalendarClock, MessageSquare, Plus, RefreshCw, UserPlus } from 'lucide-react';
+import { ArrowLeft, CalendarClock, MessageSquare, Plus, RefreshCw, Search, UserPlus, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { cn, safeFormat } from '../../lib/utils';
 import type { Client } from '../../types';
 
@@ -52,6 +53,42 @@ const serviceLabel = (client: Client) => (
   client.lastServiceType || client.oilType || 'Retorno'
 );
 
+const normalizeSearchText = (value: string) => value
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLocaleLowerCase('pt-BR')
+  .trim();
+
+const toDateInputValue = (value?: string) => {
+  if (!value) return '';
+  const matchedDate = value.match(/^\d{4}-\d{2}-\d{2}/)?.[0];
+  if (matchedDate) return matchedDate;
+
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return '';
+  return [parsed.getFullYear(), String(parsed.getMonth() + 1).padStart(2, '0'), String(parsed.getDate()).padStart(2, '0')].join('-');
+};
+
+const getTodayInputValue = () => {
+  const today = new Date();
+  return [String(today.getDate()).padStart(2, '0'), String(today.getMonth() + 1).padStart(2, '0'), today.getFullYear()].join('/');
+};
+
+const dateFilterToIso = (value: string) => {
+  const matched = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!matched) return '';
+
+  const [, day, month, year] = matched;
+  const parsed = new Date(Number(year), Number(month) - 1, Number(day));
+  if (
+    parsed.getFullYear() !== Number(year)
+    || parsed.getMonth() !== Number(month) - 1
+    || parsed.getDate() !== Number(day)
+  ) return '';
+
+  return `${year}-${month}-${day}`;
+};
+
 export const ReturnsView = ({
   clients,
   dailyPendingAlerts,
@@ -63,12 +100,24 @@ export const ReturnsView = ({
   onRegisterReturn,
   onSendWhatsApp,
 }: ReturnsViewProps) => {
+  const [clientSearch, setClientSearch] = useState('');
+  const [returnDateFilter, setReturnDateFilter] = useState(getTodayInputValue);
   const contactTodayIds = new Set(dailyPendingAlerts.map((client) => client.id));
-  const sortedClients = [...clients].sort((a, b) => {
-    const statusDiff = statusMeta[a.status].order - statusMeta[b.status].order;
-    if (statusDiff !== 0) return statusDiff;
-    return parseDateTime(a.nextMaintenanceDate) - parseDateTime(b.nextMaintenanceDate);
-  });
+  const sortedClients = useMemo(() => {
+    const normalizedSearch = normalizeSearchText(clientSearch);
+    const selectedReturnDate = dateFilterToIso(returnDateFilter);
+
+    return clients
+      .filter((client) => (
+        (!normalizedSearch || normalizeSearchText(client.name || '').includes(normalizedSearch))
+        && (!returnDateFilter || (selectedReturnDate && toDateInputValue(client.nextMaintenanceDate) === selectedReturnDate))
+      ))
+      .sort((a, b) => {
+        const statusDiff = statusMeta[a.status].order - statusMeta[b.status].order;
+        if (statusDiff !== 0) return statusDiff;
+        return parseDateTime(a.nextMaintenanceDate) - parseDateTime(b.nextMaintenanceDate);
+      });
+  }, [clients, clientSearch, returnDateFilter]);
 
   const overdueCount = clients.filter((client) => client.status === 'OVERDUE').length;
   const warningCount = clients.filter((client) => client.status === 'WARNING').length;
@@ -156,12 +205,49 @@ export const ReturnsView = ({
       <section className="space-y-2">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-black text-white">Fila de retornos</h3>
-          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{clients.length} cliente(s)</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{sortedClients.length} de {clients.length} cliente(s)</span>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+          <label className="relative block">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <input
+              type="search"
+              value={clientSearch}
+              onChange={(event) => setClientSearch(event.target.value)}
+              placeholder="Pesquisar cliente pelo nome..."
+              className="w-full rounded-xl border border-slate-700/70 bg-slate-900/70 py-2 pl-9 pr-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-primary/60"
+              aria-label="Pesquisar cliente pelo nome"
+            />
+          </label>
+          <label className="flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-900/70 px-3 py-2 text-xs text-slate-300">
+            <span className="whitespace-nowrap font-bold">Data de retorno</span>
+            <input
+              type="text"
+              value={returnDateFilter}
+              onChange={(event) => setReturnDateFilter(event.target.value.replace(/[^\d/]/g, '').slice(0, 10))}
+              placeholder="dd/mm/aaaa"
+              inputMode="numeric"
+              maxLength={10}
+              className="min-w-0 bg-transparent text-sm text-white outline-none placeholder:text-slate-500"
+              aria-label="Filtrar por data de retorno"
+            />
+          </label>
+          {(clientSearch || returnDateFilter) && (
+            <button
+              type="button"
+              onClick={() => { setClientSearch(''); setReturnDateFilter(''); }}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300 transition hover:border-slate-500 hover:text-white"
+            >
+              <X className="h-3.5 w-3.5" />
+              Limpar
+            </button>
+          )}
         </div>
 
         {sortedClients.length === 0 ? (
           <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6 text-center text-sm text-slate-400">
-            Nenhum cliente cadastrado para recorrencia ainda.
+            {clients.length === 0 ? 'Nenhum cliente cadastrado para recorrencia ainda.' : 'Nenhum cliente encontrado com os filtros selecionados.'}
           </div>
         ) : (
           <div className="grid gap-2 xl:grid-cols-2 2xl:grid-cols-3">

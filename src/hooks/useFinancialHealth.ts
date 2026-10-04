@@ -73,7 +73,13 @@ export function useFinancialHealth({
 
     // Receita paga vs pendente
     const paidMaintenances = monthMaintenances.filter(m => m.statusPagamento === 'Pago' || !m.statusPagamento).reduce((sum, m) => sum + (m.serviceValue || 0), 0);
-    const paidCashLaunches = monthCashLaunches.filter(cl => cl.statusPagamento === 'Pago' || !cl.statusPagamento).reduce((sum, cl) => sum + (cl.total || 0), 0);
+    const paidCashLaunches = cashLaunches.filter(cl => {
+      const paymentDate = parseISO(cl.paidAt || cl.createdAt);
+      return isWithinInterval(paymentDate, { start: startDate, end: endDate }) &&
+             !cl.deletedAt &&
+             cl.status !== 'Cancelado' &&
+             (cl.statusPagamento === 'Pago' || !cl.statusPagamento);
+    }).reduce((sum, cl) => sum + (cl.total || 0), 0);
     const paidRevenue = paidMaintenances + paidCashLaunches;
     const pendingRevenue = totalRevenue - paidRevenue;
 

@@ -4,24 +4,34 @@ import { toast as sonnerToast } from 'sonner';
 import {
   Activity,
   ArrowLeft,
+  Box,
   Check,
+  CircleCheck,
+  CircleX,
+  ClipboardList,
+  Clock3,
   Copy,
+  DollarSign,
   Eye,
   FileText,
   History,
   PackageSearch,
+  Pencil,
   Plus,
+  Percent,
   Printer,
   ReceiptText,
-  RefreshCw,
   Save,
   Search,
   Send,
+  Tag,
   Trash2,
   Upload,
   X,
+  Wrench,
 } from 'lucide-react';
 import { parseBrazilianCurrency } from '../../lib/money';
+import { DateInput } from '../DateInput';
 import { getCashPaymentStatus, getCashReceivableAmount, type CashPaymentStatus } from '../../lib/cashPayments';
 import { cn, safeFormat } from '../../lib/utils';
 import type { CashRegisterDraft } from '../../hooks/useCashRegisterActions';
@@ -45,6 +55,7 @@ type QuickClientInput = Pick<Client, 'name'> & Partial<Pick<Client, 'contact' | 
 
 type CashRegisterViewProps = {
   cashLaunches: CashRegisterLaunch[];
+  cashLaunchesLoaded: boolean;
   clients: Client[];
   products: ProductCatalogItem[];
   settings?: Settings | null;
@@ -56,9 +67,9 @@ type CashRegisterViewProps = {
   draftStorageKey?: string;
   onBack: () => void;
   onAutoIssueFiscalFromCashLaunch?: (cashLaunchId: string) => Promise<void> | void;
-  onDeleteLaunchClick: (launch: CashRegisterLaunch) => void;
+  onDeleteLaunchClick: (launch: CashRegisterLaunch) => Promise<boolean> | boolean;
   onInitialLaunchLoaded?: () => void;
-  onOpenRecurringServices?: () => void;
+  onOpenClientRegistration: () => void;
   onQuickSaveClient?: (client: QuickClientInput) => Promise<Client | null> | Client | null;
   onSaveLaunch: (draft: CashRegisterDraft, launchId?: string, previousLaunch?: CashRegisterLaunch) => Promise<CashRegisterSaveResult | boolean> | CashRegisterSaveResult | boolean;
 };
@@ -197,7 +208,7 @@ const calculateItem = (item: CashRegisterItem): CashRegisterItem => {
   };
 };
 
-const fieldClass = 'w-full rounded-lg border border-slate-700/60 bg-slate-950/50 px-2.5 py-1.5 text-[13px] text-slate-100 outline-none transition focus:border-primary/60 focus:ring-1 focus:ring-primary/50';
+const fieldClass = 'w-full rounded-lg border border-slate-700/70 bg-slate-950/65 px-3 py-2 text-[13px] text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-primary/70 focus:ring-2 focus:ring-primary/20';
 const editableCellClass = 'w-20 rounded-md border border-slate-600/70 bg-slate-900/90 px-2 py-1.5 text-right text-[13px] font-bold text-white outline-none transition focus:border-primary focus:ring-1 focus:ring-primary';
 const editableTextCellClass = 'w-full min-w-56 rounded-md border border-slate-600/70 bg-slate-900/90 px-2 py-1.5 text-[13px] font-bold text-white outline-none transition focus:border-primary focus:ring-1 focus:ring-primary';
 const labelClass = 'text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400';
@@ -242,6 +253,7 @@ const normalizePhoneForWhatsapp = (value: string) => {
 
 export const CashRegisterView = ({
   cashLaunches,
+  cashLaunchesLoaded,
   clients,
   products,
   settings,
@@ -255,7 +267,7 @@ export const CashRegisterView = ({
   onAutoIssueFiscalFromCashLaunch,
   onDeleteLaunchClick,
   onInitialLaunchLoaded,
-  onOpenRecurringServices,
+  onOpenClientRegistration,
   onQuickSaveClient,
   onSaveLaunch,
 }: CashRegisterViewProps) => {
@@ -285,6 +297,8 @@ export const CashRegisterView = ({
   const [historyDateFilter, setHistoryDateFilter] = useState(today());
   const [historyStatusFilter, setHistoryStatusFilter] = useState<HistoryStatusFilter>('all');
   const [monitoringStatusFilter, setMonitoringStatusFilter] = useState<MonitoringStatusFilter>('all');
+  const [monitoringDateFilter, setMonitoringDateFilter] = useState('');
+  const [monitoringSearch, setMonitoringSearch] = useState('');
   const [invoiceSuccess, setInvoiceSuccess] = useState<{ orderNumber: string; paymentMethod: CashPaymentMethod; total: number } | null>(null);
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [isQuickClientOpen, setIsQuickClientOpen] = useState(false);
@@ -349,11 +363,29 @@ export const CashRegisterView = ({
     return rows.slice(0, 80);
   }, [productSearch, products]);
 
+  const productStockSummary = useMemo(() => products.reduce(
+    (summary, product) => {
+      if (!product.trackStock) {
+        summary.inStock += 1;
+        return summary;
+      }
+
+      const stockQuantity = Number(product.stockQuantity || 0);
+      const minStockQuantity = Number(product.minStockQuantity || 0);
+      if (stockQuantity <= 0) summary.outOfStock += 1;
+      else if (minStockQuantity > 0 && stockQuantity <= minStockQuantity) summary.lowStock += 1;
+      else summary.inStock += 1;
+      return summary;
+    },
+    { inStock: 0, lowStock: 0, outOfStock: 0 }
+  ), [products]);
+
   const filteredLaunches = useMemo(() => {
     const search = normalizeSearch(historySearch.trim());
     const currentDate = today();
     return cashLaunches.filter((launch) => {
-      const isWithinDateRange = launch.openingDate >= historyDateFilter && launch.openingDate <= currentDate;
+      const isWithinDateRange = (!historyDateFilter || launch.openingDate >= historyDateFilter)
+        && launch.openingDate <= currentDate;
       if (!isWithinDateRange) return false;
       const matchesStatus = historyStatusFilter === 'all' || launch.status === historyStatusFilter;
       if (!matchesStatus) return false;
@@ -369,6 +401,32 @@ export const CashRegisterView = ({
       ? cashLaunches
       : cashLaunches.filter((launch) => launch.status === monitoringStatusFilter)
   ), [cashLaunches, monitoringStatusFilter]);
+
+  const monitoringStatusCounts = useMemo(() => cashLaunches.reduce<Record<CashRegisterLaunch['status'], number>>(
+    (counts, launch) => {
+      counts[launch.status] += 1;
+      return counts;
+    },
+    { 'Em Lancamento': 0, Pendente: 0, Finalizado: 0, Cancelado: 0 }
+  ), [cashLaunches]);
+
+  const visibleMonitoredLaunches = useMemo(() => {
+    const search = normalizeSearch(monitoringSearch.trim());
+    return monitoredLaunches
+      .filter((launch) => {
+        if (monitoringDateFilter && launch.openingDate < monitoringDateFilter) return false;
+        if (!search) return true;
+        return normalizeSearch(`${launch.orderNumber} ${launch.clientName} ${launch.bikeModel || ''} ${launch.status}`)
+          .includes(search);
+      })
+      .sort((first, second) => second.updatedAt.localeCompare(first.updatedAt));
+  }, [monitoredLaunches, monitoringDateFilter, monitoringSearch]);
+
+  const recentMonitoredLaunches = useMemo(() => (
+    [...cashLaunches]
+      .sort((first, second) => second.updatedAt.localeCompare(first.updatedAt))
+      .slice(0, 5)
+  ), [cashLaunches]);
 
   useEffect(() => {
     if (!invoiceSuccess) return undefined;
@@ -686,6 +744,13 @@ export const CashRegisterView = ({
     if (draftStorageKey) clearLocalDraft(draftStorageKey);
   };
 
+  useEffect(() => {
+    if (!cashLaunchesLoaded || !isDraftHydrated || initialLaunchId || !editingLaunchId) return;
+    if (!cashLaunches.some((launch) => launch.id === editingLaunchId)) {
+      resetDraft();
+    }
+  }, [cashLaunches, cashLaunchesLoaded, editingLaunchId, initialLaunchId, isDraftHydrated]);
+
   const startNewOrder = () => {
     resetDraft();
     setMainTab('control');
@@ -833,29 +898,24 @@ export const CashRegisterView = ({
   };
 
   return (
-    <div className="cash-register-view space-y-3 text-[13px]">
-      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex items-center gap-2.5">
+    <div className="cash-register-view space-y-5 text-[13px]">
+      <div className="flex flex-col gap-2 rounded-2xl border border-slate-700/60 bg-gradient-to-br from-slate-900 via-slate-900/95 to-slate-900/70 px-3 py-2 shadow-lg shadow-black/15 sm:px-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-center gap-2">
           <button
             type="button"
             onClick={onBack}
-            className="grid h-9 w-9 place-items-center rounded-lg border border-slate-700/70 bg-slate-900/70 text-slate-300 transition-colors hover:border-primary/50 hover:text-white"
+            className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-slate-700/70 bg-slate-950/70 text-slate-300 shadow-sm transition hover:border-primary/50 hover:bg-slate-800 hover:text-white"
             aria-label="Voltar"
           >
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft className="h-3.5 w-3.5" />
           </button>
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-primary">Modulo teste</p>
-            <h2 className="text-xl font-black tracking-tight text-white">Lancamentos Caixa</h2>
-            <p className="text-xs text-slate-500">Venda rapida com cliente, mercadorias importadas e historico.</p>
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-primary">Oficina • Controle de serviços</p>
+            <h2 className="text-lg font-black tracking-tight text-white">Ordem de Serviço</h2>
+            <p className="text-[11px] text-slate-400">Cadastre e acompanhe as ordens de serviço.</p>
           </div>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="rounded-lg border border-slate-700/60 bg-slate-900/70 px-3 py-2 text-xs text-slate-400">
-            <span className="font-bold text-white">{products.length}</span> mercadoria(s)
-          </div>
-        </div>
       </div>
 
       {invoiceSuccess && (
@@ -881,57 +941,39 @@ export const CashRegisterView = ({
         </div>
       )}
 
-      {onOpenRecurringServices && (
-        <div className="hidden lg:grid lg:grid-cols-[minmax(0,300px)]">
-          <button
-            type="button"
-            onClick={onOpenRecurringServices}
-            className="group flex items-center gap-3 rounded-xl border border-primary/25 bg-primary/10 p-3 text-left shadow-lg shadow-primary/5 transition hover:border-primary/50 hover:bg-primary/15"
-          >
-            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary text-white shadow-lg shadow-primary/20">
-              <RefreshCw className="h-4 w-4" />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-sm font-black text-white">Recorrencia</span>
-              <span className="mt-0.5 block text-xs text-slate-400 group-hover:text-slate-300">
-                Ordens de servico e clientes recorrentes
-              </span>
-            </span>
-          </button>
-        </div>
-      )}
-
-      <section className="overflow-hidden rounded-xl border border-slate-700/60 bg-slate-900/55 shadow-xl shadow-black/15">
-        <div className="flex flex-wrap border-b border-slate-700/60 bg-slate-950/50">
-          {[
-            { id: 'control' as MainTab, label: 'Controle', icon: ReceiptText },
-            { id: 'history' as MainTab, label: 'Historico', icon: History },
-            { id: 'monitoring' as MainTab, label: 'Monitoramento', icon: Activity },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = mainTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setMainTab(tab.id)}
-                className={cn(
-                  'inline-flex min-h-10 items-center gap-2 border-b-2 px-4 text-xs font-bold uppercase tracking-wide transition-colors',
-                  isActive
-                    ? 'border-primary bg-primary/10 text-white'
-                    : 'border-transparent text-slate-400 hover:bg-slate-900 hover:text-white'
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {tab.label}
-              </button>
-            );
-          })}
+      <section className="overflow-hidden rounded-2xl border border-slate-700/70 bg-slate-900/55 shadow-xl shadow-black/15">
+        <div className="border-b border-slate-700/60 bg-slate-950/55 p-2 sm:px-4">
+          <div className="flex flex-wrap gap-1 rounded-xl border border-slate-800/80 bg-slate-950/70 p-1">
+            {[
+              { id: 'control' as MainTab, label: 'Controle', icon: ReceiptText },
+              { id: 'history' as MainTab, label: 'Historico', icon: History },
+              { id: 'monitoring' as MainTab, label: 'Monitoramento', icon: Activity },
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = mainTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setMainTab(tab.id)}
+                  className={cn(
+                    'inline-flex min-h-10 items-center gap-2 rounded-lg border px-4 text-xs font-bold uppercase tracking-wide transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
+                    isActive
+                      ? 'border-primary/25 bg-primary/15 text-white shadow-sm'
+                      : 'border-transparent text-slate-400 hover:bg-slate-800/80 hover:text-white'
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {mainTab === 'control' && (
-          <div className="space-y-3 p-3">
-            <div className="flex flex-wrap gap-2 border-b border-slate-700/50 pb-2.5">
+          <div className="space-y-4 p-4">
+            <div className="flex flex-wrap gap-2 border-b border-slate-700/50 pb-3">
               {[
                 { id: 'opening' as WorkTab, label: 'Abertura' },
                 { id: 'items' as WorkTab, label: 'Mercadorias / Servicos' },
@@ -941,8 +983,8 @@ export const CashRegisterView = ({
                   type="button"
                   onClick={() => setWorkTab(tab.id)}
                   className={cn(
-                    'rounded-lg px-3 py-1.5 text-xs font-bold transition',
-                    workTab === tab.id ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-slate-950/60 text-slate-400 hover:text-white'
+                    'rounded-lg px-4 py-2 text-xs font-bold transition',
+                    workTab === tab.id ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'border border-slate-700/60 bg-slate-950/60 text-slate-400 hover:border-slate-600 hover:text-white'
                   )}
                 >
                   {tab.label}
@@ -963,9 +1005,9 @@ export const CashRegisterView = ({
             )}
 
             {workTab === 'opening' ? (
-              <div className="grid gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)] 2xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
-                <div className="space-y-3">
-                  <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)] 2xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+                <div className="space-y-4 rounded-2xl border border-slate-700/60 bg-slate-950/35 p-4 shadow-inner shadow-black/10">
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                     <div className="space-y-1">
                       <label className={labelClass}>Status</label>
                       <select value={status} onChange={(event) => handleStatusChange(event.target.value as CashRegisterLaunch['status'])} className={fieldClass}>
@@ -983,10 +1025,11 @@ export const CashRegisterView = ({
                         </select>
                         <button
                           type="button"
-                          onClick={() => setIsQuickClientOpen(true)}
+                          onClick={onOpenClientRegistration}
                           disabled={!onQuickSaveClient}
                           className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-primary/45 bg-primary/10 text-primary transition hover:bg-primary hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                          title="Cadastro rapido de cliente"
+                          title="Cadastrar cliente"
+                          aria-label="Cadastrar cliente"
                         >
                           <Plus className="h-4 w-4" />
                         </button>
@@ -994,11 +1037,11 @@ export const CashRegisterView = ({
                     </div>
                     <div className="space-y-1">
                       <label className={labelClass}>Abertura</label>
-                      <input type="date" value={openingDate} onChange={(event) => setOpeningDate(event.target.value)} className={fieldClass} />
+                      <DateInput value={openingDate} onChange={setOpeningDate} className={fieldClass} />
                     </div>
                     <div className="space-y-1">
                       <label className={labelClass}>Prevista</label>
-                      <input type="date" value={expectedDate} onChange={(event) => setExpectedDate(event.target.value)} className={fieldClass} />
+                      <DateInput value={expectedDate} onChange={setExpectedDate} className={fieldClass} />
                     </div>
                     <div className="space-y-1">
                       <label className={labelClass}>Nome livre</label>
@@ -1010,7 +1053,7 @@ export const CashRegisterView = ({
                     </div>
                   </div>
 
-                  <div className="grid gap-2 rounded-xl border border-slate-700/50 bg-slate-950/35 p-3 md:grid-cols-2 xl:grid-cols-5">
+                  <div className="grid gap-3 rounded-xl border border-slate-700/60 bg-slate-900/55 p-3 md:grid-cols-2 xl:grid-cols-5">
                     <div className="space-y-1">
                       <label className={labelClass}>Pagamento</label>
                       <select value={statusPagamento} onChange={(event) => handlePaymentStatusChange(event.target.value as CashPaymentStatus)} className={fieldClass}>
@@ -1032,17 +1075,17 @@ export const CashRegisterView = ({
                         </select>
                       </div>
                     )}
-                    <div className="rounded-lg bg-slate-900/70 px-3 py-2">
+                    <div className="rounded-lg border border-slate-700/40 bg-slate-950/65 px-3 py-2">
                       <p className={labelClass}>Pago</p>
                       <p className="mt-1 text-sm font-black text-emerald-300">{compactCurrency(paymentSummary.paid)}</p>
                     </div>
-                    <div className="rounded-lg bg-slate-900/70 px-3 py-2">
+                    <div className="rounded-lg border border-slate-700/40 bg-slate-950/65 px-3 py-2">
                       <p className={labelClass}>Saldo</p>
                       <p className={cn('mt-1 text-sm font-black', paymentSummary.balance > 0 ? 'text-amber-200' : 'text-emerald-300')}>{compactCurrency(paymentSummary.balance)}</p>
                     </div>
                   </div>
 
-                  <div className="grid gap-2 lg:grid-cols-[1fr_1fr]">
+                  <div className="grid gap-3 lg:grid-cols-[1fr_1fr]">
                     <div className="space-y-1">
                       <label className={labelClass}>Observacao</label>
                       <textarea
@@ -1071,18 +1114,18 @@ export const CashRegisterView = ({
                       setWorkTab('items');
                       setIsProductPickerOpen(true);
                     }}
-                    className="flex min-h-20 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-primary/40 bg-primary/5 text-xs font-bold text-primary transition hover:bg-primary/10"
+                    className="flex min-h-24 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-primary/40 bg-primary/[0.06] text-xs font-bold text-primary transition hover:border-primary/70 hover:bg-primary/10"
                   >
                     <PackageSearch className="h-5 w-5" />
                     Abrir mercadorias / servicos
                   </button>
                 </div>
 
-                <div className="rounded-xl border border-slate-700/50 bg-slate-950/40 p-3">
-                  <div className="flex items-center justify-between gap-3 border-b border-slate-700/50 pb-2">
+                <div className="min-h-[28rem] rounded-2xl border border-slate-700/60 bg-slate-950/55 p-4 shadow-inner shadow-black/10">
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-700/60 pb-3">
                     <div>
                       <p className={labelClass}>Itens selecionados</p>
-                      <h3 className="text-base font-black text-white">{items.length} item(ns)</h3>
+                      <h3 className="mt-0.5 text-lg font-black text-white">{items.length} item(ns)</h3>
                     </div>
                     <button type="button" onClick={() => setIsProductPickerOpen(true)} className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-white">
                       <Plus className="h-4 w-4" />
@@ -1092,7 +1135,15 @@ export const CashRegisterView = ({
 
                   <div className="mt-2 max-h-72 space-y-2 overflow-y-auto pr-1">
                     {items.length === 0 ? (
-                      <p className="rounded-lg bg-slate-900/70 p-3 text-xs text-slate-500">Nenhuma mercadoria incluida ainda.</p>
+                      <div className="grid min-h-64 place-content-center justify-items-center gap-3 rounded-xl border border-dashed border-slate-700/60 bg-slate-900/30 p-6 text-center">
+                        <span className="grid h-12 w-12 place-items-center rounded-2xl bg-slate-800/80 text-slate-500">
+                          <PackageSearch className="h-6 w-6" />
+                        </span>
+                        <div>
+                          <p className="text-sm font-bold text-slate-300">Nenhum item adicionado</p>
+                          <p className="mt-1 max-w-52 text-xs leading-5 text-slate-500">Inclua mercadorias ou serviços para compor esta ordem.</p>
+                        </div>
+                      </div>
                     ) : (
                       items.slice(0, 5).map((item) => (
                         <div key={item.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg bg-slate-900/70 p-2">
@@ -1110,43 +1161,58 @@ export const CashRegisterView = ({
                 </div>
               </div>
             ) : (
-              <div className="space-y-3">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className={labelClass}>Mercadorias / Servicos</p>
-                    <h3 className="text-base font-black text-white">{items.length} item(ns) no lancamento</h3>
+              <div className="space-y-3 rounded-2xl border border-slate-700/60 bg-slate-950/35 p-4 shadow-inner shadow-black/10">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-primary/15 text-primary">
+                      <Box className="h-6 w-6" />
+                    </span>
+                    <div>
+                      <p className={labelClass}>Mercadorias / Servicos</p>
+                      <h3 className="text-base font-black text-white">{items.length} item(ns) no lancamento</h3>
+                    </div>
                   </div>
-                  <button type="button" onClick={() => setIsProductPickerOpen(true)} className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-bold text-white shadow-lg shadow-primary/20">
+                  <button type="button" onClick={() => setIsProductPickerOpen(true)} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2 text-xs font-black text-white shadow-lg shadow-primary/20 transition hover:bg-primary/90">
                     <Plus className="h-4 w-4" />
                     Incluir
                   </button>
                 </div>
 
-                <div className="overflow-x-auto rounded-xl border border-slate-700/50">
+                <div className="overflow-x-auto rounded-xl border border-slate-700/60">
                   <table className="min-w-[1080px] w-full text-left text-[13px]">
-                    <thead className="bg-primary/90 text-white">
+                    <thead className="bg-slate-800/80 text-slate-300">
                       <tr>
-                        <th className="px-2.5 py-1.5">Excluir</th>
-                        <th className="px-2.5 py-1.5">Codigo</th>
-                        <th className="px-2.5 py-1.5">Descricao</th>
-                        <th className="px-2.5 py-1.5">Variacao</th>
-                        <th className="px-2.5 py-1.5">Qtd</th>
-                        <th className="px-2.5 py-1.5">Unitario R$</th>
-                        <th className="px-2.5 py-1.5">Total Liquido R$</th>
-                        <th className="px-2.5 py-1.5">Data</th>
-                        <th className="px-2.5 py-1.5">Observacao</th>
+                        <th className="whitespace-nowrap px-3 py-3">Excluir</th>
+                        <th className="whitespace-nowrap px-3 py-3">Codigo</th>
+                        <th className="whitespace-nowrap px-3 py-3">Descricao</th>
+                        <th className="whitespace-nowrap px-3 py-3">Variacao</th>
+                        <th className="whitespace-nowrap px-3 py-3">Qtd</th>
+                        <th className="whitespace-nowrap px-3 py-3">Unitario R$</th>
+                        <th className="whitespace-nowrap px-3 py-3">Total Liquido R$</th>
+                        <th className="whitespace-nowrap px-3 py-3">Data</th>
+                        <th className="whitespace-nowrap px-3 py-3">Observacao</th>
                       </tr>
                     </thead>
-                    <tbody className="bg-slate-950/40">
+                    <tbody className="bg-slate-950/25">
                       {items.length === 0 ? (
                         <tr>
-                          <td colSpan={9} className="px-3 py-8 text-center text-slate-500">Clique em Incluir para pesquisar uma mercadoria importada.</td>
+                          <td colSpan={9} className="h-80 px-3 py-8 text-center">
+                            <div className="flex flex-col items-center justify-center gap-2 text-slate-400">
+                              <span className="relative grid h-14 w-14 place-items-center text-slate-400">
+                                <Box className="h-12 w-12" strokeWidth={1.7} />
+                                <span className="absolute -top-1 right-0 h-2 w-2 rounded-full bg-primary" />
+                                <span className="absolute -top-2 left-1 h-1.5 w-1.5 rounded-full bg-primary" />
+                                <span className="absolute -top-2 right-4 h-2 w-0.5 rounded-full bg-primary" />
+                              </span>
+                              <p className="text-xs text-slate-400">Clique em Incluir para pesquisar uma mercadoria importada.</p>
+                            </div>
+                          </td>
                         </tr>
                       ) : (
                         items.map((item) => (
                           <tr
                             key={item.id}
-                            className="border-b-[3px] border-yellow-300 last:border-b-0 hover:bg-slate-900/70"
+                            className="border-b border-slate-700/50 last:border-b-0 hover:bg-slate-900/70"
                           >
                             <td className="px-2.5 py-1.5">
                               <button type="button" onClick={() => setItems((current) => current.filter((row) => row.id !== item.id))} className="rounded-md bg-red-500/10 p-1.5 text-red-400 hover:bg-red-500/20">
@@ -1185,7 +1251,7 @@ export const CashRegisterView = ({
                             </td>
                             <td className="px-2.5 py-1.5 text-right font-black text-primary">{compactCurrency(item.total)}</td>
                             <td className="px-2.5 py-1.5">
-                              <input type="date" value={item.date} onChange={(event) => updateItem(item.id, { date: event.target.value })} className="w-36 rounded-md bg-slate-900 px-2 py-1.5 text-[13px] outline-none focus:ring-1 focus:ring-primary" />
+                              <DateInput value={item.date} onChange={(value) => updateItem(item.id, { date: value })} className="w-36 rounded-md bg-slate-900 px-2 py-1.5 text-[13px] outline-none focus:ring-1 focus:ring-primary" />
                             </td>
                             <td className="px-2.5 py-1.5">
                               <input value={item.note || ''} onChange={(event) => updateItem(item.id, { note: event.target.value })} placeholder="Obs." className="w-40 rounded-md bg-slate-900 px-2 py-1.5 text-[13px] outline-none focus:ring-1 focus:ring-primary" />
@@ -1199,39 +1265,42 @@ export const CashRegisterView = ({
               </div>
             )}
 
-            <div className="grid gap-3 border-t border-slate-700/50 pt-3 xl:grid-cols-[auto_minmax(220px,300px)_auto] xl:items-end">
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <SummaryBox label="Mercadorias R$" value={compactCurrency(totals.merchandiseGross)} />
-                <SummaryBox label="Servicos R$" value={compactCurrency(totals.servicesTotal)} />
-                <SummaryBox label="Descontos R$" value={compactCurrency(totals.discountTotal)} />
-                <SummaryBox label="Total R$" value={compactCurrency(totals.total)} accent />
+            <div className="grid gap-4 rounded-2xl border border-slate-700/60 bg-slate-950/60 p-4 shadow-lg shadow-black/10 xl:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.85fr)_auto] xl:items-center">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:border-r xl:border-slate-700/60 xl:pr-4">
+                <SummaryBox label="Mercadorias R$" value={compactCurrency(totals.merchandiseGross)} icon={<Box className="h-5 w-5" />} tone="blue" />
+                <SummaryBox label="Servicos R$" value={compactCurrency(totals.servicesTotal)} icon={<Wrench className="h-5 w-5" />} tone="slate" />
+                <SummaryBox label="Descontos R$" value={compactCurrency(totals.discountTotal)} icon={<Tag className="h-5 w-5" />} tone="purple" />
+                <SummaryBox label="Total R$" value={compactCurrency(totals.total)} icon={<DollarSign className="h-5 w-5" />} accent />
               </div>
 
-              <div className="rounded-lg border border-slate-700/50 bg-slate-950/40 p-2.5">
-                <p className={labelClass}>Desconto do lancamento</p>
-                <div className="mt-1.5 grid grid-cols-2 gap-2">
-                  <label className="space-y-1">
-                    <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Valor R$</span>
-                    <input
-                      value={orderDiscountValueInput}
-                      onChange={(event) => setOrderDiscountValueInput(event.target.value)}
-                      placeholder="0,00"
-                      className={fieldClass}
-                    />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Percentual</span>
-                    <input
-                      value={orderDiscountPercentInput}
-                      onChange={(event) => setOrderDiscountPercentInput(event.target.value)}
-                      placeholder="0%"
-                      className={fieldClass}
-                    />
-                  </label>
+              <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 border-slate-700/60 xl:border-r xl:pr-4">
+                <Percent className="h-5 w-5 text-slate-400" />
+                <div className="min-w-0">
+                  <p className={labelClass}>Desconto do lancamento</p>
+                  <div className="mt-1.5 grid grid-cols-2 gap-2">
+                    <label className="space-y-1">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Valor R$</span>
+                      <input
+                        value={orderDiscountValueInput}
+                        onChange={(event) => setOrderDiscountValueInput(event.target.value)}
+                        placeholder="0,00"
+                        className={fieldClass}
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500">Percentual</span>
+                      <input
+                        value={orderDiscountPercentInput}
+                        onChange={(event) => setOrderDiscountPercentInput(event.target.value)}
+                        placeholder="0%"
+                        className={fieldClass}
+                      />
+                    </label>
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-slate-500">
+                    Aplicado no total dos itens: {compactCurrency(totals.orderDiscountTotal)}.
+                  </p>
                 </div>
-                <p className="mt-1.5 text-[11px] text-slate-500">
-                  Aplicado no total dos itens: {compactCurrency(totals.orderDiscountTotal)}.
-                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
@@ -1262,21 +1331,20 @@ export const CashRegisterView = ({
         )}
 
         {mainTab === 'history' && (
-          <div className="space-y-3 p-3">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="space-y-4 p-3 sm:p-5">
+            <div className="flex flex-col gap-4 rounded-2xl border border-slate-700/50 bg-slate-950/30 p-3 sm:p-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p className={labelClass}>Historico</p>
-                <h3 className="text-lg font-black text-white">{filteredLaunches.length} lancamento(s)</h3>
-                <p className="text-xs text-slate-500">O periodo vai da data inicial escolhida ate hoje.</p>
+                <h3 className="mt-0.5 text-xl font-black tracking-tight text-white">{filteredLaunches.length} lancamento(s)</h3>
+                <p className="mt-0.5 text-xs text-slate-400">O periodo vai da data inicial escolhida ate hoje.</p>
               </div>
-              <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto lg:min-w-[700px]">
+              <div className="flex w-full flex-col gap-2.5 sm:flex-row lg:w-auto lg:min-w-[700px]">
                 <label className="min-w-0 sm:w-44">
                   <span className="sr-only">Data inicial do historico</span>
-                  <input
-                    type="date"
+                  <DateInput
                     value={historyDateFilter}
                     max={today()}
-                    onChange={(event) => setHistoryDateFilter(event.target.value || today())}
+                    onChange={setHistoryDateFilter}
                     className={fieldClass}
                     aria-label="Data inicial do historico"
                     title="Mostrar lancamentos desta data ate hoje"
@@ -1299,48 +1367,48 @@ export const CashRegisterView = ({
               </div>
             </div>
 
-            <div className="overflow-x-auto rounded-xl border border-slate-700/50">
+            <div className="overflow-x-auto rounded-xl border border-slate-700/60 bg-slate-950/25 shadow-sm">
               <table className="min-w-[1180px] w-full table-fixed text-left text-[13px]">
-                <thead className="bg-primary/90 text-white">
-                  <tr>
-                    <th className="w-24 px-2.5 py-1.5">O.S.</th>
-                    <th className="w-44 px-2.5 py-1.5">Cliente</th>
-                    <th className="w-24 px-2.5 py-1.5">Abertura</th>
-                    <th className="w-24 px-2.5 py-1.5">Prevista</th>
-                    <th className="w-32 px-2.5 py-1.5">Status</th>
-                    <th className="w-28 px-2.5 py-1.5">Placa/Moto</th>
-                    <th className="w-28 px-2.5 py-1.5 text-right">Total R$</th>
-                    <th className="w-24 px-2.5 py-1.5 text-center">Pagamento</th>
-                    <th className="w-28 px-2.5 py-1.5 text-right">Saldo R$</th>
-                    <th className="w-28 px-2.5 py-1.5">Forma</th>
-                    <th className="w-40 px-2.5 py-1.5 text-right">Acao</th>
+                <thead className="bg-slate-800/90 text-[10px] uppercase tracking-wider text-slate-300">
+                  <tr className="border-b border-slate-700/80">
+                    <th className="w-24 px-2.5 py-3 font-bold">O.S.</th>
+                    <th className="w-44 px-2.5 py-3 font-bold">Cliente</th>
+                    <th className="w-24 px-2.5 py-3 font-bold">Abertura</th>
+                    <th className="w-24 px-2.5 py-3 font-bold">Prevista</th>
+                    <th className="w-32 px-2.5 py-3 font-bold">Status</th>
+                    <th className="w-28 px-2.5 py-3 font-bold">Placa/Moto</th>
+                    <th className="w-28 px-2.5 py-3 text-right font-bold">Total R$</th>
+                    <th className="w-24 px-2.5 py-3 text-center font-bold">Pagamento</th>
+                    <th className="w-28 px-2.5 py-3 text-right font-bold">Saldo R$</th>
+                    <th className="w-28 px-2.5 py-3 font-bold">Forma</th>
+                    <th className="w-40 px-2.5 py-3 text-right font-bold">Acao</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800 bg-slate-950/40">
+                <tbody className="divide-y divide-slate-800/80 bg-slate-950/25">
                   {filteredLaunches.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="px-3 py-8 text-center text-slate-500">Nenhum lancamento encontrado neste periodo.</td>
+                      <td colSpan={11} className="px-3 py-12 text-center text-slate-500">Nenhum lancamento encontrado neste periodo.</td>
                     </tr>
                   ) : (
                     filteredLaunches.map((launch) => (
                       <tr
                         key={launch.id}
                         onClick={() => loadLaunchForEdit(launch)}
-                        className="cursor-pointer hover:bg-slate-900/70"
+                        className="group cursor-pointer transition-colors odd:bg-slate-900/20 hover:bg-primary/[0.06]"
                         title="Clique para editar este lancamento"
                       >
-                        <td className="truncate px-2.5 py-1.5 font-black text-primary" title={launch.orderNumber}>
+                        <td className="truncate px-2.5 py-3 font-black text-primary" title={launch.orderNumber}>
                           {formatShortOrderNumber(launch.orderNumber)}
                         </td>
-                        <td className="truncate px-2.5 py-1.5 font-bold text-white">{launch.clientName}</td>
-                        <td className="px-2.5 py-1.5 text-slate-300">{safeFormat(launch.openingDate)}</td>
-                        <td className="px-2.5 py-1.5 text-slate-300">{safeFormat(launch.expectedDate)}</td>
-                        <td className="px-2.5 py-1.5">
+                        <td className="truncate px-2.5 py-3 font-bold text-white">{launch.clientName}</td>
+                        <td className="px-2.5 py-3 text-slate-300">{safeFormat(launch.openingDate)}</td>
+                        <td className="px-2.5 py-3 text-slate-300">{safeFormat(launch.expectedDate)}</td>
+                        <td className="px-2.5 py-3">
                           <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold', getStatusBadgeClass(launch.status))}>{launch.status}</span>
                         </td>
-                        <td className="truncate px-2.5 py-1.5 text-slate-400">{launch.bikeModel || '-'}</td>
-                        <td className="px-2.5 py-1.5 text-right font-black text-white">{compactCurrency(launch.total)}</td>
-                        <td className="px-2.5 py-1.5 text-center">
+                        <td className="truncate px-2.5 py-3 text-slate-400">{launch.bikeModel || '-'}</td>
+                        <td className="px-2.5 py-3 text-right font-black text-white">{compactCurrency(launch.total)}</td>
+                        <td className="px-2.5 py-3 text-center">
                           <span className={cn(
                             'rounded-full px-2 py-0.5 text-[10px] font-black uppercase',
                             getCashPaymentStatus(launch) === 'Pago'
@@ -1350,22 +1418,25 @@ export const CashRegisterView = ({
                                 : 'bg-amber-500/15 text-amber-200'
                           )}>{getCashPaymentStatus(launch)}</span>
                         </td>
-                        <td className="px-2.5 py-1.5 text-right font-bold text-amber-200">{compactCurrency(getCashReceivableAmount(launch))}</td>
-                        <td className="px-2.5 py-1.5 text-slate-300">{launch.paymentMethod || '-'}</td>
-                        <td className="px-2.5 py-1.5 text-right">
+                        <td className="px-2.5 py-3 text-right font-bold text-amber-200">{compactCurrency(getCashReceivableAmount(launch))}</td>
+                        <td className="px-2.5 py-3 text-slate-300">{launch.paymentMethod || '-'}</td>
+                        <td className="px-2.5 py-3 text-right">
                           <div className="flex justify-end gap-2">
                             <button
                               type="button"
                               disabled={deletingLaunchId === launch.id}
                               onClick={(event) => {
                                 event.stopPropagation();
-                                onDeleteLaunchClick(launch);
+                                void (async () => {
+                                  const deleted = await onDeleteLaunchClick(launch);
+                                  if (deleted && editingLaunchId === launch.id) resetDraft();
+                                })();
                               }}
-                              className="rounded-lg bg-red-500/10 px-2.5 py-1 text-[11px] font-black uppercase text-red-300 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                              className="rounded-lg border border-red-500/20 bg-red-500/10 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wide text-red-300 transition hover:border-red-500/40 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                               {deletingLaunchId === launch.id ? 'Excluindo' : deleteConfirmId === launch.id ? 'Confirmar' : 'Excluir'}
                             </button>
-                            <span className="rounded-lg bg-primary/10 px-2.5 py-1 text-[11px] font-black uppercase text-primary">Editar</span>
+                            <span className="rounded-lg border border-primary/20 bg-primary/10 px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wide text-primary">Editar</span>
                           </div>
                         </td>
                       </tr>
@@ -1378,75 +1449,227 @@ export const CashRegisterView = ({
         )}
 
         {mainTab === 'monitoring' && (
-          <div className="space-y-3 p-3">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p className={labelClass}>Monitoramento</p>
-                <h3 className="text-lg font-black text-white">{monitoredLaunches.length} ordem(ns)</h3>
-                <p className="text-xs text-slate-500">Filtre por status e clique em uma ordem para editar.</p>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {[
-                  { id: 'all' as MonitoringStatusFilter, label: 'Todas' },
-                  { id: 'Em Lancamento' as MonitoringStatusFilter, label: 'Em lancamento' },
-                  { id: 'Pendente' as MonitoringStatusFilter, label: 'Pendente' },
-                  { id: 'Finalizado' as MonitoringStatusFilter, label: 'Finalizada' },
-                  { id: 'Cancelado' as MonitoringStatusFilter, label: 'Cancelada' },
-                ].map((filter) => (
+          <div className="space-y-4 p-3 sm:p-5">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-5">
+              {[
+                { label: 'Total de ordens', count: cashLaunches.length, icon: ClipboardList, tone: 'text-primary', glow: 'bg-primary/10', status: 'all' as MonitoringStatusFilter },
+                { label: 'Em lancamento', count: monitoringStatusCounts['Em Lancamento'], icon: Clock3, tone: 'text-amber-300', glow: 'bg-amber-500/10', status: 'Em Lancamento' as MonitoringStatusFilter },
+                { label: 'Pendentes', count: monitoringStatusCounts.Pendente, icon: Activity, tone: 'text-orange-300', glow: 'bg-orange-500/10', status: 'Pendente' as MonitoringStatusFilter },
+                { label: 'Finalizadas', count: monitoringStatusCounts.Finalizado, icon: CircleCheck, tone: 'text-emerald-300', glow: 'bg-emerald-500/10', status: 'Finalizado' as MonitoringStatusFilter },
+                { label: 'Canceladas', count: monitoringStatusCounts.Cancelado, icon: CircleX, tone: 'text-red-300', glow: 'bg-red-500/10', status: 'Cancelado' as MonitoringStatusFilter },
+              ].map((metric) => {
+                const Icon = metric.icon;
+                const percentage = cashLaunches.length ? (metric.count / cashLaunches.length) * 100 : 0;
+                return (
                   <button
-                    key={filter.id}
+                    key={metric.label}
                     type="button"
-                    onClick={() => setMonitoringStatusFilter(filter.id)}
+                    onClick={() => setMonitoringStatusFilter(metric.status)}
                     className={cn(
-                      'rounded-lg px-3 py-1.5 text-[11px] font-black uppercase transition',
-                      monitoringStatusFilter === filter.id
-                        ? 'bg-primary text-white shadow-lg shadow-primary/20'
-                        : 'bg-slate-950/60 text-slate-400 hover:bg-slate-900 hover:text-white'
+                      'group relative flex min-h-[100px] min-w-0 items-center gap-3 overflow-hidden rounded-xl border bg-slate-950/45 p-3 text-left transition hover:-translate-y-0.5 hover:border-slate-600 sm:p-4',
+                      monitoringStatusFilter === metric.status ? 'border-primary/40' : 'border-slate-700/60'
                     )}
                   >
-                    {filter.label}
+                    <span className={cn('grid h-10 w-10 shrink-0 place-items-center rounded-xl', metric.glow, metric.tone)}>
+                      <Icon className="h-5 w-5" />
+                    </span>
+                    <span className="relative z-10 min-w-0">
+                      <span className="block truncate text-[9px] font-bold uppercase tracking-wider text-slate-400 sm:text-[10px]">{metric.label}</span>
+                      <span className="mt-1 block text-xl font-black leading-none text-white sm:text-2xl">{metric.count}</span>
+                      <span className="mt-1 block text-[10px] text-slate-500">
+                        {metric.status === 'all' ? 'Em todos os status' : `${percentage.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% do total`}
+                      </span>
+                    </span>
+                    <span className={cn('pointer-events-none absolute -bottom-8 -right-5 h-20 w-24 rounded-full blur-2xl transition-opacity group-hover:opacity-80', metric.glow)} />
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
 
-            <div className="grid gap-3 xl:grid-cols-[minmax(220px,0.35fr)_minmax(0,1fr)]">
-              <div className="rounded-xl border border-slate-700/50 bg-slate-950/40 p-3">
-                <p className={labelClass}>Resumo</p>
-                <h3 className="mt-1 text-xl font-black text-white">{monitoredLaunches.length}</h3>
-                <p className="text-xs text-slate-500">
-                  {monitoringStatusFilter === 'all'
-                    ? 'Lancamentos em todos os status.'
-                    : `Lancamentos com status ${monitoringStatusFilter}.`}
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                {monitoredLaunches.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-700/50 p-5 text-center text-xs text-slate-500">Nenhuma ordem neste filtro.</div>
-                ) : (
-                  monitoredLaunches.map((launch) => (
-                    <button
-                      key={launch.id}
-                      type="button"
-                      onClick={() => loadLaunchForEdit(launch)}
-                      className="flex w-full flex-col gap-2 rounded-xl border border-slate-700/50 bg-slate-950/40 p-3 text-left transition hover:border-primary/40 hover:bg-slate-900/70 sm:flex-row sm:items-center sm:justify-between"
+            <div className="grid items-start gap-3 xl:grid-cols-[minmax(260px,0.32fr)_minmax(0,1fr)]">
+              <aside className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                <section className="rounded-xl border border-slate-700/60 bg-slate-950/40 p-4">
+                  <p className={labelClass}>Distribuicao por status</p>
+                  <div className="mt-4 flex flex-wrap items-center justify-center gap-5 sm:justify-start xl:justify-center">
+                    <div
+                      className="grid h-32 w-32 shrink-0 place-items-center rounded-full p-3"
+                      style={{
+                        background: cashLaunches.length
+                          ? `conic-gradient(#fbbf24 0% ${(monitoringStatusCounts['Em Lancamento'] / cashLaunches.length) * 100}%, #f97316 ${(monitoringStatusCounts['Em Lancamento'] / cashLaunches.length) * 100}% ${((monitoringStatusCounts['Em Lancamento'] + monitoringStatusCounts.Pendente) / cashLaunches.length) * 100}%, #10b981 ${((monitoringStatusCounts['Em Lancamento'] + monitoringStatusCounts.Pendente) / cashLaunches.length) * 100}% ${((monitoringStatusCounts['Em Lancamento'] + monitoringStatusCounts.Pendente + monitoringStatusCounts.Finalizado) / cashLaunches.length) * 100}%, #f43f5e ${((monitoringStatusCounts['Em Lancamento'] + monitoringStatusCounts.Pendente + monitoringStatusCounts.Finalizado) / cashLaunches.length) * 100}% 100%)`
+                          : '#1e293b',
+                      }}
                     >
-                      <div>
-                        <p className="text-sm font-black text-white">{launch.clientName}</p>
-                        <p className="text-xs text-slate-500">
-                          <span title={launch.orderNumber}>{formatShortOrderNumber(launch.orderNumber)}</span> | {safeFormat(launch.createdAt, 'dd/MM/yyyy HH:mm')}
-                        </p>
+                      <div className="grid h-full w-full place-items-center rounded-full border border-slate-800 bg-slate-950 text-center">
+                        <span><span className="block text-xl font-black text-white">{cashLaunches.length}</span><span className="text-[10px] text-slate-400">ordem(ns)</span></span>
                       </div>
-                      <div className="text-left sm:text-right">
-                        <p className="text-sm font-black text-primary">{compactCurrency(launch.total)}</p>
-                        <p className={cn('inline-flex rounded-full px-2 py-0.5 text-[10px] font-black uppercase', getStatusBadgeClass(launch.status))}>{launch.status}</p>
+                    </div>
+                    <div className="grid gap-2.5">
+                      {[
+                        { label: 'Em lancamento', status: 'Em Lancamento' as const, color: 'bg-amber-400' },
+                        { label: 'Pendente', status: 'Pendente' as const, color: 'bg-orange-500' },
+                        { label: 'Finalizada', status: 'Finalizado' as const, color: 'bg-emerald-500' },
+                        { label: 'Cancelada', status: 'Cancelado' as const, color: 'bg-rose-500' },
+                      ].map((item) => (
+                        <div key={item.status} className="flex min-w-36 items-center gap-2 text-[11px]">
+                          <span className={cn('h-2.5 w-2.5 rounded-full', item.color)} />
+                          <span className="flex-1 text-slate-400">{item.label}</span>
+                          <span className="font-bold text-slate-200">{monitoringStatusCounts[item.status]}</span>
+                          <span className="w-11 text-right text-slate-500">
+                            {cashLaunches.length ? `${((monitoringStatusCounts[item.status] / cashLaunches.length) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%` : '0%'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </section>
+
+                <section className="rounded-xl border border-slate-700/60 bg-slate-950/40 p-4">
+                  <p className={labelClass}>Ultimas atualizacoes</p>
+                  {recentMonitoredLaunches.length ? (
+                    <ol className="mt-3 space-y-3">
+                      {recentMonitoredLaunches.map((launch) => (
+                        <li key={launch.id} className="relative flex gap-3 pl-1">
+                          <span className={cn(
+                            'relative mt-1.5 h-3 w-3 shrink-0 rounded-full ring-4 ring-slate-950',
+                            launch.status === 'Finalizado' ? 'bg-emerald-500' :
+                              launch.status === 'Pendente' ? 'bg-amber-400' :
+                                launch.status === 'Cancelado' ? 'bg-rose-500' : 'bg-slate-400'
+                          )} />
+                          <div className="min-w-0 flex-1 border-b border-slate-800/80 pb-2.5 last:border-0">
+                            <div className="flex items-baseline justify-between gap-2">
+                              <p className="truncate text-xs font-bold text-slate-100">
+                                {formatShortOrderNumber(launch.orderNumber)} · {launch.clientName}
+                              </p>
+                              <time className="shrink-0 text-[10px] text-slate-500">{safeFormat(launch.updatedAt, 'dd/MM HH:mm')}</time>
+                            </div>
+                            <p className="mt-0.5 text-[10px] text-slate-500">{launch.status}</p>
+                          </div>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="mt-4 text-xs text-slate-500">Nenhuma ordem registrada.</p>
+                  )}
+                </section>
+              </aside>
+
+              <section className="min-w-0 overflow-hidden rounded-xl border border-slate-700/60 bg-slate-950/30">
+                <div className="space-y-3 border-b border-slate-700/60 p-3 sm:p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <h3 className="text-base font-black text-white sm:text-lg">Lista de Ordens de Serviço</h3>
+                      <p className="text-[11px] text-slate-400">{visibleMonitoredLaunches.length} ordem(ns) · Filtre por status e clique em uma ordem para editar.</p>
+                    </div>
+                    <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto lg:min-w-[520px]">
+                      <DateInput
+                        value={monitoringDateFilter}
+                        max={today()}
+                        onChange={setMonitoringDateFilter}
+                        className={cn(fieldClass, 'sm:w-40')}
+                        aria-label="Filtrar ordens a partir da data"
+                      />
+                      <div className="relative min-w-0 flex-1">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                        <input
+                          value={monitoringSearch}
+                          onChange={(event) => setMonitoringSearch(event.target.value)}
+                          placeholder="Pesquisar OS, cliente, moto..."
+                          className={cn(fieldClass, 'pl-9')}
+                          aria-label="Pesquisar ordens de serviço"
+                        />
                       </div>
-                    </button>
-                  ))
-                )}
-              </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { id: 'all' as MonitoringStatusFilter, label: 'Todas', count: cashLaunches.length },
+                      { id: 'Em Lancamento' as MonitoringStatusFilter, label: 'Em lancamento', count: monitoringStatusCounts['Em Lancamento'] },
+                      { id: 'Pendente' as MonitoringStatusFilter, label: 'Pendente', count: monitoringStatusCounts.Pendente },
+                      { id: 'Finalizado' as MonitoringStatusFilter, label: 'Finalizada', count: monitoringStatusCounts.Finalizado },
+                      { id: 'Cancelado' as MonitoringStatusFilter, label: 'Cancelada', count: monitoringStatusCounts.Cancelado },
+                    ].map((filter) => (
+                      <button
+                        key={filter.id}
+                        type="button"
+                        onClick={() => setMonitoringStatusFilter(filter.id)}
+                        className={cn(
+                          'inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[10px] font-black uppercase tracking-wide transition',
+                          monitoringStatusFilter === filter.id
+                            ? 'border-primary/40 bg-primary text-white shadow-md shadow-primary/15'
+                            : 'border-slate-700/60 bg-slate-900/60 text-slate-400 hover:border-slate-600 hover:text-white'
+                        )}
+                      >
+                        {filter.label}<span className={cn('rounded-md px-1.5 py-0.5 text-[9px]', monitoringStatusFilter === filter.id ? 'bg-black/15 text-white' : 'bg-slate-800 text-slate-300')}>{filter.count}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="max-h-[680px] overflow-auto">
+                  <table className="min-w-[1040px] w-full text-left text-[11px]">
+                    <thead className="sticky top-0 z-10 bg-slate-800/95 text-[9px] uppercase tracking-wider text-slate-300 backdrop-blur">
+                      <tr>
+                        <th className="px-2.5 py-2.5">O.S.</th>
+                        <th className="px-2.5 py-2.5">Cliente</th>
+                        <th className="px-2.5 py-2.5">Abertura</th>
+                        <th className="px-2.5 py-2.5">Prevista</th>
+                        <th className="px-2.5 py-2.5">Status</th>
+                        <th className="px-2.5 py-2.5">Placa/Moto</th>
+                        <th className="px-2.5 py-2.5 text-right">Total R$</th>
+                        <th className="px-2.5 py-2.5 text-center">Pagamento</th>
+                        <th className="px-2.5 py-2.5 text-right">Saldo R$</th>
+                        <th className="px-2.5 py-2.5">Forma</th>
+                        <th className="px-2.5 py-2.5 text-right">Acao</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/80">
+                      {visibleMonitoredLaunches.length === 0 ? (
+                        <tr><td colSpan={11} className="px-3 py-12 text-center text-xs text-slate-500">Nenhuma ordem encontrada com esses filtros.</td></tr>
+                      ) : visibleMonitoredLaunches.map((launch) => (
+                        <tr
+                          key={launch.id}
+                          onClick={() => loadLaunchForEdit(launch)}
+                          className="cursor-pointer odd:bg-slate-900/20 transition-colors hover:bg-primary/[0.06]"
+                          title="Clique para editar esta ordem"
+                        >
+                          <td className="px-2.5 py-2.5 font-black text-primary" title={launch.orderNumber}>{formatShortOrderNumber(launch.orderNumber)}</td>
+                          <td className="max-w-40 truncate px-2.5 py-2.5 font-bold text-white">{launch.clientName}</td>
+                          <td className="whitespace-nowrap px-2.5 py-2.5 text-slate-300">{safeFormat(launch.openingDate)}</td>
+                          <td className="whitespace-nowrap px-2.5 py-2.5 text-slate-300">{safeFormat(launch.expectedDate)}</td>
+                          <td className="px-2.5 py-2.5"><span className={cn('rounded-full px-2 py-0.5 text-[9px] font-bold', getStatusBadgeClass(launch.status))}>{launch.status}</span></td>
+                          <td className="max-w-32 truncate px-2.5 py-2.5 text-slate-400">{launch.bikeModel || '-'}</td>
+                          <td className="whitespace-nowrap px-2.5 py-2.5 text-right font-bold text-white">{compactCurrency(launch.total)}</td>
+                          <td className="px-2.5 py-2.5 text-center">
+                            <span className={cn(
+                              'rounded-full px-2 py-0.5 text-[9px] font-black uppercase',
+                              getCashPaymentStatus(launch) === 'Pago'
+                                ? 'bg-emerald-500/15 text-emerald-200'
+                                : getCashPaymentStatus(launch) === 'Parcial'
+                                  ? 'bg-sky-500/15 text-sky-200'
+                                  : 'bg-amber-500/15 text-amber-200'
+                            )}>{getCashPaymentStatus(launch)}</span>
+                          </td>
+                          <td className="whitespace-nowrap px-2.5 py-2.5 text-right font-bold text-amber-200">{compactCurrency(getCashReceivableAmount(launch))}</td>
+                          <td className="px-2.5 py-2.5 text-slate-300">{launch.paymentMethod || '-'}</td>
+                          <td className="px-2.5 py-2.5 text-right">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                loadLaunchForEdit(launch);
+                              }}
+                              className="inline-flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] font-bold text-slate-200 transition hover:border-primary/40 hover:bg-slate-700"
+                            >
+                              <Pencil className="h-3 w-3" />Editar
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
             </div>
           </div>
         )}
@@ -1526,98 +1749,150 @@ export const CashRegisterView = ({
       )}
 
       {isProductPickerOpen && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm">
-          <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-950 shadow-2xl shadow-black">
-            <div className="flex flex-col gap-3 border-b border-slate-800 p-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className={labelClass}>Pesquisa de Mercadoria</p>
-                <h3 className="text-lg font-black text-white">Selecionar variacao</h3>
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/80 p-2 backdrop-blur-md sm:p-4">
+          <div className="flex max-h-[96vh] w-full max-w-[1500px] flex-col overflow-hidden rounded-2xl border border-slate-700/80 bg-slate-950 shadow-2xl shadow-black">
+            <div className="flex items-center justify-between gap-4 border-b border-slate-800 bg-gradient-to-r from-slate-900 via-slate-900 to-primary/10 px-4 py-4 sm:px-6">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-primary/25 bg-primary/10 text-primary">
+                  <PackageSearch className="h-5 w-5" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-primary">Ordem de servico / Mercadorias</p>
+                  <h3 className="mt-0.5 text-lg font-black text-white sm:text-xl">Selecionar mercadoria</h3>
+                  <p className="mt-0.5 hidden text-xs text-slate-400 sm:block">Pesquise no catalogo e selecione um item para lancar na O.S.</p>
+                </div>
               </div>
-              <button type="button" onClick={() => setIsProductPickerOpen(false)} className="grid h-8 w-8 place-items-center rounded-lg bg-slate-900 text-slate-400 hover:text-white">
+              <button
+                type="button"
+                onClick={() => setIsProductPickerOpen(false)}
+                aria-label="Fechar selecao de mercadoria"
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-slate-700 bg-slate-900/80 text-slate-400 transition hover:border-slate-500 hover:text-white"
+              >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="grid gap-2.5 border-b border-slate-800 p-3 lg:grid-cols-[1fr_auto] lg:items-end">
-              <div className="space-y-1">
-                <label className={labelClass}>Pesquisa</label>
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                  <input ref={productSearchInputRef} autoFocus value={productSearch} onChange={(event) => setProductSearch(event.target.value)} placeholder="Ex: PATIN, filtro, oleo..." className={cn(fieldClass, 'pl-9')} />
+            <div className="space-y-4 overflow-y-auto p-4 sm:p-6">
+              <div className="flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-900/55 p-3 sm:flex-row sm:items-center">
+                <div className="relative min-w-0 flex-1">
+                  <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                  <input
+                    ref={productSearchInputRef}
+                    autoFocus
+                    value={productSearch}
+                    onChange={(event) => setProductSearch(event.target.value)}
+                    placeholder="Buscar por codigo, descricao, variacao ou NCM..."
+                    aria-label="Pesquisar mercadorias"
+                    className={cn(fieldClass, 'h-11 border-slate-700 bg-slate-950 pl-10')}
+                  />
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setProductSearch('')}
+                  className="h-11 rounded-lg border border-slate-700 bg-slate-800 px-4 text-xs font-black text-slate-300 transition hover:border-primary/40 hover:bg-slate-700 hover:text-white"
+                >
+                  Limpar pesquisa
+                </button>
               </div>
-              <button type="button" onClick={() => setProductSearch('')} className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-slate-300 hover:bg-slate-800">
-                Limpar
-              </button>
-            </div>
 
-            <div className="flex-1 overflow-auto p-3">
-              <div className="min-w-[980px] overflow-hidden rounded-xl border border-slate-800">
-                <table className="w-full text-left text-[13px]">
-                  <thead className="bg-primary/90 text-white">
-                    <tr>
-                      <th className="px-2.5 py-1.5">Codigo</th>
-                      <th className="px-2.5 py-1.5">Descricao</th>
-                      <th className="px-2.5 py-1.5">Variacao</th>
-                      <th className="px-2.5 py-1.5">NCM</th>
-                      <th className="px-2.5 py-1.5 text-right">Estoque</th>
-                      <th className="px-2.5 py-1.5 text-right">Venda R$</th>
-                      <th className="px-2.5 py-1.5 text-right">Acao</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800 bg-slate-950/40">
-                    {products.length === 0 ? (
+              <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
+                {[
+                  { label: 'Total de itens', value: products.length, icon: <PackageSearch className="h-4 w-4" />, style: 'border-slate-700/70 bg-slate-900/65 text-slate-300' },
+                  { label: 'Em estoque', value: productStockSummary.inStock, icon: <CircleCheck className="h-4 w-4" />, style: 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-300' },
+                  { label: 'Estoque baixo', value: productStockSummary.lowStock, icon: <Activity className="h-4 w-4" />, style: 'border-amber-500/20 bg-amber-500/[0.06] text-amber-300' },
+                  { label: 'Sem estoque', value: productStockSummary.outOfStock, icon: <CircleX className="h-4 w-4" />, style: 'border-rose-500/20 bg-rose-500/[0.06] text-rose-300' },
+                ].map((metric) => (
+                  <div key={metric.label} className={cn('flex min-w-0 items-center gap-3 rounded-xl border px-3 py-3', metric.style)}>
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-black/20">{metric.icon}</span>
+                    <div className="min-w-0">
+                      <p className="truncate text-[10px] font-bold uppercase tracking-wide text-slate-400">{metric.label}</p>
+                      <p className="mt-0.5 text-lg font-black leading-none text-white">{metric.value}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/35">
+                <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
+                  <div>
+                    <h4 className="text-sm font-black text-white">Catalogo de mercadorias</h4>
+                    <p className="mt-0.5 text-[11px] text-slate-500">{productPickerRows.length} resultado(s) exibido(s)</p>
+                  </div>
+                  {productSearch && <span className="max-w-[45%] truncate rounded-md bg-primary/10 px-2 py-1 text-[10px] font-bold text-primary">Busca: {productSearch}</span>}
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[980px] text-left text-xs">
+                    <thead className="sticky top-0 z-10 bg-slate-800/95 text-[10px] uppercase tracking-wider text-slate-400 backdrop-blur">
                       <tr>
-                        <td colSpan={7} className="px-3 py-8 text-center text-slate-500">
-                          Importe a planilha XLSX para carregar Descricao, Variacao, NCM e Venda R$.
-                        </td>
+                        <th className="w-12 px-4 py-3"></th>
+                        <th className="px-3 py-3">Codigo</th>
+                        <th className="px-3 py-3">Descricao</th>
+                        <th className="px-3 py-3">Variacao</th>
+                        <th className="px-3 py-3">NCM</th>
+                        <th className="px-3 py-3 text-right">Estoque</th>
+                        <th className="px-3 py-3 text-right">Venda R$</th>
+                        <th className="px-4 py-3 text-right">Acao</th>
                       </tr>
-                    ) : productPickerRows.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="px-3 py-8 text-center text-slate-500">Nenhuma mercadoria encontrada para esta busca.</td>
-                      </tr>
-                    ) : (
-                      productPickerRows.map(({ id, product, variation }) => (
-                        <tr
-                          key={id}
-                          role="button"
-                          tabIndex={0}
-                          title="Clique para incluir esta mercadoria no lancamento"
-                          onClick={() => addProduct(product, variation)}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter' || event.key === ' ') {
-                              event.preventDefault();
-                              addProduct(product, variation);
-                            }
-                          }}
-                          className="cursor-pointer transition-colors hover:bg-primary/10 focus:bg-primary/10 focus:outline-none"
-                        >
-                          <td className="px-2.5 py-1.5 font-bold text-slate-300">{product.sourceCode}</td>
-                          <td className="px-2.5 py-1.5 font-bold text-white">{product.description}</td>
-                          <td className="px-2.5 py-1.5 text-slate-400">{variation?.name || product.variation || '-'}</td>
-                          <td className="px-2.5 py-1.5 text-slate-400">{product.ncm || '-'}</td>
-                          <td className={cn('px-2.5 py-1.5 text-right text-xs font-black', getProductStockClass(product))}>{getProductStockLabel(product)}</td>
-                          <td className="px-2.5 py-1.5 text-right font-black text-primary">{compactCurrency(parsePositiveMoney(variation?.salePrice ?? product.salePrice))}</td>
-                          <td className="px-2.5 py-1.5 text-right">
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                addProduct(product, variation);
-                              }}
-                              className="rounded-lg bg-primary px-3 py-1.5 text-[11px] font-black uppercase text-white hover:bg-primary/90"
-                            >
-                              Selecionar
-                            </button>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/80">
+                      {products.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="px-3 py-12 text-center text-slate-500">
+                            Importe a planilha XLSX para carregar Descricao, Variacao, NCM e Venda R$.
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : productPickerRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="px-3 py-12 text-center text-slate-500">Nenhuma mercadoria encontrada para esta busca.</td>
+                        </tr>
+                      ) : (
+                        productPickerRows.map(({ id, product, variation }) => (
+                          <tr
+                            key={id}
+                            role="button"
+                            tabIndex={0}
+                            title="Clique para incluir esta mercadoria no lancamento"
+                            onClick={() => addProduct(product, variation)}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                addProduct(product, variation);
+                              }
+                            }}
+                            className="cursor-pointer transition-colors hover:bg-primary/[0.06] focus:bg-primary/[0.08] focus:outline-none"
+                          >
+                            <td className="px-4 py-2.5">
+                              <span className="grid h-9 w-9 place-items-center rounded-lg border border-slate-700/70 bg-slate-800/80 text-slate-400">
+                                <Box className="h-4 w-4" />
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 font-bold text-slate-300">{product.sourceCode}</td>
+                            <td className="max-w-[360px] px-3 py-2.5 font-bold text-white">{product.description}</td>
+                            <td className="px-3 py-2.5 text-slate-400">{variation?.name || product.variation || '-'}</td>
+                            <td className="px-3 py-2.5 text-slate-400">{product.ncm || '-'}</td>
+                            <td className={cn('px-3 py-2.5 text-right text-[11px] font-black', getProductStockClass(product))}>{getProductStockLabel(product)}</td>
+                            <td className="px-3 py-2.5 text-right font-black text-primary">{compactCurrency(parsePositiveMoney(variation?.salePrice ?? product.salePrice))}</td>
+                            <td className="px-4 py-2.5 text-right">
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  addProduct(product, variation);
+                                }}
+                                className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-primary transition hover:bg-primary hover:text-white"
+                              >
+                                Selecionar
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
               {products.length > 80 && (
-                <p className="mt-3 text-xs text-slate-500">Mostrando ate 80 resultados. Use a pesquisa para filtrar mais rapido.</p>
+                <p className="text-xs text-slate-500">Mostrando ate 80 resultados. Use a pesquisa para filtrar mais rapido.</p>
               )}
             </div>
           </div>
@@ -1627,12 +1902,37 @@ export const CashRegisterView = ({
   );
 };
 
-const SummaryBox = ({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) => (
-  <div className={cn('rounded-lg border border-slate-700/50 bg-slate-950/50 px-2.5 py-1.5', accent && 'border-primary/40 bg-primary/10')}>
-    <p className="text-[10px] font-bold text-slate-500">{label}</p>
-    <p className={cn('text-sm font-black', accent ? 'text-primary' : 'text-white')}>{value}</p>
-  </div>
-);
+const SummaryBox = ({
+  label,
+  value,
+  icon,
+  tone = 'slate',
+  accent = false,
+}: {
+  label: string;
+  value: string;
+  icon?: ReactNode;
+  tone?: 'blue' | 'slate' | 'purple';
+  accent?: boolean;
+}) => {
+  const iconTone = accent
+    ? 'bg-primary/15 text-primary'
+    : tone === 'blue'
+      ? 'bg-sky-500/15 text-sky-300'
+      : tone === 'purple'
+        ? 'bg-fuchsia-500/15 text-fuchsia-300'
+        : 'bg-slate-700/60 text-slate-300';
+
+  return (
+    <div className={cn('flex min-w-0 items-center gap-2 rounded-xl border border-slate-700/60 bg-slate-950/45 px-2 py-2', accent && 'border-primary/40 bg-primary/[0.06]')}>
+      {icon && <span className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-full', iconTone)}>{icon}</span>}
+      <div className="min-w-0">
+        <p className="truncate text-[10px] font-bold text-slate-400">{label}</p>
+        <p className={cn('whitespace-nowrap text-sm font-black', accent ? 'text-primary' : 'text-white')}>{value}</p>
+      </div>
+    </div>
+  );
+};
 
 const ActionButton = ({
   disabled = false,

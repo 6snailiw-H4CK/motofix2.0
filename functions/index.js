@@ -20,14 +20,16 @@ exports.syncCustomClaimsOnUserWrite = functions.firestore
       }
 
       const desiredClaims = {};
-      if (after.role === 'admin') desiredClaims.admin = true;
+      if (after.role === 'admin' && after.isActive === true) desiredClaims.admin = true;
       if (after.isActive === true) desiredClaims.isActive = true;
 
       // Preserve unrelated existing claims where sensible.
       const userRecord = await admin.auth().getUser(uid).catch(() => null);
       const existing = (userRecord && userRecord.customClaims) ? userRecord.customClaims : {};
-
-      const merged = { ...existing, ...desiredClaims };
+      const merged = { ...existing };
+      delete merged.admin;
+      delete merged.isActive;
+      Object.assign(merged, desiredClaims);
 
       // Avoid unnecessary writes by comparing
       const same = Object.keys(merged).length === Object.keys(existing).length

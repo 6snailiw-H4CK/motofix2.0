@@ -1,4 +1,4 @@
-import { Bell, Bike, LogOut, Moon, Settings as SettingsIcon, Sun } from 'lucide-react';
+import { LogOut, Moon, Sun } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { ColorMode } from '../../types';
 import type { OfflineSyncStatus } from '../../hooks/useOfflineSyncStatus';
@@ -6,21 +6,15 @@ import { OfflineSyncPill } from './OfflineSyncPill';
 
 type AppHeaderProps = {
   colorMode: ColorMode;
-  alertCount: number;
   offlineSyncStatus: OfflineSyncStatus;
   onColorModeChange: (mode: ColorMode) => void;
-  onRequestNotifications: () => void;
-  onSettingsClick: () => void;
   onSignOut: () => void;
 };
 
 export const AppHeader = ({
   colorMode,
-  alertCount,
   offlineSyncStatus,
   onColorModeChange,
-  onRequestNotifications,
-  onSettingsClick,
   onSignOut,
 }: AppHeaderProps) => (
   <header className="app-header sticky top-0 z-50 flex items-center justify-between border-b border-primary/10 bg-background-dark/80 px-4 py-3 backdrop-blur-md">
@@ -51,27 +45,6 @@ export const AppHeader = ({
         )}
       >
         <Sun className="w-4.5 h-4.5" />
-      </button>
-      <button
-        type="button"
-        onClick={onRequestNotifications}
-        aria-label="Notificacoes"
-        className="relative p-1.5 rounded-full hover:bg-slate-800 transition-colors text-slate-400"
-      >
-        <Bell className="w-4.5 h-4.5 text-primary" />
-        {alertCount > 0 && (
-          <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5">
-            {alertCount}
-          </span>
-        )}
-      </button>
-      <button
-        type="button"
-        onClick={onSettingsClick}
-        aria-label="Ajustes"
-        className="p-1.5 rounded-full hover:bg-slate-800 transition-colors text-slate-400"
-      >
-        <SettingsIcon className="w-4.5 h-4.5" />
       </button>
       <button
         type="button"

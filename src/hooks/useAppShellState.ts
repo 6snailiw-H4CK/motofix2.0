@@ -13,6 +13,7 @@ const getInitialColorMode = (): ColorMode => {
 
 export const useAppShellState = () => {
   const [view, setView] = useState<AppView>('dashboard');
+  const [clientScheduleReturnView, setClientScheduleReturnView] = useState<AppView>('clients-schedule');
   const [searchQuery, setSearchQuery] = useState('');
   const [toast, setToast] = useState<AppToastState>(null);
   const [isNewService, setIsNewService] = useState(false);
@@ -61,12 +62,14 @@ export const useAppShellState = () => {
   }, [colorMode]);
 
   return {
+    clientScheduleReturnView,
     colorMode,
     expandedTopService,
     isNewService,
     searchQuery,
     serviceListFilter,
     setColorMode,
+    setClientScheduleReturnView,
     setExpandedTopService,
     setIsNewService,
     setSearchQuery,

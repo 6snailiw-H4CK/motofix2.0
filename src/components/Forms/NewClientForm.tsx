@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ArrowLeft, RefreshCw, ChevronRight, Users } from 'lucide-react';
 import { format, parseISO, addDays } from 'date-fns';
+import { DateInput } from '../DateInput';
 import { Client, MaintenanceRecord } from '../../types';
 import { cn } from '../../lib/utils';
 import { toast as sonnerToast } from 'sonner';
@@ -369,10 +370,9 @@ export const NewClientForm: React.FC<NewClientFormProps> = ({
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-2">
                 Data do Serviço
               </label>
-              <input
-                type="date"
+              <DateInput
                 value={formLastMaintenanceDate}
-                onChange={(e) => setFormLastMaintenanceDate(e.target.value)}
+                onChange={setFormLastMaintenanceDate}
                 className="w-full bg-slate-900/70 border border-slate-700 rounded-xl p-3 text-sm focus:ring-2 focus:ring-primary outline-none"
               />
             </div>

@@ -1,5 +1,5 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { PackagePlus, Pencil, Plus, Save, Search, Trash2, X } from 'lucide-react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, ArrowDownWideNarrow, Boxes, ChevronDown, CircleDollarSign, Download, PackagePlus, Pencil, Plus, Save, Search, Settings2, ShieldCheck, Trash2, Upload, X } from 'lucide-react';
 import { cn, safeFormat } from '../../lib/utils';
 import type { ProductCatalogFormInput, ProductCatalogItem, ProductCatalogVariation } from '../../types';
 
@@ -7,8 +7,11 @@ type ProductsViewProps = {
   products: ProductCatalogItem[];
   isSavingProduct: boolean;
   isDeletingProducts: boolean;
+  isRestoringBackup: boolean;
   deletingProductId?: string | null;
   deleteConfirmId?: string | null;
+  onExportBackup: () => void;
+  onRestoreBackup: (file: File) => Promise<number> | number;
   onSaveProduct: (input: ProductCatalogFormInput, productId?: string) => Promise<boolean> | boolean;
   onDeleteProductClick: (product: ProductCatalogItem) => void;
   onDeleteAllProductsClick: (productIds: string[]) => Promise<boolean> | boolean;
@@ -19,6 +22,8 @@ const inputClass = 'w-full rounded-xl border border-slate-700/70 bg-slate-950/50
 const labelClass = 'text-[10px] font-black uppercase tracking-[0.2em] text-slate-500';
 const INITIAL_VISIBLE_PRODUCTS = 120;
 const VISIBLE_PRODUCTS_STEP = 120;
+type ProductStatusFilter = 'all' | 'in-stock' | 'low' | 'out' | 'untracked';
+type ProductSortOrder = 'recent' | 'oldest' | 'price-low' | 'price-high' | 'description';
 
 const emptyForm: ProductCatalogFormInput = {
   sourceCode: '',
@@ -90,14 +95,22 @@ export const ProductsView = ({
   products,
   isSavingProduct,
   isDeletingProducts,
+  isRestoringBackup,
   deletingProductId,
   deleteConfirmId,
+  onExportBackup,
+  onRestoreBackup,
   onSaveProduct,
   onDeleteProductClick,
   onDeleteAllProductsClick,
 }: ProductsViewProps) => {
+  const backupImportInputRef = useRef<HTMLInputElement>(null);
+  const [isBackupMenuOpen, setIsBackupMenuOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [isLowStockFilterActive, setIsLowStockFilterActive] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<ProductStatusFilter>('all');
+  const [sortOrder, setSortOrder] = useState<ProductSortOrder>('recent');
+  const [isProductFormOpen, setIsProductFormOpen] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | undefined>();
   const [form, setForm] = useState<ProductCatalogFormInput>(emptyForm);
   const [salePriceInput, setSalePriceInput] = useState('');
@@ -107,6 +120,8 @@ export const ProductsView = ({
   const [variationName, setVariationName] = useState('');
   const [variationPriceInput, setVariationPriceInput] = useState('');
   const [isDeleteAllConfirming, setIsDeleteAllConfirming] = useState(false);
+  const [isNcmPickerOpen, setIsNcmPickerOpen] = useState(false);
+  const [ncmQuery, setNcmQuery] = useState('');
   const [visibleLimit, setVisibleLimit] = useState(INITIAL_VISIBLE_PRODUCTS);
   const deferredSearch = useDeferredValue(search);
 
@@ -141,15 +156,35 @@ export const ProductsView = ({
         .filter(({ searchText }) => searchText.includes(term))
         .map(({ product }) => product);
 
-    if (!isLowStockFilterActive) return searchFilteredProducts;
-
-    return searchFilteredProducts.filter((product) => {
-      if (!product.trackStock) return false;
+    const matchesStatus = (product: ProductCatalogItem) => {
+      if (statusFilter === 'all') return true;
+      if (statusFilter === 'untracked') return !product.trackStock;
       const stockQuantity = Number(product.stockQuantity || 0);
       const minStockQuantity = Number(product.minStockQuantity || 0);
-      return stockQuantity <= 0 || (minStockQuantity > 0 && stockQuantity <= minStockQuantity);
-    });
-  }, [deferredSearch, isLowStockFilterActive, productSearchRows, products]);
+      const isOutOfStock = stockQuantity <= 0;
+      const isLowStock = isOutOfStock || (minStockQuantity > 0 && stockQuantity <= minStockQuantity);
+      if (statusFilter === 'out') return product.trackStock && isOutOfStock;
+      if (statusFilter === 'low') return product.trackStock && !isOutOfStock && isLowStock;
+      return product.trackStock && !isLowStock;
+    };
+
+    return searchFilteredProducts
+      .filter((product) => matchesStatus(product) && (!isLowStockFilterActive || (
+        product.trackStock && (
+          Number(product.stockQuantity || 0) <= 0
+          || (Number(product.minStockQuantity || 0) > 0 && Number(product.stockQuantity || 0) <= Number(product.minStockQuantity || 0))
+        )
+      )))
+      .sort((a, b) => {
+        if (sortOrder === 'price-low') return Number(a.salePrice || 0) - Number(b.salePrice || 0);
+        if (sortOrder === 'price-high') return Number(b.salePrice || 0) - Number(a.salePrice || 0);
+        if (sortOrder === 'description') return a.description.localeCompare(b.description, 'pt-BR');
+        const dateA = Date.parse(a.importedAt);
+        const dateB = Date.parse(b.importedAt);
+        const comparison = (Number.isNaN(dateA) ? 0 : dateA) - (Number.isNaN(dateB) ? 0 : dateB);
+        return sortOrder === 'recent' ? -comparison : comparison;
+      });
+  }, [deferredSearch, isLowStockFilterActive, productSearchRows, products, sortOrder, statusFilter]);
 
   const visibleProducts = useMemo(
     () => filteredProducts.slice(0, visibleLimit),
@@ -172,9 +207,12 @@ export const ProductsView = ({
     });
 
     return {
-      controlledCount: controlledProducts.length,
       lowStockCount: lowStockProducts.length,
-      totalUnits: controlledProducts.reduce((sum, product) => sum + Number(product.stockQuantity || 0), 0),
+      outOfStockCount: lowStockProducts.filter((product) => Number(product.stockQuantity || 0) <= 0).length,
+      estimatedSaleValue: controlledProducts.reduce(
+        (sum, product) => sum + Number(product.salePrice || 0) * Number(product.stockQuantity || 0),
+        0
+      ),
     };
   }, [products]);
   const selectedProduct = useMemo(
@@ -184,18 +222,29 @@ export const ProductsView = ({
 
   useEffect(() => {
     setVisibleLimit(INITIAL_VISIBLE_PRODUCTS);
-  }, [deferredSearch, isLowStockFilterActive, products.length]);
+  }, [deferredSearch, isLowStockFilterActive, products.length, sortOrder, statusFilter]);
 
   const updateForm = (patch: Partial<ProductCatalogFormInput>) => {
     setForm((current) => ({ ...current, ...patch }));
   };
 
   const [ncmList, setNcmList] = useState<Array<{ ncm: string; descricao: string; search: string }>>([]);
-  const [ncmQuery, setNcmQuery] = useState('');
-  const [ncmSuggestionsVisible, setNcmSuggestionsVisible] = useState(false);
-  const [descriptionQuery, setDescriptionQuery] = useState('');
 
   const removeDiacritics = (s: string) => String(s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const filteredNcmList = useMemo(() => {
+    const query = removeDiacritics(ncmQuery).toLowerCase().trim();
+    if (!query) return [];
+
+    const codeQuery = query.replace(/\D/g, '');
+    const terms = query.split(/\s+/).filter(Boolean);
+    return ncmList
+      .filter((item) => (
+        (codeQuery && item.ncm.startsWith(codeQuery))
+        || terms.every((term) => item.search.includes(term))
+      ))
+      .slice(0, 100);
+  }, [ncmList, ncmQuery]);
 
   useEffect(() => {
     let mounted = true;
@@ -217,7 +266,7 @@ export const ProductsView = ({
           return { ncm: (code || '').padStart(0, '0'), descricao: descricao || '', search };
         }).filter(Boolean) as Array<{ ncm: string; descricao: string; search: string }>;
 
-        setNcmList(normalized.filter((it) => it.ncm));
+        setNcmList(normalized.filter((it) => /^\d{8}$/.test(it.ncm)));
       }).catch(() => {
         // ignore
       });
@@ -231,7 +280,7 @@ export const ProductsView = ({
     setIsVariationFormOpen(false);
   };
 
-  const startNewProduct = () => {
+  const resetProductForm = () => {
     setEditingProductId(undefined);
     setForm(emptyForm);
     setSalePriceInput('');
@@ -240,6 +289,27 @@ export const ProductsView = ({
     resetVariationDraft();
     setIsDeleteAllConfirming(false);
   };
+
+  const startNewProduct = () => {
+    resetProductForm();
+    setIsProductFormOpen(true);
+  };
+
+  const closeProductForm = () => {
+    setIsProductFormOpen(false);
+    resetProductForm();
+  };
+
+  useEffect(() => {
+    if (!isProductFormOpen || isNcmPickerOpen) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsProductFormOpen(false);
+    };
+
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [isNcmPickerOpen, isProductFormOpen]);
 
   const startEditProduct = (product: ProductCatalogItem) => {
     const variations = product.variations?.length
@@ -266,6 +336,7 @@ export const ProductsView = ({
     setIsVariationFormOpen(false);
     setVariationName('');
     setVariationPriceInput('');
+    setIsProductFormOpen(true);
   };
 
   const addVariation = () => {
@@ -297,7 +368,7 @@ export const ProductsView = ({
     }, editingProductId);
 
     if (saved) {
-      startNewProduct();
+      closeProductForm();
     }
   };
 
@@ -311,7 +382,7 @@ export const ProductsView = ({
 
     const deleted = await onDeleteAllProductsClick(products.map((product) => product.id));
     if (deleted) {
-      startNewProduct();
+      closeProductForm();
       setSearch('');
     }
   };
@@ -322,24 +393,83 @@ export const ProductsView = ({
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.28em] text-primary">Catalogo</p>
           <h2 className="text-2xl font-black tracking-tight text-white">Mercadorias</h2>
-          <p className="text-sm text-slate-400">Cadastre, edite e mantenha os itens importados usados nos Lancamentos Caixa.</p>
+          <p className="text-sm text-slate-400">Acompanhe o catalogo, os precos e a disponibilidade do estoque.</p>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => void handleDeleteAllProducts()}
-            disabled={products.length === 0 || isDeletingProducts}
-            className={cn(
-              'inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-black shadow-lg transition disabled:cursor-not-allowed disabled:opacity-50',
-              isDeleteAllConfirming
-                ? 'bg-red-500 text-white shadow-red-500/20 hover:bg-red-600'
-                : 'border border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/20'
+          <input
+            ref={backupImportInputRef}
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            className="hidden"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void onRestoreBackup(file);
+              event.target.value = '';
+              setIsBackupMenuOpen(false);
+            }}
+          />
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setIsBackupMenuOpen((open) => !open)}
+              aria-label="Opções de backup de mercadorias"
+              aria-expanded={isBackupMenuOpen}
+              aria-haspopup="menu"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-800 px-4 py-2.5 text-sm font-black text-slate-200 transition hover:bg-slate-700"
+            >
+              <Settings2 className="h-4 w-4" />
+              Backup
+            </button>
+            {isBackupMenuOpen && (
+              <div
+                role="menu"
+                aria-label="Opções de backup de mercadorias"
+                className="absolute right-0 z-30 mt-2 grid min-w-52 gap-1 rounded-xl border border-slate-700 bg-slate-900 p-2 shadow-xl"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    onExportBackup();
+                    setIsBackupMenuOpen(false);
+                  }}
+                  disabled={products.length === 0}
+                  title="O backup inclui as variações cadastradas e seus preços."
+                  className="inline-flex items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-bold text-emerald-300 transition hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Download className="h-4 w-4" />
+                  Baixar backup
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => backupImportInputRef.current?.click()}
+                  disabled={isRestoringBackup}
+                  title="Selecione uma planilha de backup para restaurar as mercadorias e suas variações."
+                  className="inline-flex items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-bold text-primary transition hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Upload className="h-4 w-4" />
+                  {isRestoringBackup ? 'Restaurando...' : 'Restaurar backup'}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => void handleDeleteAllProducts()}
+                  disabled={products.length === 0 || isDeletingProducts}
+                  className={cn(
+                    'inline-flex items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50',
+                    isDeleteAllConfirming
+                      ? 'bg-red-500 text-white hover:bg-red-600'
+                      : 'text-red-300 hover:bg-red-500/10'
+                  )}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {isDeletingProducts ? 'Apagando...' : isDeleteAllConfirming ? 'Confirmar apagar' : 'Apagar importadas'}
+                </button>
+              </div>
             )}
-          >
-            <Trash2 className="h-4 w-4" />
-            {isDeletingProducts ? 'Apagando...' : isDeleteAllConfirming ? 'Confirmar apagar' : 'Apagar importadas'}
-          </button>
+          </div>
           <button
             type="button"
             onClick={startNewProduct}
@@ -351,28 +481,42 @@ export const ProductsView = ({
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)] 2xl:grid-cols-[460px_minmax(0,1fr)]">
-        <section className="rounded-2xl border border-slate-700/70 bg-slate-900/60 p-4 shadow-xl shadow-black/10">
+      {isProductFormOpen && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/75 p-3 backdrop-blur-sm sm:p-6"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeProductForm();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && !isNcmPickerOpen) closeProductForm();
+          }}
+        >
+        <section
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="product-form-title"
+          className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-4 shadow-2xl shadow-black sm:p-6"
+        >
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className={labelClass}>{editingProductId ? 'Editando mercadoria' : 'Nova mercadoria'}</p>
-              <h3 className="mt-1 text-xl font-black text-white">
+              <h3 id="product-form-title" className="mt-1 text-xl font-black text-white">
                 {selectedProduct?.description || 'Cadastro rapido'}
               </h3>
             </div>
-            {editingProductId && (
-              <button
-                type="button"
-                onClick={startNewProduct}
-                className="grid h-9 w-9 place-items-center rounded-xl bg-slate-800 text-slate-300 transition hover:text-white"
-                title="Cancelar edicao"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={closeProductForm}
+              autoFocus
+              className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-800 text-slate-300 transition hover:text-white"
+              title="Fechar formulario"
+              aria-label="Fechar formulario"
+            >
+              <X className="h-4 w-4" />
+            </button>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <label className="space-y-1">
               <span className={labelClass}>Codigo</span>
               <input
@@ -382,110 +526,36 @@ export const ProductsView = ({
                 placeholder="Ex: 163"
               />
             </label>
-            <label className="relative space-y-1">
+            <div className="space-y-1">
               <span className={labelClass}>NCM</span>
-              <input
-                value={ncmQuery || form.ncm}
-                onChange={(event) => {
-                  const v = event.target.value.replace(/\D/g, '');
-                  setNcmQuery(v);
-                  updateForm({ ncm: v });
-                  setNcmSuggestionsVisible(Boolean(v) || v === '');
-                }}
-                onFocus={() => setNcmSuggestionsVisible(true)}
-                onBlur={() => setTimeout(() => setNcmSuggestionsVisible(false), 150)}
-                className={inputClass}
-                placeholder="Ex: 73151210"
-                inputMode="numeric"
-              />
-
-              {ncmSuggestionsVisible && ncmQuery !== undefined && ncmList.length > 0 && (
-                <ul className="absolute z-40 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-slate-700/70 bg-slate-900/95 p-1 text-sm">
-                  {(() => {
-                    const q = String(ncmQuery || form.ncm || '').toLowerCase();
-                    if (!q) return null;
-                    const matches = ncmList.filter((item) => item.ncm.startsWith(q) || item.descricao.toLowerCase().includes(q)).slice(0, 12);
-                    if (matches.length === 0) return <li className="px-3 py-2 text-slate-500">Nenhum resultado</li>;
-                    return matches.map((item) => (
-                      <li
-                        key={item.ncm + item.descricao}
-                        role="button"
-                        tabIndex={0}
-                        onMouseDown={(ev) => { ev.preventDefault(); updateForm({ ncm: item.ncm }); setNcmQuery(item.ncm); setNcmSuggestionsVisible(false); }}
-                        onKeyDown={(ev) => { if (ev.key === 'Enter') { ev.preventDefault(); updateForm({ ncm: item.ncm }); setNcmQuery(item.ncm); setNcmSuggestionsVisible(false); } }}
-                        className="cursor-pointer rounded-lg px-3 py-2 hover:bg-slate-800/60"
-                        title={item.descricao}
-                      >
-                        <div className="font-black text-white">{item.ncm}</div>
-                        <div className="text-[12px] text-slate-400">{item.descricao}</div>
-                      </li>
-                    ));
-                  })()
-                  }
-                </ul>
-              )}
-            </label>
-            <label className="space-y-1 sm:col-span-2 xl:col-span-1 2xl:col-span-2">
-              <span className={labelClass}>Descricao</span>
-              <div className="relative">
-                <textarea
-                  value={form.description}
-                  onChange={(event) => {
-                    const v = event.target.value;
-                    updateForm({ description: v });
-                    setDescriptionQuery(v);
-                    setNcmSuggestionsVisible(Boolean(v && v.trim()));
-                  }}
-                  onFocus={() => setNcmSuggestionsVisible(Boolean(form.description && form.description.trim()))}
-                  onBlur={() => setTimeout(() => setNcmSuggestionsVisible(false), 150)}
-                  className={cn(inputClass, 'min-h-24 resize-none')}
-                  placeholder="Nome da mercadoria"
+              <div className="flex gap-2">
+                <input
+                  value={form.ncm}
+                  readOnly
+                  className={cn(inputClass, 'min-w-0')}
+                  placeholder="Nenhum NCM selecionado"
                 />
-
-                {ncmSuggestionsVisible && descriptionQuery !== undefined && ncmList.length > 0 && (
-                  <ul className="absolute z-40 mt-1 max-h-48 w-full overflow-auto rounded-xl border border-slate-700/70 bg-slate-900/95 p-1 text-sm">
-                    {(() => {
-                      const q = String(descriptionQuery || '').toLowerCase().trim();
-                      if (!q) return null;
-                      const normalize = (s: string) => String(s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/[^\w\s]/g, ' ');
-                      const tokens = normalize(q).split(/\s+/).filter(Boolean);
-                      const matches = ncmList.filter((item) => {
-                        const text = String(item.search || removeDiacritics(item.descricao || '')).toLowerCase();
-                        const words = text.split(/\s+/).filter(Boolean);
-
-                        return tokens.every((t) => {
-                          if (!t) return true;
-                          if ((item.ncm || '').startsWith(t)) return true;
-                          if (text.includes(t)) return true;
-
-                          // try fuzzy singular/plural handling and prefix matches
-                          const t0 = t.replace(/s$/u, '');
-                          return words.some((w) => {
-                            const w0 = w.replace(/s$/u, '');
-                            return w.includes(t) || w0.includes(t0) || t.includes(w) || t0.includes(w0) || w.startsWith(t) || w0.startsWith(t0);
-                          });
-                        });
-                      }).slice(0, 50);
-                      if (matches.length === 0) return <li className="px-3 py-2 text-slate-500">Nenhum NCM compatível encontrado</li>;
-                      return matches.map((item) => (
-                        <li
-                          key={item.ncm + item.descricao}
-                          role="button"
-                          tabIndex={0}
-                          onMouseDown={(ev) => { ev.preventDefault(); updateForm({ ncm: item.ncm }); setNcmQuery(item.ncm); setNcmSuggestionsVisible(false); }}
-                          onKeyDown={(ev) => { if (ev.key === 'Enter') { ev.preventDefault(); updateForm({ ncm: item.ncm }); setNcmQuery(item.ncm); setNcmSuggestionsVisible(false); } }}
-                          className="cursor-pointer rounded-lg px-3 py-2 hover:bg-slate-800/60"
-                          title={item.descricao}
-                        >
-                          <div className="font-black text-white">{item.ncm}</div>
-                          <div className="text-[12px] text-slate-400">{item.descricao}</div>
-                        </li>
-                      ));
-                    })()
-                    }
-                  </ul>
-                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNcmQuery('');
+                    setIsNcmPickerOpen(true);
+                  }}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-primary/40 bg-primary/10 px-3 py-2.5 text-xs font-black text-primary transition hover:bg-primary hover:text-white"
+                >
+                  <Search className="h-4 w-4" />
+                  Pesquisar
+                </button>
               </div>
+            </div>
+            <label className="space-y-1 sm:col-span-2">
+              <span className={labelClass}>Descricao</span>
+              <textarea
+                value={form.description}
+                onChange={(event) => updateForm({ description: event.target.value })}
+                className={cn(inputClass, 'min-h-24 resize-none')}
+                placeholder="Nome da mercadoria"
+              />
             </label>
             <label className="space-y-1">
               <span className={labelClass}>Venda R$</span>
@@ -531,7 +601,7 @@ export const ProductsView = ({
                 placeholder="0"
               />
             </label>
-            <div className="space-y-2 sm:col-span-2 xl:col-span-1 2xl:col-span-2">
+            <div className="space-y-2 sm:col-span-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className={labelClass}>Variacoes</span>
                 <button
@@ -615,26 +685,39 @@ export const ProductsView = ({
             </div>
           )}
         </section>
+        </div>
+      )}
 
-        <section className="min-w-0 rounded-2xl border border-slate-700/70 bg-slate-900/60 p-4 shadow-xl shadow-black/10">
-          <div className="grid gap-3 md:grid-cols-4">
-            <div className="rounded-xl border border-slate-700/60 bg-slate-950/40 p-3">
-              <p className={labelClass}>Itens</p>
-              <p className="mt-1 text-2xl font-black text-white">{products.length}</p>
+        <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-700/70 bg-slate-900/60 p-3 shadow-xl shadow-black/10 sm:p-4">
+          <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+            <div className="flex items-center gap-3 rounded-xl border border-slate-700/60 bg-slate-950/40 p-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-slate-800 text-slate-300">
+                <Boxes className="h-5 w-5" />
+              </span>
+              <div>
+                <p className={labelClass}>Total de itens</p>
+                <p className="text-xl font-black text-white">{products.length}</p>
+                <p className="text-[10px] font-semibold text-slate-500">mercadorias cadastradas</p>
+              </div>
             </div>
-            <div className="rounded-xl border border-slate-700/60 bg-slate-950/40 p-3">
-              <p className={labelClass}>Preco medio</p>
-              <p className="mt-1 text-2xl font-black text-white">{currency.format(averagePrice)}</p>
-            </div>
-            <div className="rounded-xl border border-slate-700/60 bg-slate-950/40 p-3">
-              <p className={labelClass}>Filtrados</p>
-              <p className="mt-1 text-2xl font-black text-white">{filteredProducts.length}</p>
+            <div className="flex items-center gap-3 rounded-xl border border-slate-700/60 bg-slate-950/40 p-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                <CircleDollarSign className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <p className={labelClass}>Valor em estoque</p>
+                <p className="truncate text-xl font-black text-white">{currency.format(stockSummary.estimatedSaleValue)}</p>
+                <p className="text-[10px] font-semibold text-slate-500">estimativa pelo preco de venda</p>
+              </div>
             </div>
             <button
               type="button"
-              onClick={() => setIsLowStockFilterActive((current) => !current)}
+              onClick={() => {
+                setIsLowStockFilterActive((current) => !current);
+                setStatusFilter('all');
+              }}
               className={cn(
-                'rounded-xl border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-primary/60',
+                'flex items-center gap-3 rounded-xl border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-primary/60',
                 isLowStockFilterActive
                   ? 'border-amber-400/70 bg-amber-500/10'
                   : 'border-slate-700/60 bg-slate-950/40 hover:border-amber-400/60 hover:bg-amber-500/5'
@@ -642,32 +725,90 @@ export const ProductsView = ({
               aria-pressed={isLowStockFilterActive}
               title="Mostrar somente mercadorias com estoque baixo ou zerado"
             >
-              <p className={labelClass}>Estoque</p>
-              <p className="mt-1 text-2xl font-black text-white">{stockSummary.totalUnits}</p>
-              <p className="text-[11px] font-bold text-amber-200">{stockSummary.lowStockCount} baixo/zerado de {stockSummary.controlledCount}</p>
-              <p className="mt-1 text-[10px] font-bold text-slate-400">
-                {isLowStockFilterActive ? 'Filtro ativo — clique para mostrar todos' : 'Clique para ver os itens'}
-              </p>
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-500/10 text-amber-300">
+                <AlertTriangle className="h-5 w-5" />
+              </span>
+              <span>
+                <span className={labelClass}>Estoque baixo</span>
+                <span className="block text-xl font-black text-amber-300">{stockSummary.lowStockCount - stockSummary.outOfStockCount}</span>
+                <span className="block text-[10px] font-semibold text-slate-500">itens no limite minimo</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setStatusFilter(statusFilter === 'out' ? 'all' : 'out');
+                setIsLowStockFilterActive(false);
+              }}
+              className={cn(
+                'flex items-center gap-3 rounded-xl border p-3 text-left transition focus:outline-none focus:ring-2 focus:ring-primary/60',
+                statusFilter === 'out'
+                  ? 'border-red-400/70 bg-red-500/10'
+                  : 'border-slate-700/60 bg-slate-950/40 hover:border-red-400/60 hover:bg-red-500/5'
+              )}
+              aria-pressed={statusFilter === 'out'}
+              title="Mostrar mercadorias sem estoque"
+            >
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-red-500/10 text-red-300">
+                <ShieldCheck className="h-5 w-5" />
+              </span>
+              <span>
+                <span className={labelClass}>Sem estoque</span>
+                <span className="block text-xl font-black text-red-300">{stockSummary.outOfStockCount}</span>
+                <span className="block text-[10px] font-semibold text-slate-500">itens zerados</span>
+              </span>
             </button>
           </div>
+          <div className="mt-2 text-right text-[10px] font-semibold text-slate-500">
+            Preco medio de venda: {currency.format(averagePrice)} · {filteredProducts.length} resultado(s)
+          </div>
 
-          <div className="mt-4 flex items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-950/50 px-3 py-2 text-slate-400">
-            <Search className="h-4 w-4" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              className="min-w-0 flex-1 bg-transparent text-sm font-bold text-slate-100 outline-none placeholder:text-slate-600"
-              placeholder="Buscar por codigo, descricao, variacao ou NCM..."
-            />
-            {isLowStockFilterActive && (
-              <button
-                type="button"
-                onClick={() => setIsLowStockFilterActive(false)}
-                className="shrink-0 rounded-lg bg-amber-500/10 px-2 py-1 text-[10px] font-black uppercase text-amber-200 transition hover:bg-amber-500/20"
+          <div className="mt-3 grid gap-2 rounded-xl border border-slate-700/70 bg-slate-950/35 p-2 sm:grid-cols-[minmax(220px,1fr)_minmax(175px,220px)_minmax(175px,220px)]">
+            <label className="relative flex min-w-0 items-center rounded-lg border border-slate-700/70 bg-slate-950/70 px-3 text-slate-400">
+              <Search className="h-4 w-4 shrink-0" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                className="min-w-0 flex-1 bg-transparent px-2 py-2.5 text-xs font-bold text-slate-100 outline-none placeholder:text-slate-500"
+                placeholder="Buscar por codigo, descricao ou NCM..."
+                aria-label="Buscar mercadorias"
+              />
+            </label>
+            <label className="relative flex items-center rounded-lg border border-slate-700/70 bg-slate-950/70">
+              <ShieldCheck className="pointer-events-none absolute left-3 h-4 w-4 text-slate-400" />
+              <select
+                value={statusFilter}
+                onChange={(event) => {
+                  setStatusFilter(event.target.value as ProductStatusFilter);
+                  setIsLowStockFilterActive(false);
+                }}
+                aria-label="Filtrar mercadorias por status"
+                className="w-full appearance-none bg-transparent py-2.5 pl-9 pr-9 text-xs font-bold text-slate-200 outline-none [&>option]:bg-slate-900 [&>option]:text-slate-100"
               >
-                Limpar filtro
-              </button>
-            )}
+                <option value="all">Todos os status</option>
+                <option value="in-stock">Em estoque</option>
+                <option value="low">Estoque baixo</option>
+                <option value="out">Sem estoque</option>
+                <option value="untracked">Sem controle</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-slate-500" />
+            </label>
+            <label className="relative flex items-center rounded-lg border border-slate-700/70 bg-slate-950/70">
+              <ArrowDownWideNarrow className="pointer-events-none absolute left-3 h-4 w-4 text-slate-400" />
+              <select
+                value={sortOrder}
+                onChange={(event) => setSortOrder(event.target.value as ProductSortOrder)}
+                aria-label="Ordenar mercadorias"
+                className="w-full appearance-none bg-transparent py-2.5 pl-9 pr-9 text-xs font-bold text-slate-200 outline-none [&>option]:bg-slate-900 [&>option]:text-slate-100"
+              >
+                <option value="recent">Mais recentes</option>
+                <option value="oldest">Mais antigas</option>
+                <option value="price-low">Menor preco</option>
+                <option value="price-high">Maior preco</option>
+                <option value="description">Descricao A-Z</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 h-4 w-4 text-slate-500" />
+            </label>
           </div>
 
           <div className="mt-4 overflow-hidden rounded-2xl border border-slate-700/60">
@@ -690,7 +831,11 @@ export const ProductsView = ({
                   {filteredProducts.length === 0 ? (
                     <tr>
                       <td colSpan={9} className="px-3 py-12 text-center text-sm font-bold text-slate-500">
-                        {isLowStockFilterActive ? 'Nenhuma mercadoria com estoque baixo ou zerado.' : 'Nenhuma mercadoria encontrada.'}
+                        {isLowStockFilterActive
+                          ? 'Nenhuma mercadoria com estoque baixo ou zerado.'
+                          : statusFilter === 'all'
+                            ? 'Nenhuma mercadoria encontrada.'
+                            : 'Nenhuma mercadoria corresponde ao status selecionado.'}
                       </td>
                     </tr>
                   ) : visibleProducts.map((product) => {
@@ -806,7 +951,6 @@ export const ProductsView = ({
             </div>
           )}
         </section>
-      </div>
 
       <div className="rounded-2xl border border-slate-700/60 bg-slate-900/45 p-4 text-xs text-slate-400">
         <div className="flex items-start gap-3">
@@ -816,6 +960,87 @@ export const ProductsView = ({
           </p>
         </div>
       </div>
+
+      {isNcmPickerOpen && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setIsNcmPickerOpen(false);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') setIsNcmPickerOpen(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ncm-picker-title"
+            className="flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 shadow-2xl shadow-black"
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-slate-800 p-4">
+              <div>
+                <p className={labelClass}>Classificacao fiscal</p>
+                <h3 id="ncm-picker-title" className="mt-1 text-lg font-black text-white">Pesquisar NCM</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNcmPickerOpen(false)}
+                className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-slate-800 text-slate-300 transition hover:text-white"
+                aria-label="Fechar pesquisa de NCM"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="border-b border-slate-800 p-4">
+              <label className="space-y-1">
+                <span className={labelClass}>Codigo ou descricao do produto</span>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                  <input
+                    autoFocus
+                    value={ncmQuery}
+                    onChange={(event) => setNcmQuery(event.target.value)}
+                    className={cn(inputClass, 'pl-9')}
+                    placeholder="Ex: pastilha de freio ou 87141000"
+                  />
+                </div>
+              </label>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-auto p-3">
+              {ncmList.length === 0 ? (
+                <p className="py-10 text-center text-sm font-bold text-slate-500">Tabela NCM indisponivel.</p>
+              ) : !ncmQuery.trim() ? (
+                <p className="py-10 text-center text-sm font-bold text-slate-500">Digite um codigo ou descricao para pesquisar.</p>
+              ) : filteredNcmList.length === 0 ? (
+                <p className="py-10 text-center text-sm font-bold text-slate-500">Nenhum NCM encontrado para esta pesquisa.</p>
+              ) : (
+                <ul className="divide-y divide-slate-800 overflow-hidden rounded-xl border border-slate-800">
+                  {filteredNcmList.map((item) => (
+                    <li key={item.ncm}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          updateForm({ ncm: item.ncm });
+                          setIsNcmPickerOpen(false);
+                        }}
+                        className="flex w-full items-start gap-4 px-4 py-3 text-left transition hover:bg-slate-900 focus:bg-slate-900 focus:outline-none"
+                      >
+                        <span className="shrink-0 font-black tabular-nums text-white">{item.ncm}</span>
+                        <span className="text-sm text-slate-300">{item.descricao}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {filteredNcmList.length === 100 && (
+                <p className="px-2 pt-3 text-center text-xs font-bold text-slate-500">Exibindo ate 100 resultados. Refine a pesquisa para localizar outros codigos.</p>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 };

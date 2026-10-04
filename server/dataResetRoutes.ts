@@ -1,6 +1,7 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import type { Auth, DecodedIdToken } from "firebase-admin/auth";
 import { FieldPath, type Firestore, type QueryDocumentSnapshot } from "firebase-admin/firestore";
+import { hasActiveAdminAccess } from "./userAccess";
 
 type DataResetRequest = Request & {
   dataResetAuth?: {
@@ -44,7 +45,8 @@ const isAdminDataResetUser = async (
   options: RegisterDataResetRoutesOptions,
   decoded: DecodedIdToken
 ) => {
-  return decoded.admin === true;
+  if (!options.db) return false;
+  return hasActiveAdminAccess(options.db, decoded);
 };
 
 const requireDataResetAuth = (options: RegisterDataResetRoutesOptions) => async (

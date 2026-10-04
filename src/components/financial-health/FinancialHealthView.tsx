@@ -27,6 +27,7 @@ import { TargetMetricsCard } from './TargetMetricsCard';
 import { GoalsEditor } from './GoalsEditor';
 import { TrendChart } from './TrendChart';
 import { useFinancialHealth } from '../../hooks/useFinancialHealth';
+import { ReportSectionTabs } from '../reports/ReportSectionTabs';
 
 type FinancialHealthViewProps = {
   maintenances: MaintenanceRecord[];
@@ -106,38 +107,25 @@ export function FinancialHealthView({
   const monthLabel = format(new Date(year, month, 1), 'MMMM yyyy', { locale: ptBR });
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 to-slate-900">
-      {/* Header */}
-      <div className="border-b border-slate-800 bg-slate-900/50 backdrop-blur-sm">
-        <div className="mx-auto max-w-7xl px-4 py-6">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h1 className="flex items-center gap-2 text-3xl font-bold text-slate-100">
-                <TrendingUp className="h-8 w-8 text-green-400" />
-                Saúde Financeira
-              </h1>
-              <p className="mt-1 text-sm text-slate-400">
-                Acompanhe o desempenho financeiro e tome melhores decisões
-              </p>
-            </div>
-                        <button
-              onClick={() => onViewChange('admin')}
-              className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700"
-            >
-              ← Voltar
-            </button>
-
-          </div>
-        </div>
+    <div className="mx-auto w-full max-w-6xl space-y-5 overflow-hidden">
+      <ReportSectionTabs active="financial-health" onViewChange={onViewChange} />
+      <div className="flex flex-col gap-1">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Relatórios financeiros</p>
+        <h2 className="flex items-center gap-2 text-xl font-bold text-white">
+          <TrendingUp className="h-5 w-5 text-primary" />
+          Saúde Financeira
+        </h2>
+        <p className="text-xs text-slate-400">
+          Acompanhe o desempenho financeiro e tome melhores decisões.
+        </p>
       </div>
 
-      <div className="mx-auto max-w-7xl px-4 py-6">
-        {/* Month Navigation */}
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+      <section className="flex flex-col gap-4 rounded-2xl border border-slate-700/70 bg-slate-800/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
             <button
               onClick={handlePreviousMonth}
-              className="rounded-lg border border-slate-700 p-2 hover:bg-slate-800"
+              aria-label="Mês anterior"
+              className="rounded-xl border border-slate-700 bg-slate-800/70 p-2 text-slate-300 transition hover:bg-slate-700 hover:text-white"
             >
               <ChevronLeft className="h-5 w-5" />
             </button>
@@ -149,7 +137,7 @@ export function FinancialHealthView({
                     setMonth(now.getMonth());
                     setYear(now.getFullYear());
                   }}
-                  className="mt-1 text-xs text-slate-400 hover:text-slate-300"
+                  className="mt-1 text-xs font-semibold text-primary hover:text-primary/80"
                 >
                   Ir para hoje
                 </button>
@@ -157,18 +145,19 @@ export function FinancialHealthView({
             </div>
             <button
               onClick={handleNextMonth}
-              className="rounded-lg border border-slate-700 p-2 hover:bg-slate-800"
+              aria-label="Próximo mês"
+              className="rounded-xl border border-slate-700 bg-slate-800/70 p-2 text-slate-300 transition hover:bg-slate-700 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               disabled={isCurrentMonth}
             >
               <ChevronRight className={cn('h-5 w-5', isCurrentMonth && 'opacity-50')} />
             </button>
           </div>
 
-          <div className="flex items-center gap-2 text-xs text-slate-500">
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-400">
             <RefreshCw className="h-4 w-4" />
             Dados atualizados automaticamente
           </div>
-        </div>
+      </section>
 
         {/* Main Metrics Grid */}
         <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -303,7 +292,6 @@ export function FinancialHealthView({
             </li>
           </ul>
         </div>
-      </div>
     </div>
   );
 }

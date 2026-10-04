@@ -9,7 +9,6 @@ import type { OfflineSyncStatus } from '../../hooks/useOfflineSyncStatus';
 import type { CollectionListenerIssue } from '../../hooks/useUserCollections';
 
 type AppShellProps = {
-  alertCount: number;
   children: ReactNode;
   colorMode: ColorMode;
   collectionListenerIssues: CollectionListenerIssue[];
@@ -19,13 +18,11 @@ type AppShellProps = {
   userProfile: UserProfile | null;
   view: AppView;
   onColorModeChange: (mode: ColorMode) => void;
-  onRequestNotifications: () => void;
   onSignOut: () => void;
   onViewChange: (view: AppView) => void;
 };
 
 export const AppShell = ({
-  alertCount,
   children,
   colorMode,
   collectionListenerIssues,
@@ -35,7 +32,6 @@ export const AppShell = ({
   userProfile,
   view,
   onColorModeChange,
-  onRequestNotifications,
   onSignOut,
   onViewChange,
 }: AppShellProps) => {
@@ -58,26 +54,20 @@ export const AppShell = ({
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="lg:hidden">
             <AppHeader
-              alertCount={alertCount}
               colorMode={colorMode}
               offlineSyncStatus={offlineSyncStatus}
               onColorModeChange={onColorModeChange}
-              onRequestNotifications={onRequestNotifications}
-              onSettingsClick={() => onViewChange('settings')}
               onSignOut={onSignOut}
             />
           </div>
 
           <div className="hidden lg:block">
             <TopBar
-              alertCount={alertCount}
               businessName={businessName}
               colorMode={colorMode}
               offlineSyncStatus={offlineSyncStatus}
               view={view}
               onColorModeChange={onColorModeChange}
-              onRequestNotifications={onRequestNotifications}
-              onSettingsClick={() => onViewChange('settings')}
               onSignOut={onSignOut}
             />
           </div>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -82,150 +82,190 @@ export const ClientsScheduleView = ({
   };
 
   return (
-    <div className="space-y-3.5">
-      <div className="flex flex-wrap items-center gap-2">
-        <button type="button" onClick={onBack} className="rounded-full p-1.5 transition-colors hover:bg-slate-800">
-          <ArrowLeft className="h-4 w-4" />
-        </button>
-        <h2 className="text-lg font-bold">Agenda de Clientes</h2>
-
-        <div className="relative ml-auto w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
-          <input
-            type="search"
-            value={clientQuery}
-            onChange={(event) => setClientQuery(event.target.value)}
-            placeholder="Pesquisar cliente pelo nome..."
-            className="w-full rounded-xl border border-slate-700/50 bg-slate-900/50 py-2 pl-9 pr-3 text-xs text-slate-100 outline-none transition-all placeholder:text-slate-600 focus:border-primary/60 focus:ring-1 focus:ring-primary/30"
-          />
-        </div>
-
-        <div className="rounded-full bg-primary/20 px-2 py-1">
-          <span className="text-[11px] font-bold text-primary">{filteredClients.length}</span>
+    <div className="clients-schedule-view space-y-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <button
+            type="button"
+            onClick={onBack}
+            className="mt-1 grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-slate-700/70 bg-slate-900/70 text-slate-300 transition hover:border-primary/40 hover:text-white"
+            aria-label="Voltar"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+          <div className="min-w-0">
+            <h2 className="text-2xl font-black tracking-tight text-white sm:text-3xl">Agenda de Clientes</h2>
+            <p className="mt-1 text-xs text-slate-400 sm:text-sm">Visualize e acompanhe o relacionamento dos seus clientes.</p>
+          </div>
         </div>
         <button
           type="button"
           onClick={onAddClient}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2 text-xs font-bold text-white shadow-lg shadow-primary/10 transition-all hover:bg-primary/90 sm:w-auto"
+          className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-primary/15 transition hover:bg-primary/90 sm:w-auto"
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className="h-4 w-4" />
           Cadastrar cliente
         </button>
       </div>
 
       {clients.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-700/50 bg-slate-800/40 py-10 text-center">
+        <div className="rounded-2xl border border-dashed border-slate-700/70 bg-slate-900/40 py-14 text-center">
           <Users className="mx-auto mb-3 h-7 w-7 text-slate-600" />
           <p className="text-sm font-bold text-slate-400">Nenhum cliente cadastrado</p>
           <p className="mt-1 text-xs text-slate-600">Cadastre clientes por aqui ou registre um novo servico.</p>
         </div>
       ) : filteredClients.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-700/50 bg-slate-800/40 py-10 text-center">
+        <div className="rounded-2xl border border-dashed border-slate-700/70 bg-slate-900/40 py-14 text-center">
           <Search className="mx-auto mb-3 h-7 w-7 text-slate-600" />
           <p className="text-sm font-bold text-slate-400">Nenhum cliente encontrado</p>
           <p className="mt-1 text-xs text-slate-600">Tente pesquisar por outro nome.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
-          {filteredClients.map((client) => {
-            const statusConfig = getStatusConfig(client.status);
-            const StatusIcon = statusConfig.icon;
-            const balance = clientBalanceMap.get(client.id) || 0;
-            const isConfirmingDelete = deleteConfirmId === client.id;
-            const isExpanded = expandedClientIds.has(client.id);
+        <div className="space-y-3">
+          <div className="flex flex-col gap-2 rounded-2xl border border-slate-800 bg-slate-900/55 p-2.5 shadow-lg shadow-black/10 sm:flex-row sm:items-center">
+            <div className="relative min-w-0 flex-1">
+              <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+              <input
+                type="search"
+                value={clientQuery}
+                onChange={(event) => setClientQuery(event.target.value)}
+                placeholder="Buscar cliente pelo nome..."
+                className="w-full rounded-xl border border-slate-700/70 bg-slate-950/60 py-2.5 pl-10 pr-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-primary/60 focus:ring-2 focus:ring-primary/10"
+              />
+            </div>
+            <span className="px-2 text-xs font-semibold text-slate-400">
+              <span className="font-black text-white">{filteredClients.length}</span> clientes
+            </span>
+          </div>
 
-            return (
-              <div
-                key={client.id}
-                className={cn(
-                  'group cursor-pointer rounded-xl border bg-slate-800/40 p-3 transition-all hover:border-primary/50',
-                  isExpanded ? 'space-y-2 border-primary/40' : 'border-slate-700/50'
-                )}
-                onClick={() => toggleClient(client.id)}
-                role="button"
-                tabIndex={0}
-                aria-expanded={isExpanded}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    toggleClient(client.id);
-                  }
-                }}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex min-w-0 flex-1 items-center gap-2">
-                    <ChevronRight className={cn('h-4 w-4 shrink-0 text-slate-500 transition-transform', isExpanded ? 'rotate-90 text-primary' : '')} />
-                    <h3 className="truncate text-sm font-bold transition-colors group-hover:text-primary">{client.name}</h3>
-                  </div>
-                  <div
-                    className={cn(
-                      'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold',
-                      statusConfig.className
-                    )}
-                    title={statusConfig.label}
-                  >
-                    <StatusIcon className="h-3.5 w-3.5" />
-                  </div>
-                </div>
+          <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/30 shadow-lg shadow-black/10">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[980px] text-left">
+                <thead className="border-b border-slate-800 bg-slate-800/45 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  <tr>
+                    <th className="px-4 py-3">Cliente</th>
+                    <th className="px-4 py-3">Moto</th>
+                    <th className="px-4 py-3">Contato</th>
+                    <th className="px-4 py-3">Recorrencia</th>
+                    <th className="px-4 py-3">Ultimo servico</th>
+                    <th className="px-4 py-3 text-center">Status</th>
+                    <th className="px-4 py-3 text-right">Acao</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/90">
+                  {filteredClients.map((client) => {
+                    const statusConfig = getStatusConfig(client.status);
+                    const StatusIcon = statusConfig.icon;
+                    const balance = clientBalanceMap.get(client.id) || 0;
+                    const isConfirmingDelete = deleteConfirmId === client.id;
+                    const isExpanded = expandedClientIds.has(client.id);
 
-                {isExpanded && (
-                  <>
-                    <div className="border-t border-slate-700/30 pt-2">
-                      <p className="truncate text-[10px] text-slate-500">{client.bikeModel || 'Moto nao informada'}</p>
-                      <p className="mt-0.5 flex items-center gap-1 text-[9px] text-slate-600">
-                        <Phone className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{client.contact || 'Telefone nao informado'}</span>
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-1.5 border-t border-slate-700/30 pt-2 text-[9px] text-slate-600">
-                      <p className="flex items-center gap-1 rounded-lg bg-slate-950/20 px-2 py-1">
-                        <RefreshCw className="h-3 w-3 shrink-0" />
-                        <span>Recorrencia: {client.recurrenceDays}d</span>
-                      </p>
-                      {client.lastMaintenanceDate && (
-                        <p className="flex items-center gap-1 rounded-lg bg-slate-950/20 px-2 py-1">
-                          <CalendarDays className="h-3 w-3 shrink-0" />
-                          <span>Ultimo: {safeFormat(client.lastMaintenanceDate, 'dd/MM/yyyy')}</span>
-                        </p>
-                      )}
-                      {balance > 0 && (
-                        <p className="col-span-2 rounded-lg bg-red-500/10 px-2 py-1 font-bold text-red-500">Debito: R$ {balance.toFixed(2)}</p>
-                      )}
-                    </div>
-
-                    <div className="flex gap-2 border-t border-slate-700/30 pt-2">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onEditClient(client);
-                        }}
-                        className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-slate-700/50 px-2 py-1.5 text-[9px] font-bold text-slate-300 transition-colors hover:bg-primary/20 hover:text-primary"
-                      >
-                        <Pencil className="h-3 w-3" />
-                        Editar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onDeleteClientClick(client);
-                        }}
-                        className={cn(
-                          'flex flex-1 items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[9px] font-bold transition-colors',
-                          isConfirmingDelete ? 'bg-red-500 text-white' : 'bg-red-500/10 text-red-500 hover:bg-red-500/20'
+                    return (
+                      <Fragment key={client.id}>
+                        <tr className="group transition-colors hover:bg-slate-800/25">
+                          <td className="px-4 py-3">
+                            <div className="flex min-w-0 items-center gap-2.5">
+                              <span className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-full text-xs font-black', statusConfig.className)}>
+                                {client.name.trim().charAt(0).toUpperCase() || '?'}
+                              </span>
+                              <div className="min-w-0">
+                                <p className="truncate text-xs font-black text-slate-100 sm:text-sm">{client.name}</p>
+                                <p className="mt-0.5 text-[10px] text-slate-500">{client.bikeModel || 'Moto nao informada'}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-xs font-medium text-slate-300">{client.bikeModel || '-'}</td>
+                          <td className="px-4 py-3">
+                            <span className="flex items-center gap-2 whitespace-nowrap text-xs text-slate-300">
+                              <Phone className="h-3.5 w-3.5 text-slate-500" />
+                              {client.contact || 'Nao informado'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-slate-300">
+                              <RefreshCw className="h-3.5 w-3.5 text-slate-500" />
+                              {client.recurrenceDays} dias
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-slate-300">
+                              <CalendarDays className="h-3.5 w-3.5 text-slate-500" />
+                              {client.lastMaintenanceDate ? safeFormat(client.lastMaintenanceDate, 'dd/MM/yyyy') : '-'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-wide', statusConfig.className)}>
+                              <StatusIcon className="h-3 w-3" />
+                              {statusConfig.label}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => onEditClient(client)}
+                                aria-label={`Editar ${client.name}`}
+                                title="Editar cliente"
+                                className="grid h-8 w-8 place-items-center rounded-lg border border-slate-700/80 bg-slate-800/70 text-slate-300 transition hover:border-primary/40 hover:bg-primary/10 hover:text-primary"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onDeleteClientClick(client)}
+                                aria-label={isConfirmingDelete ? `Confirmar exclusao de ${client.name}` : `Excluir ${client.name}`}
+                                title={isConfirmingDelete ? 'Confirmar exclusao' : 'Excluir cliente'}
+                                className={cn(
+                                  'grid h-8 w-8 place-items-center rounded-lg border transition',
+                                  isConfirmingDelete
+                                    ? 'border-red-500 bg-red-500 text-white'
+                                    : 'border-slate-700/80 bg-slate-800/70 text-slate-400 hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-400'
+                                )}
+                              >
+                                {isConfirmingDelete ? <CheckCircle className="h-3.5 w-3.5" /> : <Trash2 className="h-3.5 w-3.5" />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => toggleClient(client.id)}
+                                aria-label={isExpanded ? `Ocultar detalhes de ${client.name}` : `Ver detalhes de ${client.name}`}
+                                aria-expanded={isExpanded}
+                                className="grid h-8 w-8 place-items-center rounded-lg border border-slate-700/80 bg-slate-800/70 text-slate-400 transition hover:border-primary/40 hover:text-primary"
+                              >
+                                <ChevronRight className={cn('h-4 w-4 transition-transform', isExpanded && 'rotate-90 text-primary')} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="bg-slate-950/35">
+                            <td colSpan={7} className="px-4 py-3">
+                              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 pl-11 text-xs">
+                                <span className="inline-flex items-center gap-1.5 text-slate-400">
+                                  <RefreshCw className="h-3.5 w-3.5 text-slate-500" />
+                                  Recorrencia: {client.recurrenceDays} dias
+                                </span>
+                                {client.lastMaintenanceDate && (
+                                  <span className="inline-flex items-center gap-1.5 text-slate-400">
+                                    <CalendarDays className="h-3.5 w-3.5 text-slate-500" />
+                                    Ultimo atendimento: {safeFormat(client.lastMaintenanceDate, 'dd/MM/yyyy')}
+                                  </span>
+                                )}
+                                {balance > 0 && (
+                                  <span className="rounded-lg border border-red-500/20 bg-red-500/10 px-2.5 py-1 font-bold text-red-300">
+                                    Debito: R$ {balance.toFixed(2)}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
                         )}
-                      >
-                        {isConfirmingDelete ? <CheckCircle className="h-3 w-3" /> : <Trash2 className="h-3 w-3" />}
-                        {isConfirmingDelete ? 'Confirmar' : 'Deletar'}
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            );
-          })}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
     </div>

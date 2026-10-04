@@ -96,7 +96,7 @@ export const useMaintenanceStats = ({
 
     dashboardCashLaunches.forEach((launch) => {
       if (!isCashLaunchFinancial(launch)) return;
-      const launchDate = parseSafeDate(launch.openingDate || launch.createdAt);
+      const launchDate = parseSafeDate(launch.paidAt || launch.openingDate || launch.createdAt);
       if (!launchDate || !isSameMonth(launchDate, currentMonth, currentYear)) return;
 
       const value = getCashPaidAmount(launch);
@@ -390,9 +390,13 @@ export const useMaintenanceStats = ({
   }, [clientsSortedByBalance, maintenancesByClientId, searchQuery]);
 
   const filteredServiceClients = useMemo(() => {
-    const clientsWithServiceRecords = filteredClients.filter((client) => (
-      (maintenancesByClientId.get(client.id) || []).length > 0
-    ));
+    const clientsWithServiceRecords = filteredClients.filter((client) => {
+      const hasMaintenanceRecords = (maintenancesByClientId.get(client.id) || []).length > 0;
+      const hasLegacyServiceData = Boolean(client.lastServiceType || client.lastServiceValue || client.lastServiceNotes);
+      const needsService = client.status === 'OVERDUE' || client.status === 'WARNING';
+
+      return hasMaintenanceRecords || hasLegacyServiceData || (serviceListFilter === 'all' && needsService);
+    });
 
     if (serviceListFilter === 'all') return clientsWithServiceRecords;
     return clientsWithServiceRecords.filter((client) => {

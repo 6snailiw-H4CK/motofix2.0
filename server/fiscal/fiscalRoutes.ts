@@ -1,6 +1,7 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import type { Auth, DecodedIdToken } from "firebase-admin/auth";
 import type { Firestore } from "firebase-admin/firestore";
+import { getActiveUserProfile } from "../userAccess";
 import {
   extractFocusDocumentUrls,
   focusClient,
@@ -134,13 +135,23 @@ const isActiveFiscalUser = async (
   decoded: DecodedIdToken
 ) => {
   if (!options.db) return false;
-  if (decoded.admin === true) return true;
+  const moduleEnabled = ["1", "true", "yes", "on"].includes(
+    String(process.env.FISCAL_MODULE_ENABLED ?? process.env.VITE_FISCAL_MODULE_ENABLED ?? "").trim().toLowerCase()
+  );
+  if (!moduleEnabled) return false;
 
-  const userSnapshot = await options.db.collection("users").doc(decoded.uid).get();
-  if (!userSnapshot.exists) return false;
+  const profile = await getActiveUserProfile(options.db, decoded.uid);
+  if (!profile) return false;
 
-  const userData = userSnapshot.data() as { isActive?: boolean } | undefined;
-  return userData?.isActive === true;
+  const isAdmin = decoded.admin === true && profile.role === "admin";
+  const allowedEmails = new Set(
+    String(process.env.FISCAL_BETA_EMAILS ?? process.env.VITE_FISCAL_BETA_EMAILS ?? "")
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const email = String(profile.email || decoded.email || "").trim().toLowerCase();
+  return isAdmin || allowedEmails.has(email);
 };
 
 const requireFiscalAuth = (options: RegisterFiscalRoutesOptions) => async (req: FiscalRequest, res: Response, next: NextFunction) => {

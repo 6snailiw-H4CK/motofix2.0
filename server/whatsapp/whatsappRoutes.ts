@@ -1,6 +1,7 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import type { Auth, DecodedIdToken } from "firebase-admin/auth";
 import type { Firestore } from "firebase-admin/firestore";
+import { hasActiveUserAccess } from "../userAccess";
 import { whatsappStore } from "./whatsappStore";
 import { whatsAppSessionService } from "./WhatsAppSessionService";
 import type { AuthenticatedWhatsAppRequest, WhatsAppStoreContext } from "./types";
@@ -314,13 +315,7 @@ const isActiveWhatsAppUser = async (
   decoded: DecodedIdToken
 ) => {
   if (!options.db) return false;
-  if (decoded.admin === true) return true;
-
-  const userSnapshot = await options.db.collection("users").doc(decoded.uid).get();
-  if (!userSnapshot.exists) return false;
-
-  const userData = userSnapshot.data() as { isActive?: boolean } | undefined;
-  return userData?.isActive === true;
+  return hasActiveUserAccess(options.db, decoded.uid);
 };
 
 const requireWhatsAppAuth = (options: RegisterWhatsAppRoutesOptions) => async (req: WhatsAppRequest, res: Response, next: NextFunction) => {

@@ -1,5 +1,4 @@
 import {
-  BarChart3,
   Calendar,
   DollarSign,
   FileText,
@@ -7,7 +6,6 @@ import {
   MessageCircle,
   Package,
   ReceiptText,
-  RefreshCw,
   Settings as SettingsIcon,
   Shield,
   ShieldCheck,
@@ -37,9 +35,16 @@ export const getPrimaryNavItems = (isAdmin: boolean, fiscalModuleAvailable: bool
     group: 'primary',
   },
   {
+    id: 'cash-register',
+    icon: ReceiptText,
+    label: 'Ordem de Serviço',
+    match: ['cash-register'],
+    group: 'primary',
+  },
+  {
     id: 'clients',
     icon: ReceiptText,
-    label: 'Servicos/Oleo',
+    label: 'Recorrência',
     match: ['clients'],
     group: 'primary',
   },
@@ -58,13 +63,6 @@ export const getPrimaryNavItems = (isAdmin: boolean, fiscalModuleAvailable: bool
     group: 'primary',
   },
   {
-    id: 'cash-register',
-    icon: ReceiptText,
-    label: 'Lancamentos Caixa',
-    match: ['cash-register'],
-    group: 'primary',
-  },
-  {
     id: 'clients-schedule',
     icon: Users,
     label: 'Clientes',
@@ -77,20 +75,6 @@ export const getPrimaryNavItems = (isAdmin: boolean, fiscalModuleAvailable: bool
     label: 'Configuracoes',
     match: ['settings'],
     group: 'primary',
-  },
-  {
-    id: 'history',
-    icon: BarChart3,
-    label: 'Historico',
-    match: ['history'],
-    group: 'tools',
-  },
-  {
-    id: 'returns',
-    icon: RefreshCw,
-    label: 'Retornos',
-    match: ['returns', 'new-client'],
-    group: 'tools',
   },
   {
     id: 'expenses',
@@ -119,6 +103,15 @@ export const getPrimaryNavItems = (isAdmin: boolean, fiscalModuleAvailable: bool
       icon: FileText,
       label: 'Fiscal',
       match: ['fiscal' as AppView],
+      group: 'tools' as const,
+    }]
+    : []),
+  ...(isAdmin
+    ? [{
+      id: 'general-report' as AppView,
+      icon: FileText,
+      label: 'Relatorios',
+      match: ['general-report' as AppView, 'financial-health' as AppView],
       group: 'tools' as const,
     }]
     : []),

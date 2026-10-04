@@ -1,6 +1,7 @@
 import type { CashRegisterLaunch } from '../types';
 
 export type CashPaymentStatus = NonNullable<CashRegisterLaunch['statusPagamento']>;
+type CashPaymentRecord = Pick<CashRegisterLaunch, 'total' | 'statusPagamento' | 'valorPago' | 'status' | 'invoiced'>;
 
 const toAmount = (value?: number | string | null) => {
   const parsed = Number(value);
@@ -11,12 +12,12 @@ export const isCashLaunchFinancial = (launch: CashRegisterLaunch) => (
   launch.status === 'Pendente' || launch.status === 'Finalizado'
 );
 
-export const getCashPaymentStatus = (launch: CashRegisterLaunch): CashPaymentStatus => {
+export const getCashPaymentStatus = (launch: CashPaymentRecord): CashPaymentStatus => {
   if (launch.statusPagamento) return launch.statusPagamento;
   return launch.status === 'Finalizado' && launch.invoiced ? 'Pago' : 'Pendente';
 };
 
-export const getCashPaidAmount = (launch: CashRegisterLaunch) => {
+export const getCashPaidAmount = (launch: CashPaymentRecord) => {
   const total = toAmount(launch.total);
   const status = getCashPaymentStatus(launch);
 

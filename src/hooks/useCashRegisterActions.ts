@@ -3,12 +3,14 @@ import type { User } from 'firebase/auth';
 import { useCallback, useState } from 'react';
 import { toast as sonnerToast } from 'sonner';
 import { cashRegisterRepository } from '../services/cashRegisterRepository';
+import { getCashPaidAmount } from '../lib/cashPayments';
 import { parseProductsWorkbook } from '../services/productSpreadsheet';
 import { productRepository } from '../services/productRepository';
 import type { CashRegisterLaunch } from '../types';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
 import { recordOperationalLog } from '../services/operationalLogRepository';
 import { isQuotaError } from '../lib/firebaseRetry';
+import { clearLocalDraft, loadLocalDraft } from '../services/localDrafts';
 
 type UseCashRegisterActionsParams = {
   user: User | null;
@@ -55,14 +57,22 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
     setIsSavingLaunch(true);
     try {
       const now = new Date().toISOString();
+      const paidAmount = getCashPaidAmount(draft);
+      const previousPaidAmount = previousLaunch ? getCashPaidAmount(previousLaunch) : 0;
+      const paidAt = paidAmount > previousPaidAmount
+        ? now
+        : paidAmount === 0 && previousPaidAmount > 0
+          ? null
+          : previousLaunch?.paidAt || null;
+      const launchData = { ...draft, paidAt };
 
       const result = launchId
         ? await cashRegisterRepository.update(user.uid, launchId, {
-            ...draft,
+            ...launchData,
             updatedAt: now,
           }, previousLaunch)
         : await cashRegisterRepository.create(user.uid, {
-            ...draft,
+            ...launchData,
             orderNumber: `LC-${format(new Date(), 'yyyyMMdd-HHmmss')}`,
             userId: user.uid,
             createdAt: now,
@@ -114,6 +124,11 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
     setDeletingLaunchId(launchId);
     try {
       await cashRegisterRepository.delete(user.uid, launchId, undefined, previousLaunch);
+      const cashRegisterDraftKey = `${user.uid}:cash-register`;
+      const cashRegisterDraft = loadLocalDraft<{ editingLaunchId?: string | null }>(cashRegisterDraftKey);
+      if (cashRegisterDraft?.data.editingLaunchId === launchId) {
+        clearLocalDraft(cashRegisterDraftKey);
+      }
       sonnerToast.success('O.S. movida para a lixeira.', {
         action: {
           label: 'Desfazer',

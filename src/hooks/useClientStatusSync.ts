@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { User } from 'firebase/auth';
 import { clientRepository } from '../services/clientRepository';
 import type { Client, MaintenanceStatus } from '../types';
@@ -11,11 +11,22 @@ type UseClientStatusSyncParams = {
 
 const statusSyncIntervalMs = 300000;
 
+const isPermissionDenied = (error: unknown) => {
+  const code = typeof error === 'object' && error && 'code' in error
+    ? String((error as { code?: unknown }).code || '')
+    : '';
+  const message = error instanceof Error ? error.message : String(error || '');
+  return code === 'permission-denied'
+    || /missing or insufficient permissions|permission-denied/i.test(message);
+};
+
 export const useClientStatusSync = ({
   clients,
   getStatus,
   user,
 }: UseClientStatusSyncParams) => {
+  const blockedStatusSyncs = useRef(new Map<string, MaintenanceStatus>());
+
   const syncStatuses = useCallback(async () => {
     if (!user?.uid) return;
 
@@ -23,11 +34,20 @@ export const useClientStatusSync = ({
       if (!client.nextMaintenanceDate) continue;
 
       const currentStatus = getStatus(client.nextMaintenanceDate);
-      if (currentStatus === client.status) continue;
+      if (currentStatus === client.status) {
+        blockedStatusSyncs.current.delete(client.id);
+        continue;
+      }
+      if (blockedStatusSyncs.current.get(client.id) === currentStatus) continue;
 
       try {
         await clientRepository.update(user.uid, client.id, { status: currentStatus });
       } catch (error) {
+        if (isPermissionDenied(error)) {
+          // Firestore applies and then rolls back denied local writes, which triggers
+          // a new snapshot. Do not retry the same permanent failure in a render loop.
+          blockedStatusSyncs.current.set(client.id, currentStatus);
+        }
         console.error('Erro ao atualizar status do cliente', client.id, error);
       }
     }

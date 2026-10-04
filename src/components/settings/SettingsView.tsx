@@ -2,11 +2,12 @@ import { type Dispatch, type KeyboardEvent, type SetStateAction, useEffect, useR
 import { format, isBefore, parseISO } from 'date-fns';
 import {
   AlertTriangle,
-  Bike,
+  Building2,
+  Check,
   CloudCheck,
   CloudOff,
   CloudUpload,
-  DatabaseBackup,
+  CreditCard,
   Download,
   Droplets,
   FileSpreadsheet,
@@ -14,10 +15,12 @@ import {
   Mail,
   MessageCircle,
   MessageSquare,
+  Moon,
   Plus,
-  RotateCcw,
+  Save,
+  Settings2,
   ShieldCheck,
-  Trash2,
+  Sun,
   Wrench,
   X,
 } from 'lucide-react';
@@ -30,25 +33,17 @@ import { cn } from '../../lib/utils';
 import type { ColorMode, OperationalLog, Settings, UserProfile } from '../../types';
 
 type SettingsViewProps = {
-  clientsCount: number;
-  fullBackupItemsCount: number;
-  operationalDataCount: number;
-  productsCount: number;
   userEmail?: string | null;
   userProfile: UserProfile | null;
   settings: Settings;
   setSettings: Dispatch<SetStateAction<Settings>>;
   colorMode: ColorMode;
+  onColorModeChange: (mode: ColorMode) => void;
   saveMessage: string | null;
   onSaveProfile: () => Promise<void> | void;
   onSaveSettings: () => Promise<void> | void;
   onSaveSettingsPatch: (patch: Partial<Settings>) => Promise<void> | void;
   onExportClientsBackup: () => void;
-  onExportClientsEmergencyCsv: () => void;
-  onExportMotorcyclesEmergencyCsv: () => void;
-  onExportCashLaunchesEmergencyCsv: () => void;
-  onExportWarrantiesEmergencyCsv: () => void;
-  onExportOperationalBackup: () => void;
   onExportFullBackup: () => void;
   onImportFullBackup: (file: File) => Promise<void> | void;
   onImportClientsBackup: (file: File) => Promise<void> | void;
@@ -64,25 +59,17 @@ type SettingsViewProps = {
 };
 
 export const SettingsView = ({
-  clientsCount,
-  fullBackupItemsCount: _fullBackupItemsCount,
-  operationalDataCount,
-  productsCount,
   userEmail,
   userProfile,
   settings,
   setSettings,
   colorMode,
+  onColorModeChange,
   saveMessage,
   onSaveProfile,
   onSaveSettings,
   onSaveSettingsPatch,
   onExportClientsBackup,
-  onExportClientsEmergencyCsv,
-  onExportMotorcyclesEmergencyCsv,
-  onExportCashLaunchesEmergencyCsv,
-  onExportWarrantiesEmergencyCsv,
-  onExportOperationalBackup,
   onExportFullBackup,
   onImportFullBackup,
   onImportClientsBackup,
@@ -107,6 +94,7 @@ export const SettingsView = ({
   const [billingMessage, setBillingMessage] = useState<string | null>(null);
   const clientImportInputRef = useRef<HTMLInputElement | null>(null);
   const productImportInputRef = useRef<HTMLInputElement | null>(null);
+  const fullBackupImportInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     void getSubscriptionStatus().then(setBillingStatus).catch(() => setBillingMessage('Nao foi possivel carregar a assinatura.'));
@@ -256,6 +244,14 @@ export const SettingsView = ({
     }
   };
 
+  const handleFullBackupImportFile = (file?: File) => {
+    if (!file) return;
+    void onImportFullBackup(file);
+    if (fullBackupImportInputRef.current) {
+      fullBackupImportInputRef.current.value = '';
+    }
+  };
+
   const handleResetOperationalData = async () => {
     if (resetConfirmation !== 'ZERAR' || !resetBackupReady) return;
     const completed = await onResetOperationalData();
@@ -267,38 +263,166 @@ export const SettingsView = ({
   };
 
   return (
-    <div className="light-readable-view w-full max-w-full min-h-screen space-y-6 px-4 py-6 sm:px-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <h2 className="text-xl font-bold">Configuracoes</h2>
-      </div>
+    <div className="settings-page light-readable-view w-full max-w-full space-y-4 px-4 py-4 sm:px-6">
+      <header className="flex flex-col gap-3 border-b border-slate-800 pb-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight text-white">Configuracoes</h2>
+          <p className="mt-1 text-xs text-slate-400">Dados da oficina, assinatura e preferencias do sistema.</p>
+        </div>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          {saveMessage && <span className="text-xs font-medium text-emerald-400">{saveMessage}</span>}
+          <button
+            type="button"
+            onClick={() => void onSaveSettings()}
+            className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-white transition-colors hover:bg-primary/90"
+          >
+            <Save className="h-4 w-4" />
+            Salvar configuracoes
+          </button>
+        </div>
+      </header>
 
-      <div className="flex flex-col gap-6 w-full min-h-[70vh]">
-        <div className="rounded-2xl border border-slate-700/50 bg-slate-800/35 p-4 w-full min-w-0">
+      <div className="settings-grid flex w-full flex-col gap-3">
+        <section className="settings-subscription order-1 rounded-lg border border-slate-800 bg-slate-900/50 p-4">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <CreditCard className="h-4 w-4 text-primary" />
+                <p className="text-sm font-semibold text-white">Assinatura</p>
+              </div>
+              <h3 className="mt-2 text-lg font-bold text-white">{billingStatus?.planId === 'pro' ? 'MotoFix Pro' : 'MotoFix Premium'}</h3>
+              <p className="mt-1 text-xs text-slate-400">{billingStatus?.displayName || userProfile?.displayName || 'Usuario MotoFix'}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={cn('inline-flex h-8 items-center rounded-md border px-3 text-xs font-semibold', subscriptionIsActive ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200' : 'border-slate-700 bg-slate-950/40 text-slate-300')}>
+                {billingStatus?.cancelAtPeriodEnd ? 'Cancelamento agendado' : subscriptionIsActive ? 'Ativa' : 'Inativa'}
+              </span>
+              <button type="button" onClick={() => void handleOpenCustomerPortal()} className="inline-flex h-8 items-center rounded-md border border-slate-700 px-3 text-xs font-medium text-slate-200 transition hover:bg-slate-800">
+                Gerenciar assinatura
+              </button>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 border-t border-slate-800 pt-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
+            <div><span className="text-slate-500">E-mail</span><p className="mt-1 font-medium text-slate-200">{billingStatus?.email || userEmail || 'Nao informado'}</p></div>
+            <div><span className="text-slate-500">Valor e periodicidade</span><p className="mt-1 font-medium text-slate-200">{subscriptionPrice} / {subscriptionInterval}</p></div>
+            <div><span className="text-slate-500">Proxima cobranca</span><p className="mt-1 font-medium text-slate-200">{formattedSubscriptionEnd}</p></div>
+            <div><span className="text-slate-500">Tempo restante</span><p className="mt-1 font-medium text-slate-200">{remainingDays === null ? 'Nao informado' : `${remainingDays} dia(s)`}</p></div>
+          </div>
+          {billingMessage && <p className="mt-3 rounded-md border border-slate-700 bg-slate-950/35 p-3 text-xs text-slate-200">{billingMessage}</p>}
+          {subscriptionIsActive && !billingStatus?.cancelAtPeriodEnd && (
+            <div className="mt-3 border-t border-slate-800 pt-3">
+              <button type="button" onClick={() => void handleCancelSubscription()} disabled={isCancelingSubscription} className="text-xs font-medium text-slate-400 transition hover:text-red-300 disabled:opacity-50">
+                {isCancelingSubscription ? 'Agendando cancelamento...' : 'Cancelar assinatura'}
+              </button>
+            </div>
+          )}
+        </section>
+
+        <section className="settings-company order-2 rounded-lg border border-slate-800 bg-slate-900/50 p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <Building2 className="h-4 w-4 text-primary" />
+            <div>
+              <h3 className="text-sm font-semibold text-white">Dados da Empresa</h3>
+              <p className="text-[10px] text-slate-400">Informacoes principais da sua oficina.</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-x-3 gap-y-2.5 sm:grid-cols-2">
+            {[
+              { label: 'Nome da empresa', value: settings.businessName || '', placeholder: 'Ex: MotoFix Centro Automotivo', update: (value: string) => updateSettings({ businessName: value }), required: true },
+              { label: 'Telefone / WhatsApp', value: settings.businessPhone || '', placeholder: '(69) 99999-9999', update: (value: string) => updateSettings({ businessPhone: value }), required: true },
+              { label: 'E-mail', value: settings.businessEmail || '', placeholder: 'contato@suaoficina.com.br', update: (value: string) => updateSettings({ businessEmail: value }), required: false },
+              { label: 'Instagram', value: settings.businessInstagram || '', placeholder: '@suaoficina', update: (value: string) => updateSettings({ businessInstagram: value }), required: false },
+              { label: 'Endereco', value: settings.businessAddress || '', placeholder: 'Rua, numero e bairro', update: (value: string) => updateSettings({ businessAddress: value }), required: false },
+            ].map(({ label, value, placeholder, update, required }) => (
+              <label key={label} className="space-y-1">
+                <span className="text-[10px] font-medium text-slate-300">{label}{required && <span className="text-primary"> *</span>}</span>
+                <input
+                  value={value}
+                  onChange={(event) => update(event.target.value)}
+                  placeholder={placeholder}
+                  className="h-8 w-full rounded-md border border-slate-700 bg-slate-950/50 px-2.5 text-[11px] text-slate-100 outline-none transition focus:border-primary"
+                />
+              </label>
+            ))}
+          </div>
+          <div className="mt-3 flex justify-end">
+            <button type="button" onClick={() => void onSaveProfile()} className="inline-flex h-8 items-center gap-2 rounded-md border border-slate-700 px-3 text-[11px] font-medium text-slate-200 hover:bg-slate-800">
+              <Check className="h-3.5 w-3.5 text-emerald-400" /> Salvar dados da empresa
+            </button>
+          </div>
+        </section>
+
+        <section className="settings-preferences order-3 rounded-lg border border-slate-800 bg-slate-900/50 p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <Settings2 className="h-4 w-4 text-slate-300" />
+            <div>
+              <h3 className="text-sm font-semibold text-white">Preferencias do Sistema</h3>
+              <p className="text-[10px] text-slate-400">Ajuste a aparencia e os dados da sua conta.</p>
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-md border border-slate-800 bg-slate-950/40 px-3 py-2.5">
+            <div className="flex items-center gap-2.5">
+              {colorMode === 'dark' ? <Moon className="h-4 w-4 text-slate-300" /> : <Sun className="h-4 w-4 text-amber-400" />}
+              <div>
+                <p className="text-xs font-medium text-slate-100">Modo escuro</p>
+                <p className="text-[10px] text-slate-500">Utilizar tema escuro no sistema</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={colorMode === 'dark'}
+              aria-label="Modo escuro"
+              onClick={() => onColorModeChange(colorMode === 'dark' ? 'light' : 'dark')}
+              className={cn('relative h-5 w-9 rounded-full transition-colors', colorMode === 'dark' ? 'bg-primary' : 'bg-slate-600')}
+            >
+              <span className={cn('absolute top-0.5 h-4 w-4 rounded-full bg-white transition-transform', colorMode === 'dark' ? 'left-[18px]' : 'left-0.5')} />
+            </button>
+          </div>
+          {userEmail && (
+            <div className="mt-2.5 flex items-center gap-2.5 rounded-md border border-slate-800 bg-slate-950/40 px-3 py-2.5">
+              <Mail className="h-4 w-4 text-slate-400" />
+              <div className="min-w-0">
+                <p className="text-[10px] text-slate-500">Conta Google</p>
+                <p className="truncate text-xs font-medium text-slate-100">{userEmail}</p>
+              </div>
+            </div>
+          )}
+          <div className="mt-2.5 flex items-center justify-between border-t border-slate-800 pt-2.5 text-[10px]">
+            <span className="text-slate-500">Idioma</span>
+            <span className="text-slate-300">Portugues (Brasil)</span>
+          </div>
+        </section>
+
+        <section id="settings-backup" className="settings-backup order-8 rounded-lg border border-slate-800 bg-slate-900/50 p-4">
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400">
                 <FileSpreadsheet className="h-5 w-5" />
               </span>
               <div className="min-w-0">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400">8. Backups</p>
-                <h3 className="text-base font-bold text-white">Backups e restauracao</h3>
+                <h3 className="text-sm font-semibold text-white">Backup e restauracao</h3>
               </div>
             </div>
-            <p className="text-xs leading-relaxed text-slate-400">Salve copias em XLSX ou restaure dados de clientes e mercadorias sem sair das configuracoes.</p>
+            <p className="text-xs leading-relaxed text-slate-400">O backup completo salva os dados operacionais e as configuracoes em um unico arquivo restauravel. Clientes e mercadorias tambem podem ser exportados separadamente em planilhas.</p>
+
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button type="button" onClick={onExportFullBackup} className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-white transition hover:bg-primary/90">
+                <Download className="h-4 w-4" /> Baixar backup completo
+              </button>
+              <button type="button" onClick={() => fullBackupImportInputRef.current?.click()} className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-slate-700 px-3 text-xs font-medium text-slate-200 transition hover:bg-slate-800">
+                <Upload className="h-4 w-4" /> Restaurar backup completo
+              </button>
+            </div>
 
             <div className="mt-4 grid gap-3 xl:grid-cols-2">
               <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 px-4 py-3 w-full min-w-0">
                 <div className="grid gap-3">
                   <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h4 className="text-sm font-bold text-white">Clientes</h4>
-                      <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-emerald-400">
-                        {clientsCount} registro(s)
-                      </span>
-                    </div>
+                    <h4 className="text-sm font-bold text-white">Clientes</h4>
                     <p className="mt-1 text-xs text-slate-400">Contatos, motos, agenda, recorrencias e dados de relacionamento.</p>
                   </div>
-                  <div className="grid gap-2 xl:grid-cols-2 2xl:w-[22rem]">
+                  <div className="grid gap-2 xl:grid-cols-2">
                     <button type="button" onClick={onExportClientsBackup} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 text-xs font-bold text-emerald-400 transition-all hover:bg-emerald-500/15">
                       <Download className="h-4 w-4" /> Exportar
                     </button>
@@ -312,13 +436,10 @@ export const SettingsView = ({
               <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 px-4 py-3 w-full min-w-0">
                 <div className="grid gap-3">
                   <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h4 className="text-sm font-bold text-white">Mercadorias</h4>
-                      <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-primary">{productsCount} item(ns)</span>
-                    </div>
+                    <h4 className="text-sm font-bold text-white">Mercadorias</h4>
                     <p className="mt-1 text-xs text-slate-400">Codigos, descricoes, NCM, valores de venda e variacoes cadastradas.</p>
                   </div>
-                  <div className="grid gap-2 xl:grid-cols-2 2xl:w-[22rem]">
+                  <div className="grid gap-2 xl:grid-cols-2">
                     <button type="button" onClick={onExportProductsBackup} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 text-xs font-bold text-emerald-400 transition-all hover:bg-emerald-500/15">
                       <Download className="h-4 w-4" /> Exportar
                     </button>
@@ -330,38 +451,13 @@ export const SettingsView = ({
               </div>
             </div>
 
-            <div className="mt-3 rounded-xl border border-sky-500/25 bg-sky-500/10 px-4 py-3 w-full min-w-0">
-              <div className="flex flex-col gap-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/15 text-sky-200"><DatabaseBackup className="h-4 w-4" /></span>
-                  <div className="min-w-0">
-                    <h4 className="text-sm font-bold text-white">Backup emergencial CSV</h4>
-                    <p className="mt-1 text-xs leading-relaxed text-sky-100/80">Copias manuais rapidas para contingencia do piloto.</p>
-                  </div>
-                </div>
-                <div className="grid gap-2 xl:grid-cols-2 xl:w-[30rem]">
-                  {[
-                    ['Clientes', onExportClientsEmergencyCsv],
-                    ['Motos', onExportMotorcyclesEmergencyCsv],
-                    ['O.S.', onExportCashLaunchesEmergencyCsv],
-                    ['Garantias', onExportWarrantiesEmergencyCsv],
-                  ].map(([label, action]) => (
-                    <button key={label as string} type="button" onClick={action as () => void} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-sky-500/25 bg-sky-500/10 px-3 text-xs font-bold text-sky-100 transition-all hover:bg-sky-500/15">
-                      <Download className="h-4 w-4" /> {label as string}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
           </div>
-        </div>
+        </section>
 
-        {/* 9. Saude da sincronizacao (metrics + logs) */}
-        <div className="rounded-2xl border border-slate-700/50 bg-slate-800/35 p-4 w-full min-w-0">
+        <section id="settings-seguranca" className="settings-security order-9 rounded-lg border border-slate-800 bg-slate-900/50 p-4">
           <div className="flex flex-col gap-3">
             <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-primary">9. Saude da sincronizacao</p>
-              <h4 className="mt-1 text-sm font-bold text-white">Painel operacional interno</h4>
+              <h3 className="text-sm font-semibold text-white">Sincronizacao e atividade</h3>
             </div>
             <div className={cn('inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-bold', syncStatus.className)}>
               <SyncIcon className="h-4 w-4" /> {syncStatus.label}
@@ -407,46 +503,7 @@ export const SettingsView = ({
             )}
           </div>
           <FailedWritesPanel />
-        </div>
-
-      {userEmail && (
-        <div className="rounded-2xl border border-slate-700/50 bg-slate-800/35 p-4">
-          <div className="flex items-center gap-3">
-            <Mail className="h-5 w-5 text-primary" />
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-primary">1. Conta Google</p>
-              <p className="mt-1 text-sm font-bold text-white">{userEmail}</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="rounded-2xl border border-primary/30 bg-primary/10 p-4">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Minha assinatura</p>
-            <h4 className="mt-1 text-lg font-bold text-white">{billingStatus?.planId === 'pro' ? 'MotoFix Pro' : 'MotoFix Premium'}</h4>
-            <p className="mt-1 text-sm text-slate-300">{billingStatus?.displayName || userProfile?.displayName || 'Usuario MotoFix'}</p>
-          </div>
-          <span className={cn('inline-flex h-8 items-center rounded-lg border px-3 text-xs font-bold', subscriptionIsActive ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200' : 'border-slate-600 bg-slate-900/40 text-slate-300')}>
-            {billingStatus?.cancelAtPeriodEnd ? 'Cancelamento agendado' : subscriptionIsActive ? 'Ativa' : 'Inativa'}
-          </span>
-        </div>
-        <div className="mt-4 grid gap-3 text-sm md:grid-cols-2 lg:grid-cols-3">
-          <div><span className="text-slate-500">E-mail</span><p className="font-bold text-white">{billingStatus?.email || userEmail || 'Nao informado'}</p></div>
-          <div><span className="text-slate-500">Valor</span><p className="font-bold text-white">{subscriptionPrice}</p></div>
-          <div><span className="text-slate-500">Periodicidade</span><p className="font-bold text-white">{subscriptionInterval}</p></div>
-          <div><span className="text-slate-500">Inicio</span><p className="font-bold text-white">{billingStatus?.currentPeriodStart ? format(parseISO(billingStatus.currentPeriodStart), 'dd/MM/yyyy') : 'Nao informado'}</p></div>
-          <div><span className="text-slate-500">Proxima cobranca / termino</span><p className="font-bold text-white">{formattedSubscriptionEnd}</p></div>
-          <div><span className="text-slate-500">Tempo restante</span><p className="font-bold text-white">{remainingDays === null ? 'Nao informado' : `${remainingDays} dia(s)`}</p></div>
-        </div>
-        {billingMessage && <p className="mt-4 rounded-lg border border-slate-700 bg-slate-950/35 p-3 text-sm text-slate-200">{billingMessage}</p>}
-        <div className="mt-4 flex flex-wrap gap-2">
-          {subscriptionIsActive && !billingStatus?.cancelAtPeriodEnd && <button type="button" onClick={() => void handleCancelSubscription()} disabled={isCancelingSubscription} className="rounded-lg border border-red-400/40 px-3 py-2 text-sm font-bold text-red-200 disabled:opacity-50">{isCancelingSubscription ? 'Agendando...' : 'Cancelar assinatura'}</button>}
-          {subscriptionIsActive && billingStatus?.cancelAtPeriodEnd && <span className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-bold text-amber-100">Seu acesso permanece disponivel ate {formattedSubscriptionEnd}.</span>}
-          <button type="button" onClick={() => void handleOpenCustomerPortal()} className="rounded-lg border border-slate-600 px-3 py-2 text-sm font-bold text-slate-200">Gerenciar assinatura no Stripe</button>
-        </div>
-      </div>
+        </section>
 
       <input
         ref={clientImportInputRef}
@@ -462,63 +519,18 @@ export const SettingsView = ({
         className="hidden"
         onChange={(event) => handleProductImportFile(event.target.files?.[0])}
       />
+      <input
+        ref={fullBackupImportInputRef}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        onChange={(event) => handleFullBackupImportFile(event.target.files?.[0])}
+      />
 
-      <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 space-y-4">
-        <div className="flex items-center gap-2 mb-1">
-          <Bike className="w-4 h-4 text-primary" />
-          <h3 className="text-sm font-bold">4. Perfil da Empresa</h3>
-        </div>
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Nome da Empresa</label>
-            <input
-              value={settings.businessName || ''}
-              onChange={(event) => updateSettings({ businessName: event.target.value })}
-              placeholder="Ex: MotoFix Centro Automotivo"
-              className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">WhatsApp da Empresa</label>
-            <input
-              value={settings.businessPhone || ''}
-              onChange={(event) => updateSettings({ businessPhone: event.target.value })}
-              placeholder="Ex: (69) 99999-9999"
-              className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Instagram (@)</label>
-            <input
-              value={settings.businessInstagram || ''}
-              onChange={(event) => updateSettings({ businessInstagram: event.target.value })}
-              placeholder="Ex: @motofix_oficial"
-              className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Endereco</label>
-            <input
-              value={settings.businessAddress || ''}
-              onChange={(event) => updateSettings({ businessAddress: event.target.value })}
-              placeholder="Rua Exemplo, 123 - Centro"
-              className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-2 text-sm focus:ring-1 focus:ring-primary outline-none"
-            />
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={() => void onSaveProfile()}
-          className="w-full bg-emerald-500/10 text-emerald-500 py-2.5 rounded-lg font-bold hover:bg-emerald-500/20 transition-all border border-emerald-500/20 text-xs"
-        >
-          Salvar Perfil da Empresa
-        </button>
-      </div>
-
-      <div className="bg-slate-800/40 p-4 rounded-xl border border-slate-700/50 space-y-4">
+      <section id="settings-whatsapp" className="settings-whatsapp order-4 rounded-lg border border-slate-800 bg-slate-900/50 p-4 space-y-4">
         <div className="flex items-center gap-2 mb-1">
           <MessageSquare className="w-4 h-4 text-primary" />
-          <h3 className="text-sm font-bold">5. Template do WhatsApp</h3>
+          <h3 className="text-sm font-semibold">Mensagem de WhatsApp</h3>
         </div>
         <p className="text-[10px] text-slate-400">
           Use as tags: <code>{'{client}'}</code>, <code>{'{bike}'}</code>, <code>{'{date}'}</code>
@@ -538,12 +550,12 @@ export const SettingsView = ({
         {saveMessage && (
           <p className="text-emerald-500 text-center text-[10px] font-bold animate-bounce">{saveMessage}</p>
         )}
-      </div>
+      </section>
 
-      <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 space-y-4">
+      <section id="settings-servicos" className="settings-services order-5 rounded-lg border border-slate-800 bg-slate-900/50 p-4 space-y-4">
         <div className="flex items-center gap-3 mb-2">
           <Wrench className="w-5 h-5 text-primary" />
-          <h3 className="font-bold">6. Categorias de Servicos</h3>
+          <h3 className="text-sm font-semibold">Categorias de servicos</h3>
         </div>
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
@@ -592,12 +604,12 @@ export const SettingsView = ({
             </button>
           </div>
         </div>
-      </div>
+      </section>
 
-      <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 space-y-4">
+      <section className="settings-oils order-6 rounded-lg border border-slate-800 bg-slate-900/50 p-4 space-y-4">
         <div className="flex items-center gap-3 mb-2">
           <Droplets className="w-5 h-5 text-primary" />
-          <h3 className="font-bold">7. Tipos de Oleo / Itens Disponiveis</h3>
+          <h3 className="text-sm font-semibold">Oleo e itens disponiveis</h3>
         </div>
         <div className="flex flex-wrap gap-2">
           {oilTypes.map((type, index) => (
@@ -625,12 +637,12 @@ export const SettingsView = ({
             <Plus className="w-5 h-5" />
           </button>
         </div>
-      </div>
+      </section>
 
-      <div className="bg-slate-800/50 p-6 rounded-2xl border border-slate-700 space-y-4">
+      <section id="settings-garantias" className="settings-warranties order-7 rounded-lg border border-slate-800 bg-slate-900/50 p-4 space-y-4">
         <div className="flex items-center gap-3 mb-2">
           <ShieldCheck className="w-5 h-5 text-primary" />
-          <h3 className="font-bold">8. Categorias de Garantia</h3>
+          <h3 className="text-sm font-semibold">Categorias de garantia</h3>
         </div>
         <div className="flex flex-wrap gap-2">
           {warrantyCategories.map((category, index) => (
@@ -658,8 +670,9 @@ export const SettingsView = ({
             <Plus className="w-5 h-5" />
           </button>
         </div>
-      </div>
+      </section>
 
+      <section id="settings-sobre" className="settings-about order-10">
       <div
         className={cn(
           'institutional-card rounded-2xl border p-6 space-y-5 w-full min-w-0',
@@ -670,7 +683,6 @@ export const SettingsView = ({
       >
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-primary">9. Institucional</p>
             <h3 className={cn('text-lg font-bold', colorMode === 'light' ? 'text-slate-900' : 'text-white')}>
               Sobre o MotoFix
             </h3>
@@ -747,6 +759,7 @@ export const SettingsView = ({
           </span>
         </div>
       </div>
+      </section>
       </div>
     </div>
   );

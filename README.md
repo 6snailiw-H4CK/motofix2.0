@@ -4,6 +4,7 @@ Sistema web para gestao de oficinas de motocicletas. O app centraliza clientes, 
 
 ## Documentacao
 
+- `docs/GUIA_NAVEGACAO_CODIGO.md`: auditoria tecnica e indice atual para localizar views, chamadas, APIs, colecoes e regras.
 - `DOCUMENTACAO.md`: memoria tecnica viva, plano de refatoracao e pendencias atuais.
 - `OFFLINE_SYNC.md`: estrategia de uso offline, cache e sincronizacao.
 - `PLANO_VENDAS_MOTOFIX.md`: plano comercial atual.

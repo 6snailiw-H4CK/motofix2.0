@@ -1,16 +1,10 @@
 import { useEffect, useState } from 'react';
 import { addDays, format } from 'date-fns';
 import { getIdTokenResult, getRedirectResult, onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
 import { auth, authPersistenceReady, db } from '../firebase';
 import { queueFirestoreVoidWrite } from '../services/firestoreOfflineQueue';
 import { UserProfile } from '../types';
-
-const applyClaimRole = (profile: UserProfile, isAdminClaim: boolean): UserProfile => ({
-  ...profile,
-  role: isAdminClaim ? 'admin' : profile.role,
-  isActive: isAdminClaim ? true : profile.isActive,
-});
 
 const areUserProfilesEqual = (currentProfile: UserProfile | null, nextProfile: UserProfile | null) => {
   if (!currentProfile || !nextProfile) {
@@ -95,13 +89,12 @@ export function useAuthProfile() {
 
         if (userExists) {
           const profileData = userSnap.data() as UserProfile;
-          const claimProfile = applyClaimRole(profileData, isAdminClaim);
 
           setUserProfile((currentProfile) => {
-            if (areUserProfilesEqual(currentProfile, claimProfile)) {
+            if (areUserProfilesEqual(currentProfile, profileData)) {
               return currentProfile;
             }
-            return claimProfile;
+            return profileData;
           });
         } else {
           const newProfile: UserProfile = {
@@ -129,6 +122,24 @@ export function useAuthProfile() {
             return newProfile;
           });
         }
+        unsubscribeProfile();
+        unsubscribeProfile = onSnapshot(userDoc, (snapshot) => {
+          if (!isMounted || generation !== authGeneration || auth.currentUser?.uid !== firebaseUser.uid) return;
+          if (!snapshot.exists()) {
+            setUserProfile(null);
+            setIsNewUser(true);
+            setSubscriptionResolved(true);
+            return;
+          }
+
+          const latestProfile = snapshot.data() as UserProfile;
+          setIsNewUser(false);
+          setUserProfile((currentProfile) => (
+            areUserProfilesEqual(currentProfile, latestProfile) ? currentProfile : latestProfile
+          ));
+        }, (error) => {
+          console.error('Failed to subscribe to user profile:', error);
+        });
         setLoading(false);
         setProfileLoading(false);
         setSubscriptionResolved(true);
@@ -145,6 +156,7 @@ export function useAuthProfile() {
     };
 
     let unsubscribeAuth = () => undefined;
+      let unsubscribeProfile = () => undefined;
     const initializeAuth = async () => {
       try {
         await authPersistenceReady;
@@ -164,6 +176,8 @@ export function useAuthProfile() {
       unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser) => {
         authGeneration += 1;
         const generation = authGeneration;
+        unsubscribeProfile();
+        unsubscribeProfile = () => undefined;
         setUserProfile(null);
         setIsNewUser(null);
         setSubscriptionResolved(false);
@@ -185,6 +199,7 @@ export function useAuthProfile() {
     return () => {
       isMounted = false;
       unsubscribeAuth();
+      unsubscribeProfile();
     };
   }, []);
 

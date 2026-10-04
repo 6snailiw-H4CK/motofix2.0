@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import { endOfMonth, format, isValid, isWithinInterval, parseISO, startOfMonth } from 'date-fns';
+import { endOfDay, endOfMonth, format, isValid, parseISO, startOfMonth } from 'date-fns';
 import { CheckCircle, CheckCircle2, ChevronRight, DollarSign, FileText, Filter, MessageCircle, RefreshCw, Trash2, Wrench } from 'lucide-react';
+import { DateInput } from '../DateInput';
 import { cn, safeFormat } from '../../lib/utils';
 import { getCashPaidAmount, getCashPaymentStatus, getCashReceivableAmount } from '../../lib/cashPayments';
 import type { CashRegisterLaunch, MaintenanceRecord, MessageLog } from '../../types';
@@ -75,7 +76,9 @@ const isHistoryDateWithinRange = (value: string, startDate: string, endDate: str
   const start = parseHistoryDate(startDate);
   const end = parseHistoryDate(endDate);
 
-  return Boolean(recordDate && start && end && isWithinInterval(recordDate, { start, end }));
+  return Boolean(recordDate
+    && (!start || recordDate >= start)
+    && (!end || recordDate <= endOfDay(end)));
 };
 
 const compactText = (value: string, maxLength = 80) => (
@@ -327,19 +330,17 @@ export const HistoryView = ({
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div className="space-y-1">
               <label className="text-[8px] font-bold text-slate-500 uppercase px-1">Inicio</label>
-              <input
-                type="date"
+              <DateInput
                 value={filters.startDate}
-                onChange={(event) => updateFilter('startDate', event.target.value)}
+                onChange={(value) => updateFilter('startDate', value)}
                 className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-1.5 text-[10px] focus:ring-1 focus:ring-primary outline-none"
               />
             </div>
             <div className="space-y-1">
               <label className="text-[8px] font-bold text-slate-500 uppercase px-1">Fim</label>
-              <input
-                type="date"
+              <DateInput
                 value={filters.endDate}
-                onChange={(event) => updateFilter('endDate', event.target.value)}
+                onChange={(value) => updateFilter('endDate', value)}
                 className="w-full bg-slate-900/50 border-slate-700 rounded-lg p-1.5 text-[10px] focus:ring-1 focus:ring-primary outline-none"
               />
             </div>

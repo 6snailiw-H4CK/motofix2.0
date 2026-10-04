@@ -2,76 +2,61 @@
 @import "tailwindcss";
 
 @theme {
-  --font-display: "MS Sans Serif", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Inter", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
   --color-primary: #c2410c; /* professional warm accent */
   --color-primary-dark: #9a3412;
-  --color-accent: #f59e0b;
+  --color-accent: #f97316;
   --color-muted: #475569;
   --color-surface: #ffffff;
   --color-surface-muted: #f8fafc;
   --color-border: rgba(128, 128, 128, 0.75);
-  --radius: 0px;
-  --elevation-1: none;
-  --color-background-dark: #08111f;
+  --radius: 12px;
+  --elevation-1: 0 12px 32px rgba(2, 6, 23, 0.18);
+  --color-background-dark: #0b1220;
 }
 
 @layer base {
   body {
     @apply bg-background-dark text-slate-100 antialiased;
-    background:
-      radial-gradient(circle at top left, rgba(239, 68, 68, 0.09), transparent 30rem),
-      radial-gradient(circle at 85% 12%, rgba(245, 158, 11, 0.05), transparent 26rem),
-      linear-gradient(135deg, #08111f 0%, #0b1424 45%, #0f1724 100%);
+    background: linear-gradient(145deg, #0b1220 0%, #0f1724 52%, #111c2b 100%);
     min-height: 100vh;
   }
 
   html:not(.light) .app-shell {
-    background:
-      radial-gradient(circle at 8% 4%, rgba(239, 68, 68, 0.10), transparent 22rem),
-      radial-gradient(circle at 92% 0%, rgba(245, 158, 11, 0.045), transparent 24rem),
-      linear-gradient(135deg, #08111f 0%, #0b1424 48%, #0f1724 100%);
+    background: linear-gradient(145deg, #0b1220 0%, #0f1724 52%, #111c2b 100%);
     color: #e5edf8;
     position: relative;
     isolation: isolate;
   }
 
   html:not(.light) .app-shell::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    background:
-      linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
-    background-size: 48px 48px;
-    mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.55), transparent 78%);
+    display: none;
   }
 
   html:not(.light) .app-header,
   html:not(.light) .app-topbar,
   html:not(.light) .app-sidebar,
   html:not(.light) .app-bottom-nav {
-    background-color: rgba(8, 17, 31, 0.82) !important;
-    border-color: rgba(100, 116, 139, 0.10) !important;
+    background-color: rgba(11, 18, 32, 0.94) !important;
+    border-color: rgba(148, 163, 184, 0.12) !important;
     box-shadow: var(--elevation-1);
-    backdrop-filter: blur(14px);
+    backdrop-filter: blur(18px);
     border-radius: var(--radius);
   }
 
   html:not(.light) .app-topbar,
   html:not(.light) .app-header {
-    background-image: linear-gradient(90deg, rgba(15, 23, 42, 0.86), rgba(15, 23, 42, 0.70)) !important;
+    background-image: linear-gradient(90deg, rgba(15, 23, 42, 0.94), rgba(17, 28, 43, 0.90)) !important;
   }
 
   html:not(.light) .app-sidebar {
-    background-image: linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(8, 17, 31, 0.88)) !important;
+    background-image: linear-gradient(180deg, #111c2b 0%, #0b1220 100%) !important;
   }
 
   html:not(.light) .bg-background-dark,
   html:not(.light) .bg-background-dark\/80,
   html:not(.light) .bg-background-dark\/95 {
-    background-color: rgba(8, 17, 31, 0.86) !important;
+    background-color: rgba(11, 18, 32, 0.88) !important;
   }
 
   html:not(.light) .bg-slate-800\/20,
@@ -175,15 +160,14 @@
   }
 
   html.light {
-    --color-background-dark: #f8fafc;
+    --color-background-dark: #eef0f3;
+    --color-primary: #c2410c;
+    --color-primary-dark: #9a3412;
   }
 
   html.light body {
-    @apply bg-slate-100 text-slate-900;
-    background:
-      radial-gradient(circle at top left, rgba(239, 68, 68, 0.07), transparent 28rem),
-      radial-gradient(circle at 88% 8%, rgba(245, 158, 11, 0.08), transparent 24rem),
-      linear-gradient(135deg, #f8fafc 0%, #eef4fb 52%, #f1f5f9 100%);
+    @apply text-slate-900;
+    background: linear-gradient(135deg, #f4f5f7 0%, #f5f6f8 52%, #eef0f3 100%);
   }
 
   html.light .app-shell,
@@ -195,29 +179,30 @@
   }
 
   html.light .app-shell {
-    background: linear-gradient(180deg, #ffffff 0%, #f8fafc 48%, #eef2ff 100%) !important;
+    background: linear-gradient(145deg, #f4f5f7 0%, #f5f6f8 50%, #eef0f3 100%) !important;
+    color: #252a31 !important;
   }
 
   html.light .app-header {
-    background-color: rgba(255, 255, 255, 0.94) !important;
-    border-bottom-color: rgba(226, 232, 240, 0.92) !important;
-    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
-    backdrop-filter: blur(14px);
-    border-radius: calc(var(--radius) - 4px);
+    background-color: rgba(247, 248, 250, 0.96) !important;
+    border-bottom-color: #dce1e8 !important;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.045);
+    backdrop-filter: blur(16px);
+    border-radius: var(--radius);
   }
 
   html.light .app-bottom-nav {
-    background-color: rgba(255, 255, 255, 0.92) !important;
-    border-top-color: rgba(226, 232, 240, 0.92) !important;
-    box-shadow: 0 -12px 26px rgba(15, 23, 42, 0.08);
+    background-color: rgba(247, 248, 250, 0.96) !important;
+    border-top-color: #dce1e8 !important;
+    box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.045);
     backdrop-filter: blur(12px);
   }
 
   html.light .app-sidebar,
   html.light .app-topbar {
-    background-color: rgba(255, 255, 255, 0.96) !important;
-    border-color: rgba(226, 232, 240, 0.95) !important;
-    color: #0f172a !important;
+    background-color: rgba(247, 248, 250, 0.97) !important;
+    border-color: #dce1e8 !important;
+    color: #1f2937 !important;
   }
 
   html.light .app-sidebar .text-white,
@@ -258,18 +243,18 @@
   html.light .bg-slate-700\/40,
   html.light .bg-slate-700\/30,
   html.light .bg-white\/5 {
-    background-color: #ffffff !important;
-    border-color: rgba(226, 232, 240, 0.92) !important;
-    box-shadow: 0 12px 26px rgba(15, 23, 42, 0.06);
+    background-color: #f8f9fb !important;
+    border-color: #dfe4ea !important;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.035);
   }
 
   html.light [class*="bg-slate-700"],
   html.light [class*="bg-slate-800"],
   html.light [class*="bg-slate-900"],
   html.light [class*="bg-slate-950"] {
-    background-color: #ffffff !important;
-    border-color: rgba(226, 232, 240, 0.92) !important;
-    box-shadow: 0 12px 26px rgba(15, 23, 42, 0.06) !important;
+    background-color: #f8f9fb !important;
+    border-color: #dfe4ea !important;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.035) !important;
   }
 
   /* Ensure elements that mix bg-* and text-* on the same element are readable in light mode */
@@ -290,7 +275,7 @@
 
   /* Fallback: any explicit white text in light mode becomes dark for readability */
   html.light .text-white {
-    color: #0f172a !important;
+    color: #1f2937 !important;
   }
 
   html.light [class*="bg-slate-700"] .text-white,
@@ -317,10 +302,10 @@
   html.light [class~="bg-[#0b0d12]"],
   html.light [class~="bg-[#08090d]"],
   html.light [class~="bg-[#0b0c10]/92"] {
-    background-color: rgba(255, 255, 255, 0.96) !important;
-    border-color: rgba(226, 232, 240, 0.94) !important;
-    color: #0f172a !important;
-    box-shadow: 0 14px 32px rgba(15, 23, 42, 0.06) !important;
+    background-color: #f7f8fa !important;
+    border-color: #dfe4ea !important;
+    color: #1f2937 !important;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.035) !important;
   }
 
   html.light [class~="bg-[#0b0f18]"] .text-white,
@@ -328,7 +313,7 @@
   html.light [class~="bg-[#0b0d12]"] .text-white,
   html.light [class~="bg-[#08090d]"] .text-white,
   html.light [class~="bg-[#0b0c10]/92"] .text-white {
-    color: #0f172a !important;
+    color: #1f2937 !important;
   }
 
   html.light [class~="bg-[#0b0f18]"] .text-slate-300,
@@ -341,7 +326,7 @@
   html.light [class~="bg-[#0b0d12]"] .text-slate-400,
   html.light [class~="bg-[#08090d]"] .text-slate-400,
   html.light [class~="bg-[#0b0c10]/92"] .text-slate-400 {
-    color: #475569 !important;
+    color: #64748b !important;
   }
 
   html.light .border-slate-700\/50,
@@ -406,9 +391,9 @@
 
   /* Institutional card: clearer background and darker text in light mode */
   html.light .institutional-card {
-    background-color: #f8fafc !important;
-    color: #0f172a !important;
-    border-color: #e2e8f0 !important;
+    background-color: #f8f9fb !important;
+    color: #1f2937 !important;
+    border-color: #dfe4ea !important;
   }
 
   html.light .institutional-card .text-white,
@@ -430,12 +415,31 @@
   }
 
   html.light .institutional-card .text-primary {
-    color: #b91c1c !important; /* slightly darker primary for contrast */
+    color: var(--color-primary) !important;
   }
 
   html.light .text-slate-400,
   html.light .text-slate-600 {
-    color: #0f172a !important;
+    color: #64748b !important;
+  }
+
+  html.light .app-shell .bg-primary.text-white,
+  html.light .app-shell .bg-emerald-500.text-white,
+  html.light .app-shell .bg-emerald-600.text-white,
+  html.light .app-shell .bg-red-500.text-white,
+  html.light .app-shell .bg-blue-500.text-white,
+  html.light .app-shell .bg-sky-500.text-white,
+  html.light .app-shell .bg-purple-500.text-white,
+  html.light .app-shell .bg-amber-500.text-white,
+  html.light .app-shell .bg-primary .text-white,
+  html.light .app-shell .bg-emerald-500 .text-white,
+  html.light .app-shell .bg-emerald-600 .text-white,
+  html.light .app-shell .bg-red-500 .text-white,
+  html.light .app-shell .bg-blue-500 .text-white,
+  html.light .app-shell .bg-sky-500 .text-white,
+  html.light .app-shell .bg-purple-500 .text-white,
+  html.light .app-shell .bg-amber-500 .text-white {
+    color: #ffffff !important;
   }
 
   /* KPI cards with light color backgrounds: ensure numbers are dark in light mode */
@@ -455,7 +459,7 @@
   }
 
   html.light .text-emerald-400 {
-    color: var(--color-primary-dark) !important;
+    color: #15803d !important;
   }
 
   html.light .text-emerald-300 {
@@ -471,9 +475,12 @@
     color: #c2410c !important;
   }
 
-  html.light .text-red-400,
-  html.light .text-primary {
+  html.light .text-red-400 {
     color: #dc2626 !important;
+  }
+
+  html.light .text-primary {
+    color: var(--color-primary) !important;
   }
 
   html.light .text-blue-500 {
@@ -497,9 +504,9 @@
   html.light input,
   html.light select,
   html.light textarea {
-    background-color: #ffffff !important;
-    border-color: rgba(148, 163, 184, 0.35) !important;
-    color: #0f172a !important;
+    background-color: #fbfcfd !important;
+    border-color: #cfd6df !important;
+    color: #1f2937 !important;
   }
 
   html.light input[type="date"] {
@@ -509,9 +516,184 @@
   html.light input:focus,
   html.light select:focus,
   html.light textarea:focus {
-    border-color: rgba(194, 65, 12, 0.45) !important;
-    box-shadow: 0 8px 24px rgba(194, 65, 12, 0.1), 0 0 0 1px rgba(194, 65, 12, 0.16);
+    border-color: rgba(194, 65, 12, 0.55) !important;
+    box-shadow: 0 0 0 3px rgba(194, 65, 12, 0.1);
     outline: none;
+  }
+
+  html.light .app-sidebar nav button {
+    color: #111827 !important;
+  }
+
+  html.light .app-sidebar nav button > span:first-child:not([class*="bg-primary"]) {
+    color: #475569 !important;
+  }
+
+  html.light .app-sidebar nav button[class*="border-primary/60"] {
+    color: #111827 !important;
+  }
+
+  html.light .app-sidebar nav button > span:last-child {
+    color: #111827 !important;
+  }
+
+  html.light .app-sidebar .text-slate-400,
+  html.light .app-sidebar .text-slate-500,
+  html.light .app-sidebar .text-slate-600 {
+    color: #334155 !important;
+  }
+
+  html.light .services-oil-view [class*="bg-red-950/30"],
+  html.light .services-oil-view [class*="bg-amber-950/15"],
+  html.light .services-oil-view [class*="bg-slate-800/30"] {
+    background-color: #ffffff !important;
+    border-color: #dfe3e8 !important;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.045) !important;
+    color: #111827 !important;
+  }
+
+  html.light .services-oil-view [class*="bg-red-950/30"] {
+    border-color: #f0c9c9 !important;
+  }
+
+  html.light .services-oil-view [class*="bg-amber-950/15"] {
+    border-color: #ead9b2 !important;
+  }
+
+  html.light .services-oil-view .bg-slate-900\/70 {
+    background-color: #f3f5f7 !important;
+    border: 1px solid #e2e6eb !important;
+    box-shadow: none !important;
+  }
+
+  html.light .services-oil-view .bg-slate-900\/70 p,
+  html.light .services-oil-view [class*="bg-red-950/30"] .text-white,
+  html.light .services-oil-view [class*="bg-amber-950/15"] .text-white,
+  html.light .services-oil-view [class*="bg-slate-800/30"] .text-white {
+    color: #111827 !important;
+  }
+
+  html.light .services-oil-view [class*="bg-red-950/30"] .text-red-100,
+  html.light .services-oil-view [class*="bg-red-950/30"] .text-red-200 {
+    color: #991b1b !important;
+  }
+
+  html.light .services-oil-view .text-red-100,
+  html.light .services-oil-view .text-red-200 {
+    color: #991b1b !important;
+  }
+
+  html.light .services-oil-view > div[class*="bg-red-500/10"] {
+    background-color: #ffffff !important;
+    border-color: #fecaca !important;
+    box-shadow: 0 2px 8px rgba(127, 29, 29, 0.06) !important;
+  }
+
+  html.light .services-oil-view > div[class*="bg-red-500/10"] p:first-child {
+    color: #991b1b !important;
+  }
+
+  html.light .services-oil-view > div[class*="bg-red-500/10"] p:nth-child(2) {
+    color: #475569 !important;
+  }
+
+  html.light .services-oil-view > div[class*="bg-red-500/10"] span[class*="bg-red-500/20"] {
+    background-color: #fee2e2 !important;
+    color: #b91c1c !important;
+  }
+
+  html.light .clients-schedule-view .clients-schedule-card {
+    background-color: #ffffff !important;
+    border-color: #dfe4ea !important;
+    color: #111827 !important;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04) !important;
+  }
+
+  html.light .clients-schedule-view .clients-schedule-card h3,
+  html.light .clients-schedule-view .clients-schedule-card p,
+  html.light .clients-schedule-view .clients-schedule-card p span,
+  html.light .clients-schedule-view .clients-schedule-card button:not([class*="bg-red-500"]) {
+    color: #111827 !important;
+  }
+
+  html.light .clients-schedule-view .clients-schedule-card p[class*="bg-slate-950/20"] {
+    background-color: #f1f3f5 !important;
+  }
+
+  html.light .clients-schedule-view .clients-schedule-card p[class*="bg-red-500/10"] {
+    background-color: #fee2e2 !important;
+    color: #991b1b !important;
+  }
+
+  html.light .clients-schedule-view .clients-schedule-card p[class*="bg-red-500/10"] span,
+  html.light .clients-schedule-view .clients-schedule-card button[class*="text-red-500"] {
+    color: #991b1b !important;
+  }
+
+  html.light .clients-schedule-view .clients-schedule-card > div > div[class*="bg-red-500/20"] {
+    background-color: #fee2e2 !important;
+    color: #991b1b !important;
+  }
+
+  html.light .clients-schedule-view .clients-schedule-card > div > div[class*="bg-yellow-500/20"] {
+    background-color: #fef3c7 !important;
+    color: #92400e !important;
+  }
+
+  html.light .clients-schedule-view .clients-schedule-card > div > div[class*="bg-emerald-500/20"] {
+    background-color: #dcfce7 !important;
+    color: #166534 !important;
+  }
+
+  html.light .cash-register-view p.text-amber-200,
+  html.light .cash-register-view p.text-emerald-300 {
+    color: #111827 !important;
+  }
+
+  html.light .cash-register-view table span[class*="bg-emerald-500/15"] {
+    background-color: #dcfce7 !important;
+    color: #166534 !important;
+  }
+
+  html.light .cash-register-view table span[class*="bg-sky-500/15"] {
+    background-color: #e0f2fe !important;
+    color: #075985 !important;
+  }
+
+  html.light .cash-register-view table span[class*="bg-amber-500/15"] {
+    background-color: #fef3c7 !important;
+    color: #92400e !important;
+  }
+
+  html.light .cash-register-view table span[class*="bg-red-500/15"] {
+    background-color: #fee2e2 !important;
+    color: #991b1b !important;
+  }
+
+  html.light .appointments-calendar .appointments-weekdays {
+    color: #111827 !important;
+  }
+
+  html.light .appointments-calendar .appointments-day {
+    background: #ffffff !important;
+    border-color: #d1d5db !important;
+    color: #111827 !important;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) !important;
+  }
+
+  html.light .appointments-calendar .appointments-day-booked {
+    border-color: #f0b7b7 !important;
+  }
+
+  html.light .appointments-calendar .appointments-day-selected {
+    background: #fff7ed !important;
+    border-color: #c2410c !important;
+    box-shadow: 0 0 0 1px rgba(194, 65, 12, 0.12) !important;
+  }
+
+  html.light .appointments-calendar .appointments-day > div > span,
+  html.light .appointments-calendar .appointments-day > div:last-child {
+    color: #111827 !important;
   }
 
   /* Semantic helpers for the new theme (presentation only) */
@@ -822,6 +1004,406 @@
     50% {
       opacity: 1;
       transform: scale(1.02);
+    }
+  }
+
+  html.light .settings-page.light-readable-view,
+  html.light .settings-page.light-readable-view * {
+    color: #252a31 !important;
+  }
+
+  html.light .settings-page.light-readable-view input::placeholder,
+  html.light .settings-page.light-readable-view textarea::placeholder {
+    color: #68707c !important;
+    opacity: 1;
+  }
+
+  html.light .settings-page.light-readable-view button.bg-primary {
+    background-color: var(--color-primary) !important;
+    color: #ffffff !important;
+  }
+
+  html.light .settings-page.light-readable-view button.bg-primary:hover {
+    background-color: var(--color-primary-dark) !important;
+    color: #ffffff !important;
+  }
+
+  html.light {
+    color-scheme: light;
+    --color-background-dark: #eef1f4;
+    --color-primary: #c2410c;
+    --color-primary-dark: #9a3412;
+    --color-surface: #f8f9fa;
+    --color-surface-muted: #f1f3f5;
+    --color-border: #d9dee4;
+    --elevation-1: 0 2px 8px rgba(30, 35, 45, 0.06);
+  }
+
+  html.light body {
+    background: linear-gradient(145deg, #eef1f4 0%, #f0f2f4 52%, #e9edf1 100%);
+    color: #252a31;
+  }
+
+  html.light .app-shell {
+    background: linear-gradient(145deg, #eef1f4 0%, #f0f2f4 52%, #e9edf1 100%) !important;
+    color: #252a31 !important;
+  }
+
+  html.light .app-header,
+  html.light .app-topbar,
+  html.light .app-sidebar,
+  html.light .app-bottom-nav {
+    background-color: rgba(245, 246, 248, 0.97) !important;
+    border-color: #d9dee4 !important;
+    box-shadow: 0 2px 8px rgba(30, 35, 45, 0.045);
+  }
+
+  html.light [class*="from-slate-"],
+  html.light [class*="via-slate-"],
+  html.light [class*="to-slate-"] {
+    background-color: #f8f9fa !important;
+    background-image: none !important;
+    border-color: #d9dee4 !important;
+  }
+
+  html.light [class*="bg-[#"],
+  html.light [class*="from-[#"],
+  html.light [class*="via-[#"],
+  html.light [class*="to-[#"] {
+    background-color: #f5f6f8 !important;
+    background-image: none !important;
+    border-color: #d9dee4 !important;
+  }
+
+  html.light [class*="bg-slate-800"] {
+    background-color: #f1f3f5 !important;
+    border-color: #d9dee4 !important;
+  }
+
+  html.light [class*="bg-slate-700"] {
+    background-color: #e9edf1 !important;
+    border-color: #d9dee4 !important;
+  }
+
+  html.light [class*="bg-slate-900"] {
+    background-color: #f5f6f8 !important;
+    border-color: #d9dee4 !important;
+  }
+
+  html.light [class*="bg-slate-950"] {
+    background-color: #f8f9fa !important;
+    border-color: #d9dee4 !important;
+  }
+
+  html.light .bg-white {
+    background-color: #f8f9fa !important;
+    border-color: #d9dee4 !important;
+  }
+
+  html.light [class*="border-slate-700"],
+  html.light [class*="border-slate-800"],
+  html.light [class*="border-slate-900"],
+  html.light [class*="border-slate-950"] {
+    border-color: #d9dee4 !important;
+  }
+
+  html.light [class*="shadow-black"],
+  html.light [class*="shadow-slate-"],
+  html.light [class*="shadow-["],
+  html.light .shadow-xl,
+  html.light .shadow-2xl {
+    box-shadow: 0 2px 8px rgba(30, 35, 45, 0.06) !important;
+  }
+
+  html.light [class*="bg-red-950"] {
+    background-color: #fef2f2 !important;
+    border-color: #fecaca !important;
+  }
+
+  html.light [class*="bg-amber-950"],
+  html.light [class*="bg-yellow-950"] {
+    background-color: #fffbeb !important;
+    border-color: #fde68a !important;
+  }
+
+  html.light [class*="bg-blue-950"],
+  html.light [class*="bg-sky-950"] {
+    background-color: #eff6ff !important;
+    border-color: #bfdbfe !important;
+  }
+
+  html.light [class*="bg-emerald-950"],
+  html.light [class*="bg-green-950"] {
+    background-color: #f0fdf4 !important;
+    border-color: #bbf7d0 !important;
+  }
+
+  html.light [class*="bg-purple-950"] {
+    background-color: #faf5ff !important;
+    border-color: #e9d5ff !important;
+  }
+
+  html.light .text-white,
+  html.light .text-slate-100,
+  html.light .text-slate-900,
+  html.light .text-slate-800,
+  html.light .text-slate-700,
+  html.light .app-shell [class~="text-slate-100"],
+  html.light .app-shell [class~="text-slate-900"],
+  html.light .app-shell [class~="text-slate-800"],
+  html.light .app-shell [class~="text-slate-700"] {
+    color: #252a31 !important;
+  }
+
+  html.light .text-slate-200,
+  html.light .text-slate-300,
+  html.light .text-slate-400,
+  html.light .text-slate-500,
+  html.light .app-shell [class~="text-slate-200"],
+  html.light .app-shell [class~="text-slate-300"],
+  html.light .app-shell [class~="text-slate-400"],
+  html.light .app-shell [class~="text-slate-500"] {
+    color: #5e6672 !important;
+  }
+
+  html.light .text-slate-600,
+  html.light .app-shell [class~="text-slate-600"] {
+    color: #737c88 !important;
+  }
+
+  html.light .text-red-100,
+  html.light .text-red-200,
+  html.light .text-red-300 {
+    color: #b91c1c !important;
+  }
+
+  html.light .text-amber-100,
+  html.light .text-amber-200,
+  html.light .text-amber-300,
+  html.light .text-yellow-100,
+  html.light .text-yellow-200,
+  html.light .text-yellow-300 {
+    color: #92400e !important;
+  }
+
+  html.light .text-emerald-100,
+  html.light .text-emerald-200,
+  html.light .text-emerald-300,
+  html.light .text-green-100,
+  html.light .text-green-200,
+  html.light .text-green-300 {
+    color: #166534 !important;
+  }
+
+  html.light .text-blue-100,
+  html.light .text-blue-200,
+  html.light .text-blue-300,
+  html.light .text-sky-100,
+  html.light .text-sky-200,
+  html.light .text-sky-300 {
+    color: #1e40af !important;
+  }
+
+  html.light .text-purple-100,
+  html.light .text-purple-200,
+  html.light .text-purple-300 {
+    color: #6b21a8 !important;
+  }
+
+  html.light .app-shell input,
+  html.light .app-shell select,
+  html.light .app-shell textarea {
+    background-color: #f1f3f5 !important;
+    border-color: #d8dee5 !important;
+    color: #29313a !important;
+  }
+
+  html.light .app-shell input::placeholder,
+  html.light .app-shell textarea::placeholder {
+    color: #7b8490 !important;
+    opacity: 1;
+  }
+
+  html.light .recharts-default-tooltip {
+    background-color: #fafbfc !important;
+    border-color: #dde1e6 !important;
+    color: #252a31 !important;
+    box-shadow: 0 2px 8px rgba(30, 35, 45, 0.06) !important;
+  }
+
+  html.light .recharts-tooltip-label,
+  html.light .recharts-tooltip-item,
+  html.light .recharts-tooltip-item-name,
+  html.light .recharts-tooltip-item-value {
+    color: #252a31 !important;
+  }
+
+  html.light .hover\:bg-slate-700:hover,
+  html.light .hover\:bg-slate-800:hover,
+  html.light .hover\:bg-slate-900:hover,
+  html.light .hover\:bg-slate-950:hover {
+    background-color: #e9ebef !important;
+  }
+
+  html.light .text-primary {
+    color: var(--color-primary) !important;
+  }
+
+  html.light .text-primary-dark,
+  html.light .settings-page.light-readable-view .text-primary-dark {
+    color: var(--color-primary-dark) !important;
+  }
+
+  html.light .bg-primary {
+    background-color: var(--color-primary) !important;
+  }
+
+  html.light .settings-page.light-readable-view .text-red-400,
+  html.light .settings-page.light-readable-view .text-red-500 {
+    color: #dc2626 !important;
+  }
+
+  html.light .settings-page.light-readable-view .text-primary {
+    color: var(--color-primary) !important;
+  }
+
+  html.light .settings-page.light-readable-view .text-emerald-300,
+  html.light .settings-page.light-readable-view .text-emerald-400 {
+    color: #15803d !important;
+  }
+
+  html.light .settings-page.light-readable-view .text-amber-300,
+  html.light .settings-page.light-readable-view .text-amber-400 {
+    color: #b45309 !important;
+  }
+
+  html.light .settings-page.light-readable-view .bg-primary,
+  html.light .settings-page.light-readable-view .bg-primary:hover {
+    background-color: var(--color-primary) !important;
+    color: #ffffff !important;
+  }
+
+  html.light .app-shell [class~="text-xs"] {
+    font-size: calc(0.75rem + 1px) !important;
+  }
+
+  html.light .app-shell [class~="text-sm"] {
+    font-size: calc(0.875rem + 1px) !important;
+  }
+
+  html.light .app-shell [class~="text-base"] {
+    font-size: calc(1rem + 1px) !important;
+  }
+
+  html.light .app-shell [class~="text-lg"] {
+    font-size: calc(1.125rem + 1px) !important;
+  }
+
+  html.light .app-shell [class~="text-xl"] {
+    font-size: calc(1.25rem + 1px) !important;
+  }
+
+  html.light .app-shell [class~="text-2xl"] {
+    font-size: calc(1.5rem + 1px) !important;
+  }
+
+  html.light .app-shell [class~="text-3xl"] {
+    font-size: calc(1.875rem + 1px) !important;
+  }
+
+  html.light .app-shell [class~="text-4xl"] {
+    font-size: calc(2.25rem + 1px) !important;
+  }
+
+  html.light .app-shell [class~="text-5xl"] {
+    font-size: calc(3rem + 1px) !important;
+  }
+
+  html.light .app-shell [class~="text-6xl"] {
+    font-size: calc(3.75rem + 1px) !important;
+  }
+
+  html.light .app-shell [class*="text-[7px]"] {
+    font-size: 8px !important;
+  }
+
+  html.light .app-shell [class*="text-[8px]"] {
+    font-size: 9px !important;
+  }
+
+  html.light .app-shell [class*="text-[9px]"] {
+    font-size: 10px !important;
+  }
+
+  html.light .app-shell [class*="text-[10px]"] {
+    font-size: 11px !important;
+  }
+
+  html.light .app-shell [class*="text-[11px]"] {
+    font-size: 12px !important;
+  }
+
+  html.light .app-shell [class*="text-[13px]"] {
+    font-size: 14px !important;
+  }
+
+  html.light .app-shell [class*="text-[0.95rem]"] {
+    font-size: calc(0.95rem + 1px) !important;
+  }
+
+  html.light .app-shell :is(*) {
+    font-weight: 700 !important;
+  }
+
+  @media (min-width: 40rem) {
+    html.light .app-shell [class*="sm:text-xs"] {
+      font-size: calc(0.75rem + 1px) !important;
+    }
+
+    html.light .app-shell [class*="sm:text-sm"] {
+      font-size: calc(0.875rem + 1px) !important;
+    }
+
+    html.light .app-shell [class*="sm:text-lg"] {
+      font-size: calc(1.125rem + 1px) !important;
+    }
+
+    html.light .app-shell [class*="sm:text-xl"] {
+      font-size: calc(1.25rem + 1px) !important;
+    }
+
+    html.light .app-shell [class*="sm:text-2xl"] {
+      font-size: calc(1.5rem + 1px) !important;
+    }
+
+    html.light .app-shell [class*="sm:text-4xl"] {
+      font-size: calc(2.25rem + 1px) !important;
+    }
+
+    html.light .app-shell [class*="sm:text-6xl"] {
+      font-size: calc(3.75rem + 1px) !important;
+    }
+
+    html.light .app-shell [class*="sm:text-[8px]"] {
+      font-size: 9px !important;
+    }
+
+    html.light .app-shell [class*="sm:text-[9px]"] {
+      font-size: 10px !important;
+    }
+
+    html.light .app-shell [class*="sm:text-[10px]"] {
+      font-size: 11px !important;
+    }
+
+    html.light .app-shell [class*="sm:text-[11px]"] {
+      font-size: 12px !important;
+    }
+  }
+
+  @media (min-width: 64rem) {
+    html.light .app-shell [class*="lg:text-3xl"] {
+      font-size: calc(1.875rem + 1px) !important;
     }
   }
 }

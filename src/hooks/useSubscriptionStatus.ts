@@ -33,9 +33,9 @@ export const scheduleSubscriptionExpiry = (
 };
 
 export const getSubscriptionGateState = (userProfile: UserProfile | null, now = new Date()) => {
-  if (!userProfile || userProfile.role === 'admin') {
-    return { subscriptionActive: userProfile?.role === 'admin', isExpired: false, shouldBlock: false };
-  }
+  if (!userProfile) return { subscriptionActive: false, isExpired: false, shouldBlock: false };
+  if (userProfile.isActive !== true) return { subscriptionActive: false, isExpired: true, shouldBlock: true };
+  if (userProfile.role === 'admin') return { subscriptionActive: true, isExpired: false, shouldBlock: false };
 
   const billing = userProfile.billing;
   if (billing?.status) {
