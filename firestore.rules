@@ -16,12 +16,18 @@ service cloud.firestore {
         && request.auth.token.admin == true;
     }
 
+    function userProfileIsActive(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data.isActive == true;
+    }
+
     function isAdmin() {
-      return hasAdminClaim();
+      return hasAdminClaim()
+        && userProfileIsActive(request.auth.uid)
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
     function isActiveOwner(userId) {
-      return isOwner(userId) && signedIn();
+      return isOwner(userId) && userProfileIsActive(userId);
     }
 
     function validUserProfileCreate(userId) {
@@ -41,7 +47,7 @@ service cloud.firestore {
         && request.resource.data.email == request.auth.token.email
         && request.resource.data.role in ['user', 'admin']
         && (
-          (request.resource.data.role == 'admin' && isAdmin())
+          (request.resource.data.role == 'admin' && hasAdminClaim())
           || (request.resource.data.role == 'user' && request.resource.data.isActive == false)
         );
     }
@@ -60,7 +66,7 @@ service cloud.firestore {
     }
 
     function canReadUserData(userId) {
-      return isOwner(userId) || isAdmin();
+      return isActiveOwner(userId) || isAdmin();
     }
 
     function optionalUserIdMatches(userId) {
@@ -152,7 +158,7 @@ service cloud.firestore {
     }
 
     function clientShape(userId) {
-      return requiredBaseFields(userId, [
+      return request.resource.data.keys().hasAll([
           'userId',
           'name',
           'bikeModel',
@@ -162,7 +168,8 @@ service cloud.firestore {
           'recurrenceDays',
           'status',
           'createdAt'
-        ], clientKeys())
+        ])
+        && request.resource.data.userId == userId
         && isText('name', 120)
         && optionalText('fullName', 160)
         && optionalText('document', 32)
@@ -194,7 +201,7 @@ service cloud.firestore {
     }
 
     function maintenanceShape(userId) {
-      return requiredBaseFields(userId, [
+      return request.resource.data.keys().hasAll([
           'userId',
           'clientId',
           'clientName',
@@ -204,7 +211,8 @@ service cloud.firestore {
           'serviceValue',
           'isRecurringRevenue',
           'notes'
-        ], maintenanceKeys())
+        ])
+        && request.resource.data.userId == userId
         && isText('clientId', 160)
         && isText('clientName', 120)
         && isText('bikeModel', 120)
@@ -344,7 +352,7 @@ service cloud.firestore {
     }
 
     function cashLaunchShape(userId) {
-      return requiredBaseFields(userId, [
+      return request.resource.data.keys().hasAll([
           'userId',
           'orderNumber',
           'clientName',
@@ -358,20 +366,13 @@ service cloud.firestore {
           'total',
           'createdAt',
           'updatedAt'
-        ], cashLaunchKeys())
+        ])
+        && request.resource.data.userId == userId
         && isText('orderNumber', 80)
-        && optionalText('clientId', 160)
         && isText('clientName', 120)
-        && optionalText('clientDocument', 32)
-        && optionalText('clientEmail', 160)
-        && optionalText('clientPhone', 60)
-        && optionalText('bikeModel', 120)
         && cashLaunchStatusValid()
         && isText('openingDate', 40)
         && isText('expectedDate', 40)
-        && optionalText('request', 5000)
-        && optionalText('servicesExecuted', 5000)
-        && optionalText('observation', 5000)
         && request.resource.data.items is list
         && request.resource.data.items.size() <= 200
         && isNumberInRange('merchandiseTotal', 0, 10000000)
@@ -382,30 +383,16 @@ service cloud.firestore {
         )
         && isNumberInRange('servicesTotal', 0, 10000000)
         && isNumberInRange('discountTotal', 0, 10000000)
-        && optionalNumberInRange('orderDiscountValue', 0, 10000000)
-        && optionalNumberInRange('orderDiscountPercent', 0, 100)
         && isNumberInRange('total', 0, 10000000)
-        && cashLaunchPaymentValid()
-        && optionalBool('invoiced')
-        && optionalText('paymentMethod', 40)
-        && (
-          !request.resource.data.keys().hasAny(['invoiced'])
-          || request.resource.data.invoiced != true
-          || (
-            request.resource.data.keys().hasAny(['paymentMethod'])
-            && request.resource.data.paymentMethod in ['Debito', 'Credito', 'Pix', 'Dinheiro']
-          )
-        )
-        && optionalText('fiscalInvoiceId', 160)
-        && optionalText('fiscalReference', 160)
-        && optionalText('fiscalIssuedAt', 40)
-        && optionalMap('manualFiscal')
-        && optionalBool('stockDeducted')
-        && optionalNullableText('stockDeductedAt', 40)
-        && optionalNullableText('stockMovementBatchId', 200)
+        && paymentStatusValid()
+        && optionalNumberInRange('valorPago', 0, 10000000)
+        && optionalNumberInRange('saldoDevedor', 0, 10000000)
+        && optionalNullableText('paidAt', 40)
         && isText('createdAt', 40)
         && isText('updatedAt', 40)
-        && softDeleteMetadataValid();
+        && optionalText('request', 5000)
+        && optionalText('servicesExecuted', 5000)
+        && optionalText('observation', 5000);
     }
 
     function cashLaunchUpdateShape(userId) {
@@ -437,6 +424,7 @@ service cloud.firestore {
         && optionalNumberInRange('orderDiscountPercent', 0, 100)
         && isNumberInRange('total', 0, 10000000)
         && cashLaunchPaymentValid()
+        && optionalNullableText('paidAt', 40)
         && optionalBool('invoiced')
         && optionalText('paymentMethod', 40)
         && (
@@ -563,14 +551,14 @@ service cloud.firestore {
     }
 
     function validOwnerCreate(userId, allowedKeys) {
-      return isActiveOwner(userId)
+      return isOwner(userId)
         && request.resource.data.keys().hasOnly(allowedKeys)
         && request.resource.data.keys().hasAny(['userId'])
         && request.resource.data.userId == userId;
     }
 
     function validOwnerUpdate(userId, allowedKeys) {
-      return isActiveOwner(userId)
+      return isOwner(userId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedKeys)
         && optionalUserIdMatches(userId)
         && storedUserIdMatches(userId);
@@ -588,7 +576,7 @@ service cloud.firestore {
     }
 
     function validOwnerSoftDeleteUpdate(userId) {
-      return isActiveOwner(userId)
+      return isOwner(userId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(softDeleteUpdateKeys())
         && optionalUserIdMatches(userId)
         && storedUserIdMatches(userId)
@@ -597,7 +585,7 @@ service cloud.firestore {
     }
 
     function validOwnerProductStockUpdate(userId) {
-      return isActiveOwner(userId)
+      return isOwner(userId)
         && storedUserIdMatches(userId)
         && optionalUserIdMatches(userId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stockQuantity', 'updatedAt'])
@@ -608,7 +596,7 @@ service cloud.firestore {
     }
 
     function validOwnerStockMovementCreate(userId) {
-      return isActiveOwner(userId)
+      return isOwner(userId)
         && request.resource.data.keys().hasOnly(stockMovementKeys())
         && request.resource.data.userId == userId
         && request.resource.data.productId is string
@@ -632,7 +620,7 @@ service cloud.firestore {
     }
 
     function validOwnerCashLaunchFinalizedStockPaymentUpdate(userId) {
-      return isActiveOwner(userId)
+      return isOwner(userId)
         && storedUserIdMatches(userId)
         && optionalUserIdMatches(userId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -655,6 +643,7 @@ service cloud.firestore {
           'statusPagamento',
           'valorPago',
           'saldoDevedor',
+          'paidAt',
           'invoiced',
           'paymentMethod',
           'stockDeducted',
@@ -685,7 +674,7 @@ service cloud.firestore {
     }
 
     function validOwnerCashLaunchFinalizedStockUpdate(userId) {
-      return isActiveOwner(userId)
+      return isOwner(userId)
         && storedUserIdMatches(userId)
         && optionalUserIdMatches(userId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -696,6 +685,7 @@ service cloud.firestore {
           'statusPagamento',
           'valorPago',
           'saldoDevedor',
+          'paidAt',
           'stockDeducted',
           'stockDeductedAt',
           'stockMovementBatchId',
@@ -722,7 +712,7 @@ service cloud.firestore {
     }
 
     function validOwnerCashLaunchCanceledUpdate(userId) {
-      return isActiveOwner(userId)
+      return isOwner(userId)
         && storedUserIdMatches(userId)
         && optionalUserIdMatches(userId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(cashLaunchKeys())
@@ -748,7 +738,7 @@ service cloud.firestore {
     }
 
     function validOwnerCashLaunchSimpleStatusUpdate(userId) {
-      return isActiveOwner(userId)
+      return isOwner(userId)
         && storedUserIdMatches(userId)
         && optionalUserIdMatches(userId)
         && (
@@ -762,7 +752,7 @@ service cloud.firestore {
     }
 
     function validOwnerCashLaunchStockRestoreUpdate(userId) {
-      return isActiveOwner(userId)
+      return isOwner(userId)
         && storedUserIdMatches(userId)
         && optionalUserIdMatches(userId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -786,7 +776,7 @@ service cloud.firestore {
     }
 
     function validOwnerCashLaunchStockUpdate(userId) {
-      return isActiveOwner(userId)
+      return isOwner(userId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(cashLaunchKeys())
         && request.resource.data.diff(resource.data).affectedKeys().hasAny([
           'status',
@@ -829,7 +819,7 @@ service cloud.firestore {
     }
 
     function validSettingsCreate(userId) {
-      return isActiveOwner(userId)
+      return isOwner(userId)
         && request.resource.data.keys().hasOnly([
           'userId',
           'whatsappTemplate',
@@ -850,7 +840,7 @@ service cloud.firestore {
     }
 
     function validSettingsUpdate(userId) {
-      return isActiveOwner(userId)
+      return isOwner(userId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'userId',
           'whatsappTemplate',
@@ -1039,6 +1029,7 @@ service cloud.firestore {
         'statusPagamento',
         'valorPago',
         'saldoDevedor',
+        'paidAt',
         'invoiced',
         'paymentMethod',
         'fiscalInvoiceId',
@@ -1149,49 +1140,49 @@ service cloud.firestore {
 
     match /users/{userId}/clients/{clientId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (validOwnerCreate(userId, clientKeys()) && clientShape(userId));
-      allow update: if isAdmin() || (validOwnerUpdate(userId, clientKeys()) && clientShape(userId));
+      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, clientKeys()) && clientShape(userId));
+      allow update: if isAdmin() || (isActiveOwner(userId) && validOwnerUpdate(userId, clientKeys()) && clientShape(userId));
       allow delete: if false;
     }
 
     match /users/{userId}/maintenances/{maintenanceId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (validOwnerCreate(userId, maintenanceKeys()) && maintenanceShape(userId));
-      allow update: if isAdmin() || (validOwnerUpdate(userId, maintenanceKeys()) && maintenanceShape(userId));
+      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, maintenanceKeys()) && maintenanceShape(userId));
+      allow update: if isAdmin() || (isActiveOwner(userId) && validOwnerUpdate(userId, maintenanceKeys()) && maintenanceShape(userId));
       allow delete: if false;
     }
 
     match /users/{userId}/warranties/{warrantyId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (validOwnerCreate(userId, warrantyKeys()) && warrantyShape(userId));
-      allow update: if isAdmin() || (validOwnerUpdate(userId, warrantyKeys()) && warrantyShape(userId));
+      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, warrantyKeys()) && warrantyShape(userId));
+      allow update: if isAdmin() || (isActiveOwner(userId) && validOwnerUpdate(userId, warrantyKeys()) && warrantyShape(userId));
       allow delete: if false;
     }
 
     match /users/{userId}/appointments/{appointmentId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (validOwnerCreate(userId, appointmentKeys()) && appointmentShape(userId));
-      allow update: if isAdmin() || (validOwnerUpdate(userId, appointmentKeys()) && appointmentShape(userId));
+      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, appointmentKeys()) && appointmentShape(userId));
+      allow update: if isAdmin() || (isActiveOwner(userId) && validOwnerUpdate(userId, appointmentKeys()) && appointmentShape(userId));
       allow delete: if false;
     }
 
     match /users/{userId}/expenses/{expenseId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (validOwnerCreate(userId, expenseKeys()) && expenseShape(userId));
-      allow update: if isAdmin() || (validOwnerUpdate(userId, expenseKeys()) && expenseShape(userId));
+      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, expenseKeys()) && expenseShape(userId));
+      allow update: if isAdmin() || (isActiveOwner(userId) && validOwnerUpdate(userId, expenseKeys()) && expenseShape(userId));
       allow delete: if false;
     }
 
     match /users/{userId}/products/{productId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (validOwnerCreate(userId, productKeys()) && productShape(userId, productId));
-      allow update: if validOwnerProductStockUpdate(userId) || isAdmin() || (validOwnerUpdate(userId, productKeys()) && productShape(userId, productId));
+      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, productKeys()) && productShape(userId, productId));
+      allow update: if isAdmin() || (isActiveOwner(userId) && (validOwnerProductStockUpdate(userId) || (validOwnerUpdate(userId, productKeys()) && productShape(userId, productId))));
       allow delete: if false;
     }
 
     match /users/{userId}/stock_movements/{movementId} {
       allow read: if canReadUserData(userId);
-      allow create: if validOwnerStockMovementCreate(userId) || isAdmin();
+      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerStockMovementCreate(userId));
       allow update, delete: if false;
     }
 
@@ -1199,43 +1190,47 @@ service cloud.firestore {
       allow read: if canReadUserData(userId);
       allow create: if isAdmin()
         || (
-          validOwnerCreate(userId, cashLaunchKeys())
+          isActiveOwner(userId)
+          && request.resource.data.userId == userId
+          && request.resource.data.keys().hasOnly(cashLaunchKeys())
           && !request.resource.data.keys().hasAny(cashFiscalFields())
           && cashLaunchShape(userId)
         );
       allow update: if isAdmin()
-        || validOwnerSoftDeleteUpdate(userId)
-        || validOwnerCashLaunchFinalizedStockPaymentUpdate(userId)
-        || validOwnerCashLaunchFinalizedStockUpdate(userId)
-        || validOwnerCashLaunchCanceledUpdate(userId)
-        || validOwnerCashLaunchSimpleStatusUpdate(userId)
-        || validOwnerCashLaunchStockRestoreUpdate(userId)
-        || validOwnerCashLaunchStockUpdate(userId)
-        || (
-          validOwnerUpdate(userId, cashLaunchKeys())
-          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(cashFiscalFields())
-          && cashLaunchUpdateShape(userId)
-        );
+        || (isActiveOwner(userId) && (
+          validOwnerSoftDeleteUpdate(userId)
+          || validOwnerCashLaunchFinalizedStockPaymentUpdate(userId)
+          || validOwnerCashLaunchFinalizedStockUpdate(userId)
+          || validOwnerCashLaunchCanceledUpdate(userId)
+          || validOwnerCashLaunchSimpleStatusUpdate(userId)
+          || validOwnerCashLaunchStockRestoreUpdate(userId)
+          || validOwnerCashLaunchStockUpdate(userId)
+          || (
+            validOwnerUpdate(userId, cashLaunchKeys())
+            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(cashFiscalFields())
+            && cashLaunchUpdateShape(userId)
+          )
+        ));
       allow delete: if false;
     }
 
     match /users/{userId}/settings/{settingId} {
       allow read: if settingId == 'config' && canReadUserData(userId);
-      allow create: if settingId == 'config' && (isAdmin() || (validSettingsCreate(userId) && settingsShape(userId)));
-      allow update: if settingId == 'config' && (isAdmin() || (validSettingsUpdate(userId) && settingsShape(userId)));
+      allow create: if settingId == 'config' && (isAdmin() || (isActiveOwner(userId) && validSettingsCreate(userId) && settingsShape(userId)));
+      allow update: if settingId == 'config' && (isAdmin() || (isActiveOwner(userId) && validSettingsUpdate(userId) && settingsShape(userId)));
       allow delete: if false;
     }
 
     match /users/{userId}/message_logs/{messageLogId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (validOwnerCreate(userId, messageLogKeys()) && messageLogShape(userId));
-      allow update: if isAdmin() || (validOwnerUpdate(userId, messageLogKeys()) && messageLogShape(userId));
+      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, messageLogKeys()) && messageLogShape(userId));
+      allow update: if isAdmin() || (isActiveOwner(userId) && validOwnerUpdate(userId, messageLogKeys()) && messageLogShape(userId));
       allow delete: if false;
     }
 
     match /users/{userId}/operational_logs/{logId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || isOwner(userId) || (validOwnerCreate(userId, operationalLogKeys()) && operationalLogShape(userId));
+      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, operationalLogKeys()) && operationalLogShape(userId));
       allow update, delete: if false;
     }
 
@@ -1256,8 +1251,8 @@ service cloud.firestore {
 
     match /users/{userId}/whatsapp_automations/{automationId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (validOwnerCreate(userId, whatsappAutomationKeys()) && whatsappAutomationShape(userId));
-      allow update: if isAdmin() || (validOwnerUpdate(userId, whatsappAutomationKeys()) && whatsappAutomationShape(userId));
+      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, whatsappAutomationKeys()) && whatsappAutomationShape(userId));
+      allow update: if isAdmin() || (isActiveOwner(userId) && validOwnerUpdate(userId, whatsappAutomationKeys()) && whatsappAutomationShape(userId));
       allow delete: if false;
     }
 

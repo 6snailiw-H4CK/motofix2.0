@@ -7,7 +7,7 @@ type DeleteConfirmationState = {
   type: DeleteConfirmationType;
 } | null;
 
-type DeleteHandler = () => Promise<void> | void;
+type DeleteHandler = () => Promise<boolean | void> | boolean | void;
 
 export const useDeleteConfirmation = () => {
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmationState>(null);
@@ -24,15 +24,19 @@ export const useDeleteConfirmation = () => {
     type: DeleteConfirmationType,
     id: string | null | undefined,
     onConfirm: DeleteHandler
-  ) => {
-    if (!id) return;
+  ): Promise<boolean> => {
+    if (!id) return Promise.resolve(false);
 
-    if (deleteConfirm?.id === id && deleteConfirm.type === type) {
-      void onConfirm();
-      return;
+    if (deleteConfirm?.id !== id || deleteConfirm.type !== type) {
+      setDeleteConfirm({ id, type });
+      return Promise.resolve(false);
     }
 
-    setDeleteConfirm({ id, type });
+    return Promise.resolve(onConfirm()).then((result) => {
+      if (result === false) return false;
+      setDeleteConfirm(null);
+      return true;
+    });
   }, [deleteConfirm]);
 
   return {

@@ -247,6 +247,7 @@ export interface CashRegisterLaunch extends SoftDeletable {
   statusPagamento?: 'Pago' | 'Pendente' | 'Parcial';
   valorPago?: number;
   saldoDevedor?: number;
+  paidAt?: string | null;
   invoiced?: boolean;
   paymentMethod?: CashPaymentMethod;
   fiscalInvoiceId?: string;
@@ -475,6 +476,8 @@ export interface UserProfile {
 export interface Warranty extends SoftDeletable {
   id: string;
   clientName: string;
+  cashLaunchId?: string | null;
+  cashLaunchOrderNumber?: string | null;
   serviceType: string;
   serviceDescription: string;
   serviceValue: number;

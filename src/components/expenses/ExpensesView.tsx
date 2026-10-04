@@ -13,7 +13,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { ArrowLeft, Plus, Store, X } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ChartNoAxesColumnIncreasing, CreditCard, Plus, Receipt, Store, TrendingUp, Wallet, X } from 'lucide-react';
+import { DateInput } from '../DateInput';
 import type { ExpenseRecord } from '../../types';
 
 type ExpensesViewProps = {
@@ -52,21 +53,6 @@ const formatDateForDisplay = (value: string) => {
   return year && month && day ? `${day}/${month}/${year}` : '';
 };
 
-const parseDisplayDate = (value: string) => {
-  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
-  if (!match) return null;
-
-  const [, day, month, year] = match;
-  const parsed = new Date(Number(year), Number(month) - 1, Number(day));
-  if (
-    parsed.getFullYear() !== Number(year) ||
-    parsed.getMonth() !== Number(month) - 1 ||
-    parsed.getDate() !== Number(day)
-  ) return null;
-
-  return `${year}-${month}-${day}`;
-};
-
 export const ExpensesView = ({
   expenseEntries,
   description,
@@ -89,10 +75,8 @@ export const ExpensesView = ({
 }: ExpensesViewProps) => {
   const [isExpenseFormOpen, setIsExpenseFormOpen] = useState(false);
   const [openSupplierKey, setOpenSupplierKey] = useState<string | null>(null);
-  const [periodStart, setPeriodStart] = useState(() => format(startOfMonth(subMonths(new Date(), 11)), 'yyyy-MM-dd'));
+  const [periodStart, setPeriodStart] = useState(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [periodEnd, setPeriodEnd] = useState(() => format(new Date(), 'yyyy-MM-dd'));
-  const [periodStartInput, setPeriodStartInput] = useState(() => formatDateForDisplay(periodStart));
-  const [periodEndInput, setPeriodEndInput] = useState(() => formatDateForDisplay(periodEnd));
   const filteredExpenseEntries = useMemo(
     () => expenseEntries.filter((entry) => entry.date >= periodStart && entry.date <= periodEnd),
     [expenseEntries, periodEnd, periodStart]
@@ -119,7 +103,19 @@ export const ExpensesView = ({
       .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name, 'pt-BR'));
   }, [filteredExpenseEntries]);
 
-  const canonicalSupplier = supplierSummaries.find(
+  const registeredSuppliers = useMemo(() => {
+    const suppliers = new Map<string, string>();
+    expenseEntries.forEach((entry) => {
+      const name = (entry.supplier || '').trim().replace(/\s+/g, ' ');
+      const key = normalizeSupplierKey(name);
+      if (name && !suppliers.has(key)) suppliers.set(key, name);
+    });
+    return Array.from(suppliers.entries())
+      .map(([key, name]) => ({ key, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  }, [expenseEntries]);
+
+  const canonicalSupplier = registeredSuppliers.find(
     (entry) => entry.key === normalizeSupplierKey(supplier)
   )?.name || supplier.trim().replace(/\s+/g, ' ');
   const openSupplier = supplierSummaries.find((entry) => entry.key === openSupplierKey);
@@ -145,53 +141,58 @@ export const ExpensesView = ({
   });
 
   const averagePerRecord = filteredExpenseEntries.length ? total / filteredExpenseEntries.length : 0;
+  const lastSixMonthsTotal = monthlyData.reduce((sum, entry) => sum + entry.total, 0);
 
   return (
-    <div className="space-y-3.5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-lg font-bold">Gastos</h2>
-          <p className="text-xs text-slate-400">Compras, despesas e pagamentos da oficina.</p>
+    <div className="space-y-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Voltar ao inicio"
+            className="mt-1 grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-slate-700/70 bg-slate-900/70 text-slate-300 transition hover:border-primary/40 hover:text-white"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </button>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Financeiro</p>
+            <h2 className="mt-0.5 text-2xl font-black tracking-tight text-white sm:text-3xl">Gastos</h2>
+            <p className="mt-1 text-xs text-slate-400 sm:text-sm">Compras, despesas e pagamentos da oficina.</p>
+          </div>
         </div>
         <button
           type="button"
-          onClick={onBack}
-          className="inline-flex items-center gap-2 rounded-xl bg-slate-800/60 px-3 py-2 text-xs font-bold text-slate-200 transition hover:bg-slate-800"
+          onClick={() => setIsExpenseFormOpen((current) => !current)}
+          className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-primary/15 transition hover:bg-primary/90 sm:w-auto"
         >
-          <ArrowLeft className="w-4 h-4" /> Voltar ao Inicio
+          <Plus className="h-4 w-4" />
+          {isExpenseFormOpen ? 'Fechar cadastro' : 'Registrar gasto'}
         </button>
       </div>
 
-      <section className="space-y-3 rounded-2xl border border-slate-700/50 bg-slate-800/40 p-3">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Registro rapido</p>
-            <h3 className="text-sm font-bold text-white">Novo gasto</h3>
-            <p className="text-[10px] text-slate-500">
-              {isExpenseFormOpen ? 'Fornecedor, valor, descricao e data. Sem friccao.' : 'Clique em registrar para abrir o lancamento rapido.'}
-            </p>
+      {isExpenseFormOpen && (
+        <section className="overflow-hidden rounded-2xl border border-primary/25 bg-gradient-to-br from-slate-900 via-slate-900 to-primary/[0.08] shadow-xl shadow-black/10">
+          <div className="flex items-center gap-3 border-b border-slate-800/90 px-4 py-4 sm:px-5">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
+              <Receipt className="h-5 w-5" />
+            </span>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-primary">Lancamento financeiro</p>
+              <h3 className="mt-0.5 text-base font-black text-white">Registrar novo gasto</h3>
+              <p className="mt-0.5 text-xs text-slate-400">Preencha os dados da despesa para salvar no financeiro.</p>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setIsExpenseFormOpen((current) => !current)}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2 text-xs font-bold text-white shadow-lg shadow-primary/20 transition-all hover:bg-primary/90"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            {isExpenseFormOpen ? 'Fechar' : 'Registrar gasto'}
-          </button>
-        </div>
-
-        {isExpenseFormOpen && (
           <form
             onSubmit={(event) => {
               event.preventDefault();
               void onSaveExpense(canonicalSupplier);
             }}
-            className="space-y-3 border-t border-slate-700/40 pt-3"
+            className="space-y-4 p-4 sm:p-5"
           >
-            <div className="grid grid-cols-2 gap-2 lg:grid-cols-12">
-              <div className="col-span-2 space-y-1 lg:col-span-3">
-                <label className="px-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Fornecedor</label>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-12">
+              <div className="space-y-1.5 xl:col-span-3">
+                <label className="px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Fornecedor</label>
                 <input
                   value={supplier}
                   onChange={(event) => onSupplierChange(event.target.value)}
@@ -199,51 +200,50 @@ export const ExpensesView = ({
                   required
                   placeholder="Loja ou distribuidor"
                   autoComplete="off"
-                  className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-primary/60 focus:ring-2 focus:ring-primary/10"
                 />
                 <datalist id="expense-supplier-list">
-                  {supplierSummaries.map((entry) => (
-                    <option key={entry.key} value={entry.name}>{currency.format(entry.total)} em {entry.count} compra(s)</option>
+                  {registeredSuppliers.map((entry) => (
+                    <option key={entry.key} value={entry.name} />
                   ))}
                 </datalist>
-                <p className="px-1 text-[9px] text-slate-500">
+                <p className="px-1 text-[10px] text-slate-500">
                   Selecione um fornecedor existente ou digite um novo.
                 </p>
               </div>
-              <div className="space-y-1 lg:col-span-2">
-                <label className="px-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Valor</label>
+              <div className="space-y-1.5 xl:col-span-2">
+                <label className="px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Valor</label>
                 <input
                   value={amount}
                   onChange={(event) => onAmountChange(event.target.value)}
                   placeholder="500,00"
-                  className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-primary/60 focus:ring-2 focus:ring-primary/10"
                 />
               </div>
-              <div className="col-span-2 space-y-1 lg:col-span-4">
-                <label className="px-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Descricao</label>
+              <div className="space-y-1.5 xl:col-span-4">
+                <label className="px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Descricao</label>
                 <input
                   value={description}
                   onChange={(event) => onDescriptionChange(event.target.value)}
                   placeholder="Ex: pastilha, oleo, aluguel, compra..."
-                  className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-primary/60 focus:ring-2 focus:ring-primary/10"
                 />
               </div>
-              <div className="space-y-1 lg:col-span-3">
-                <label className="px-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Data</label>
-                <input
-                  type="date"
+              <div className="space-y-1.5 sm:col-span-1 xl:col-span-3">
+                <label className="px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Data</label>
+                <DateInput
                   value={date}
-                  onChange={(event) => onDateChange(event.target.value)}
-                  className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
+                  onChange={onDateChange}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-sm text-white outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/10"
                 />
               </div>
-              <div className="col-span-2 space-y-1 lg:col-span-3">
-                <label className="px-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Forma de pagamento</label>
+              <div className="space-y-1.5 sm:col-span-1 xl:col-span-3">
+                <label className="px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Forma de pagamento</label>
                 <select
                   value={paymentMethod}
                   onChange={(event) => onPaymentMethodChange(event.target.value)}
                   required
-                  className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
+                  className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-sm text-white outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/10"
                 >
                   <option value="">Selecione</option>
                   <option value="Dinheiro">Dinheiro</option>
@@ -254,92 +254,91 @@ export const ExpensesView = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 sm:flex sm:justify-end">
+            <div className="flex flex-col-reverse gap-2 border-t border-slate-800 pt-4 sm:flex-row sm:justify-end">
               <button
                 type="button"
                 onClick={onResetForm}
-                className="rounded-xl bg-slate-700/50 px-3 py-2 text-xs font-bold transition-all hover:bg-slate-700"
+                className="rounded-xl border border-slate-700 bg-slate-800/70 px-4 py-2.5 text-xs font-bold text-slate-300 transition hover:bg-slate-700"
               >
                 Limpar
               </button>
               <button
                 type="submit"
                 disabled={isSaving}
-                className="rounded-xl bg-primary px-3 py-2 text-xs font-bold text-white shadow-lg shadow-primary/20 transition-all hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-xl bg-primary px-5 py-2.5 text-xs font-bold text-white shadow-lg shadow-primary/20 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isSaving ? 'Salvando...' : 'Salvar gasto'}
               </button>
             </div>
           </form>
-        )}
-      </section>
+        </section>
+      )}
 
-      <section className="rounded-2xl border border-slate-700/50 bg-slate-800/40 p-3">
-        <div className="mb-2">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Periodo de consulta</p>
-          <p className="text-[10px] text-slate-500">Veja quanto foi gasto entre as datas selecionadas.</p>
-        </div>
-        <div className="grid gap-2 sm:grid-cols-2 sm:max-w-md">
-          <label className="space-y-1">
-            <span className="px-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Inicio</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              placeholder="dd/mm/aaaa"
-              value={periodStartInput}
-              onChange={(event) => {
-                const value = event.target.value;
-                setPeriodStartInput(value);
-                const parsed = parseDisplayDate(value);
-                if (parsed) setPeriodStart(parsed);
-              }}
-              className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
-            />
-          </label>
-          <label className="space-y-1">
-            <span className="px-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">Fim</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              placeholder="dd/mm/aaaa"
-              value={periodEndInput}
-              onChange={(event) => {
-                const value = event.target.value;
-                setPeriodEndInput(value);
-                const parsed = parseDisplayDate(value);
-                if (parsed) setPeriodEnd(parsed);
-              }}
-              className="w-full rounded-xl border-slate-700 bg-slate-900/50 p-2 text-xs outline-none focus:ring-1 focus:ring-primary"
-            />
-          </label>
+      <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2.5">
+            <CalendarDays className="h-5 w-5 shrink-0 text-primary" />
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-widest text-slate-300">Periodo de consulta</p>
+              <p className="text-[11px] text-slate-500">Veja quanto foi gasto entre as datas selecionadas.</p>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:w-full sm:max-w-lg sm:grid-cols-2">
+            <label className="flex items-center gap-2">
+              <span className="w-12 shrink-0 text-[10px] font-bold uppercase tracking-wider text-slate-400">Inicio</span>
+              <DateInput
+                value={periodStart}
+                onChange={setPeriodStart}
+                aria-label="Data inicial do periodo"
+                className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-white outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/10"
+              />
+            </label>
+            <label className="flex items-center gap-2">
+              <span className="w-12 shrink-0 text-[10px] font-bold uppercase tracking-wider text-slate-400">Fim</span>
+              <DateInput
+                value={periodEnd}
+                onChange={setPeriodEnd}
+                aria-label="Data final do periodo"
+                className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-white outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/10"
+              />
+            </label>
+          </div>
         </div>
         {periodStart > periodEnd && (
           <p className="mt-2 text-[10px] font-bold text-red-400">A data inicial deve ser anterior a data final.</p>
         )}
       </section>
 
-      <div className="grid gap-3 xl:grid-cols-[0.85fr_1fr]">
-        <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
-            <p className="text-[8px] font-bold uppercase tracking-widest text-slate-500">Total</p>
-            <p className="mt-1 text-lg font-black text-white">R$ {total.toFixed(2)}</p>
-            <p className="mt-1 text-[9px] text-slate-400">{filteredExpenseEntries.length} registro(s) no periodo</p>
-          </div>
-          <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
-            <p className="text-[8px] font-bold uppercase tracking-widest text-slate-500">Periodo</p>
-            <p className="mt-1 text-lg font-black text-white">{filteredExpenseEntries.length}</p>
-            <p className="mt-1 text-[9px] text-slate-400">registros no periodo</p>
-          </div>
-          <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
-            <p className="text-[8px] font-bold uppercase tracking-widest text-slate-500">Media</p>
-            <p className="mt-1 text-lg font-black text-white">R$ {averagePerRecord.toFixed(2)}</p>
-            <p className="mt-1 text-[9px] text-slate-400">por gasto no periodo</p>
-          </div>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
-            <h3 className="mb-2 text-xs font-bold">Por metodo</h3>
-            <div className="h-36">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+        {[
+          { label: 'Total no periodo', value: currency.format(total), detail: `${filteredExpenseEntries.length} registro(s)`, icon: Wallet, accent: 'border-primary/25 from-primary/[0.10]' },
+          { label: 'Quantidade', value: String(filteredExpenseEntries.length), detail: 'gasto(s) registrado(s)', icon: Receipt, accent: 'border-slate-700/80 from-slate-700/30' },
+          { label: 'Media por gasto', value: currency.format(averagePerRecord), detail: 'no periodo selecionado', icon: ChartNoAxesColumnIncreasing, accent: 'border-slate-700/80 from-slate-700/30' },
+          { label: 'Ultimos 6 meses', value: currency.format(lastSixMonthsTotal), detail: 'total registrado', icon: TrendingUp, accent: 'border-orange-500/20 from-orange-500/[0.08]' },
+        ].map((metric) => {
+          const MetricIcon = metric.icon;
+          return (
+            <div key={metric.label} className={`flex min-w-0 items-center gap-3 rounded-2xl border bg-gradient-to-br ${metric.accent} to-slate-900/70 p-4 shadow-lg shadow-black/10`}>
+              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-800/80 text-slate-200">
+                <MetricIcon className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-[10px] font-bold text-slate-400">{metric.label}</p>
+                <p className="mt-0.5 truncate text-lg font-black text-white">{metric.value}</p>
+                <p className="mt-0.5 truncate text-[10px] text-slate-500">{metric.detail}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="grid gap-3 xl:grid-cols-2">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/45 p-4">
+            <div className="mb-2 flex items-center gap-2">
+              <CreditCard className="h-4 w-4 text-primary" />
+              <h3 className="text-xs font-bold text-white">Gastos por metodo de pagamento</h3>
+            </div>
+            <div className="h-40">
               <ResponsiveContainer width="100%" height="100%">
                 <RePieChart>
                   <Pie
@@ -359,9 +358,12 @@ export const ExpensesView = ({
               </ResponsiveContainer>
             </div>
           </div>
-          <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
-            <h3 className="mb-2 text-xs font-bold">Ultimos 6 meses</h3>
-            <div className="h-36">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/45 p-4">
+            <div className="mb-2 flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-primary" />
+              <h3 className="text-xs font-bold text-white">Historico dos ultimos 6 meses</h3>
+            </div>
+            <div className="h-40">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={monthlyData} margin={{ top: 0, right: 0, left: -10, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} strokeOpacity={0.35} />
@@ -377,9 +379,66 @@ export const ExpensesView = ({
             </div>
           </div>
         </div>
-      </div>
 
-      <section className="space-y-3 rounded-2xl border border-slate-700/50 bg-slate-800/40 p-3">
+      <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/30 shadow-lg shadow-black/10">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-800 px-4 py-3.5">
+          <div>
+            <h3 className="text-sm font-black text-white">Lancamentos do periodo</h3>
+            <p className="mt-0.5 text-[10px] text-slate-500">Despesas registradas entre as datas selecionadas.</p>
+          </div>
+          <span className="rounded-lg border border-slate-700 bg-slate-800/70 px-2.5 py-1 text-[10px] font-bold text-slate-300">
+            {filteredExpenseEntries.length} gasto(s)
+          </span>
+        </div>
+        {filteredExpenseEntries.length === 0 ? (
+          <div className="px-4 py-12 text-center text-xs text-slate-500">Nenhum gasto registrado neste periodo.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left">
+              <thead className="border-b border-slate-800 bg-slate-800/40 text-[9px] font-bold uppercase tracking-wider text-slate-400">
+                <tr>
+                  <th className="px-4 py-3">Data</th>
+                  <th className="px-4 py-3">Descricao</th>
+                  <th className="px-4 py-3">Fornecedor</th>
+                  <th className="px-4 py-3">Metodo</th>
+                  <th className="px-4 py-3 text-right">Valor</th>
+                  <th className="px-4 py-3 text-right">Acao</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/80">
+                {[...filteredExpenseEntries].sort((a, b) => b.date.localeCompare(a.date)).map((entry) => (
+                  <tr key={entry.id} className="transition-colors hover:bg-slate-800/25">
+                    <td className="whitespace-nowrap px-4 py-3 text-xs font-medium text-slate-300">{formatDateForDisplay(entry.date) || entry.date}</td>
+                    <td className="max-w-[280px] px-4 py-3">
+                      <p className="truncate text-xs font-bold text-white">{entry.description || 'Gasto sem descricao'}</p>
+                      {entry.note && <p className="mt-0.5 truncate text-[10px] text-slate-500">{entry.note}</p>}
+                    </td>
+                    <td className="max-w-[200px] truncate px-4 py-3 text-xs text-slate-300">{entry.supplier || 'Sem fornecedor'}</td>
+                    <td className="whitespace-nowrap px-4 py-3">
+                      <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800/80 px-2 py-1 text-[10px] font-semibold text-slate-300">
+                        <CreditCard className="h-3 w-3 text-slate-400" />
+                        {entry.paymentMethod}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right text-xs font-black text-primary">{currency.format(entry.amount)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => void onDeleteExpense(entry.id)}
+                        className="rounded-lg border border-red-500/20 bg-red-500/[0.06] px-2.5 py-1.5 text-[10px] font-bold text-red-300 transition hover:border-red-500/40 hover:bg-red-500/15"
+                      >
+                        Excluir
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/35 p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-primary">Cadastro automatico</p>

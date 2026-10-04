@@ -1,6 +1,7 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import type { Auth } from "firebase-admin/auth";
 import type { Firestore, WriteBatch } from "firebase-admin/firestore";
+import { getActiveUserProfile } from "./userAccess";
 
 type BackupRequest = Request & {
   backupAuth?: {
@@ -144,6 +145,10 @@ const requireBackupAuth = (options: RegisterBackupRoutesOptions) => async (
 
   try {
     const decoded = await options.auth.verifyIdToken(token);
+    if (!(await getActiveUserProfile(options.db, decoded.uid))) {
+      return res.status(403).json({ error: "Usuario sem permissao ativa para acessar o backup." });
+    }
+
     req.backupAuth = {
       uid: decoded.uid,
       email: decoded.email,

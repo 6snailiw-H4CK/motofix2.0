@@ -2,6 +2,7 @@ import { addDays, addMonths, differenceInDays, endOfMonth, format, isSameDay, pa
 import { ptBR } from 'date-fns/locale';
 import { ArrowLeft, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useMemo } from 'react';
+import { DateInput } from '../DateInput';
 import { cn } from '../../lib/utils';
 import type { Appointment } from '../../types';
 
@@ -97,7 +98,7 @@ export const AppointmentsView = ({
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="bg-slate-800/40 p-4 rounded-2xl border border-slate-700/50">
+        <div className="appointments-calendar bg-slate-800/40 p-4 rounded-2xl border border-slate-700/50">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
             <div>
               <p className="text-[10px] uppercase tracking-widest text-slate-500">Mes</p>
@@ -127,7 +128,7 @@ export const AppointmentsView = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-7 gap-2 text-[10px] uppercase tracking-widest text-slate-500 mb-2">
+          <div className="appointments-weekdays grid grid-cols-7 gap-2 text-[10px] uppercase tracking-widest text-slate-500 mb-2">
             {weekDays.map((day) => (
               <div key={day} className="text-center">{day}</div>
             ))}
@@ -149,22 +150,24 @@ export const AppointmentsView = ({
                   type="button"
                   onClick={() => selectDate(key)}
                   className={cn(
-                    'h-14 rounded-2xl border p-2 text-left text-[12px] leading-tight transition-all',
+                    'appointments-day h-20 min-w-0 rounded-2xl border p-1.5 text-left text-sm leading-tight transition-all sm:p-2',
+                    hasAppointments ? 'appointments-day-booked' : '',
+                    selected ? 'appointments-day-selected' : '',
                     selected ? 'border-emerald-500 bg-emerald-500/20 text-emerald-100 shadow-inner' : 'border-slate-700 bg-slate-900/60 text-slate-100',
                     hasAppointments && !selected ? 'bg-red-500/15 border-red-500/30 text-red-200' : '',
                     isToday ? 'ring-1 ring-primary' : ''
                   )}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="font-bold">{format(day, 'd')}</span>
+                    <span className="text-sm font-bold">{format(day, 'd')}</span>
                     {hasAppointments && (
-                      <span className="text-[9px] font-bold uppercase tracking-[0.16em]">
+                      <span className="text-[10px] font-bold uppercase tracking-wide">
                         {appointmentsByDate.get(key)?.length}x
                       </span>
                     )}
                   </div>
-                  <div className="text-[9px] text-slate-400 mt-1">
-                    {hasAppointments ? 'Servico' : 'Livre'}
+                  <div className="mt-1 truncate text-[10px] font-bold sm:text-[11px]">
+                    {hasAppointments ? appointmentsByDate.get(key)?.[0]?.clientName || 'Agendado' : 'Livre'}
                   </div>
                 </button>
               );
@@ -234,10 +237,9 @@ export const AppointmentsView = ({
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Data</label>
-                      <input
-                        type="date"
+                      <DateInput
                         value={formValues.date}
-                        onChange={(event) => onFormValueChange('date', event.target.value)}
+                        onChange={(value) => onFormValueChange('date', value)}
                         className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white outline-none focus:ring-1 focus:ring-primary"
                         required
                       />

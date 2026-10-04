@@ -57,6 +57,28 @@ test('admin bypasses the subscription gate', () => {
   });
 });
 
+test('blocks an inactive user even when billing has not expired', () => {
+  assert.deepEqual(getSubscriptionGateState(
+    profile({ status: 'active', currentPeriodEnd: '2026-10-03T00:00:00.000Z' }, { isActive: false }),
+    new Date('2026-09-03T00:00:00.000Z'),
+  ), {
+    subscriptionActive: false,
+    isExpired: true,
+    shouldBlock: true,
+  });
+});
+
+test('an inactive admin does not bypass the access gate', () => {
+  assert.deepEqual(getSubscriptionGateState(
+    profile({ status: 'inactive' }, { role: 'admin', isActive: false }),
+    new Date('2026-09-03T00:00:00.000Z'),
+  ), {
+    subscriptionActive: false,
+    isExpired: true,
+    shouldBlock: true,
+  });
+});
+
 test('schedules only a future valid period end', () => {
   const now = new Date('2026-09-03T00:00:00.000Z');
   assert.equal(getSubscriptionTimerDelay('2026-10-03T00:00:00.000Z', now), 2592000010);

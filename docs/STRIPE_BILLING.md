@@ -4,13 +4,17 @@ Configure `STRIPE_SECRET_KEY=sk_test_...`, `STRIPE_WEBHOOK_SECRET=whsec_...` and
 
 `STRIPE_PRICE_ID` remains only as a legacy fallback for disabled `/api/payments/*` routes; new deployments should use the `STRIPE_PRICE_PLAN_*` variables. `STRIPE_PUBLISHABLE_KEY` is also legacy and is not used by the current Checkout flow.
 
-Start the application and forward Stripe events:
+Start the application and forward Stripe events. On Windows, use the same secret key as the backend so the CLI cannot connect to another Stripe account:
 
-```bash
-stripe listen --forward-to localhost:3001/api/stripe/webhook
+```powershell
+$line = Get-Content .env | Where-Object { $_ -like 'STRIPE_SECRET_KEY=*' }
+$key = $line -replace '^STRIPE_SECRET_KEY=', ''
+stripe listen --api-key $key --forward-to localhost:3001/api/stripe/webhook
 ```
 
 Copy the `whsec_...` printed by the CLI into `STRIPE_WEBHOOK_SECRET`. In the Stripe Dashboard (or CLI listener) select `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`, and `invoice.payment_failed`.
+
+For the complete Windows sandbox recovery procedure, see [GUIA_STRIPE_SANDBOX_RECUPERACAO.md](GUIA_STRIPE_SANDBOX_RECUPERACAO.md).
 
 The Checkout success URL only returns the customer to the app; it does not grant access. Verify `users/{uid}.billing`, `users/{uid}/billing_events`, and `stripe_events/{event.id}` after each test.
 

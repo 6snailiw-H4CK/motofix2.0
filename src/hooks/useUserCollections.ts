@@ -51,6 +51,7 @@ type UseUserCollectionsResult = {
   expenseEntries: ExpenseRecord[];
   productCatalog: ProductCatalogItem[];
   cashLaunches: CashRegisterLaunch[];
+  cashLaunchesLoaded: boolean;
   fiscalCompanies: FiscalCompany[];
   fiscalInvoices: FiscalInvoice[];
   fiscalLogs: FiscalLog[];
@@ -136,6 +137,7 @@ export function useUserCollections({
   const [expenseEntries, setExpenseEntries] = useState<ExpenseRecord[]>([]);
   const [productCatalog, setProductCatalog] = useState<ProductCatalogItem[]>([]);
   const [cashLaunches, setCashLaunches] = useState<CashRegisterLaunch[]>([]);
+  const [cashLaunchesLoaded, setCashLaunchesLoaded] = useState(false);
   const [fiscalCompanies, setFiscalCompanies] = useState<FiscalCompany[]>([]);
   const [fiscalInvoices, setFiscalInvoices] = useState<FiscalInvoice[]>([]);
   const [fiscalLogs, setFiscalLogs] = useState<FiscalLog[]>([]);
@@ -143,7 +145,13 @@ export function useUserCollections({
   const [collectionListenerIssuesByKey, setCollectionListenerIssuesByKey] = useState<Record<string, CollectionListenerIssue>>({});
 
   useEffect(() => {
+    const canLoadUserData = Boolean(user?.uid && userProfile?.isActive === true);
     const syncLocalCashLaunches = () => {
+      if (!canLoadUserData) {
+        setCashLaunches([]);
+        return;
+      }
+
       setCashLaunches((currentLaunches) => {
         const remoteLaunches = currentLaunches.filter((launch) => !getLocalCashLaunches().some((localLaunch) => localLaunch.id === launch.id));
         return mergeCashLaunches(remoteLaunches);
@@ -161,7 +169,7 @@ export function useUserCollections({
         window.removeEventListener(LOCAL_CASH_LAUNCHES_UPDATED_EVENT, syncLocalCashLaunches);
       }
     };
-  }, []);
+  }, [user?.uid, userProfile?.isActive]);
 
   useEffect(() => {
     const hasExpiredSubscription = userProfile?.subscriptionExpiresAt
@@ -171,11 +179,28 @@ export function useUserCollections({
     const userRole = userProfile?.role;
     const userIsActive = userProfile?.isActive;
 
-    if (!userUid || !userProfile) {
+    if (!userUid || !userProfile || userIsActive !== true) {
       setCollectionListenerIssuesByKey({});
+      setAllUsers([]);
+      setClients([]);
+      setMaintenances([]);
+      setWarranties([]);
+      setSettings(DEFAULT_SETTINGS);
+      setSettingsLoaded(false);
+      setMessageLogs([]);
+      setAppointments([]);
+      setExpenseEntries([]);
+      setProductCatalog([]);
+      setCashLaunches([]);
+      setCashLaunchesLoaded(false);
+      setFiscalCompanies([]);
+      setFiscalInvoices([]);
+      setFiscalLogs([]);
+      setOperationalLogs([]);
       return;
     }
 
+    setCashLaunchesLoaded(false);
     setCollectionListenerIssuesByKey({});
 
     const clearListenerIssue = (key: string) => {
@@ -277,6 +302,7 @@ export function useUserCollections({
       recordFirestoreSnapshot('cash_launches', { docs: snapshot.docs.length, userUid });
       const launchesData = mapActiveDocuments<CashRegisterLaunch>(snapshot.docs);
       setCashLaunches(mergeCashLaunches(launchesData));
+      setCashLaunchesLoaded(true);
     }, (error) => {
       recordListenerIssue('cash_launches', 'Lancamentos caixa', error);
       setCashLaunches(mergeCashLaunches([]));
@@ -433,6 +459,7 @@ export function useUserCollections({
     expenseEntries,
     productCatalog,
     cashLaunches,
+    cashLaunchesLoaded,
     fiscalCompanies,
     fiscalInvoices,
     fiscalLogs,

@@ -11,8 +11,12 @@ const TEST_USER_OWNER = 'owner-user-123';
 const TEST_USER_ADMIN_CLAIM = 'admin-claim-user-123';
 const TEST_USER_ADMIN_DOC = 'admin-user-123';
 const TEST_USER_REGULAR = 'regular-user-123';
+const TEST_USER_INACTIVE = 'inactive-user-123';
+const TEST_USER_INACTIVE_ADMIN = 'inactive-admin-user-123';
 const TEST_USER_OTHER = 'other-user-999';
 const CASH_LAUNCH_ID = 'cash-launch-001';
+const INACTIVE_CASH_LAUNCH_ID = 'inactive-cash-launch-001';
+const INACTIVE_EXPENSE_ID = 'inactive-expense-001';
 const CASH_LAUNCH_PAYMENT_ID = 'cash-launch-payment-stock';
 const PRODUCT_ID = 'produto-estoque-001';
 const PRODUCT_PAYMENT_ID = 'produto-010101';
@@ -43,6 +47,33 @@ const adminUserData = {
   email: 'admin@example.com',
   role: 'admin',
   isActive: true,
+  createdAt: now(),
+  updatedAt: now(),
+};
+
+const adminClaimUserData = {
+  uid: TEST_USER_ADMIN_CLAIM,
+  email: 'admin-claim@example.com',
+  role: 'admin',
+  isActive: true,
+  createdAt: now(),
+  updatedAt: now(),
+};
+
+const inactiveUserData = {
+  uid: TEST_USER_INACTIVE,
+  email: 'inactive@example.com',
+  role: 'user',
+  isActive: false,
+  createdAt: now(),
+  updatedAt: now(),
+};
+
+const inactiveAdminUserData = {
+  uid: TEST_USER_INACTIVE_ADMIN,
+  email: 'inactive-admin@example.com',
+  role: 'admin',
+  isActive: false,
   createdAt: now(),
   updatedAt: now(),
 };
@@ -183,8 +214,11 @@ async function setupTestData(testEnv) {
     const firestore = context.firestore();
 
     await setDoc(doc(firestore, 'users', TEST_USER_OWNER), ownerUserData);
+    await setDoc(doc(firestore, 'users', TEST_USER_ADMIN_CLAIM), adminClaimUserData);
     await setDoc(doc(firestore, 'users', TEST_USER_ADMIN_DOC), adminUserData);
     await setDoc(doc(firestore, 'users', TEST_USER_REGULAR), regularUserData);
+    await setDoc(doc(firestore, 'users', TEST_USER_INACTIVE), inactiveUserData);
+    await setDoc(doc(firestore, 'users', TEST_USER_INACTIVE_ADMIN), inactiveAdminUserData);
     await setDoc(doc(firestore, 'users', TEST_USER_OTHER), {
       uid: TEST_USER_OTHER,
       email: 'other@example.com',
@@ -195,6 +229,19 @@ async function setupTestData(testEnv) {
     });
 
     await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID), ownerCashLaunchData);
+    await setDoc(doc(firestore, 'users', TEST_USER_INACTIVE, 'cash_launches', INACTIVE_CASH_LAUNCH_ID), {
+      ...ownerCashLaunchData,
+      userId: TEST_USER_INACTIVE,
+      orderNumber: 'LC-20260623-INACTIVE',
+    });
+    await setDoc(doc(firestore, 'users', TEST_USER_INACTIVE, 'expenses', INACTIVE_EXPENSE_ID), {
+      userId: TEST_USER_INACTIVE,
+      description: 'Gasto inativo de teste',
+      amount: 10,
+      paymentMethod: 'Pix',
+      date: '2026-10-03',
+      createdAt: now(),
+    });
     await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'products', PRODUCT_ID), ownerProductData);
     await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_PAYMENT_ID), ownerPaymentCashLaunchData);
     await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'products', PRODUCT_PAYMENT_ID), ownerPaymentProductData);
@@ -221,6 +268,35 @@ async function runTests() {
 
   try {
     await setupTestData(testEnv);
+
+    console.log('0) Perfil inativo nao pode ler nem gravar dados operacionais');
+    const inactiveDb = testEnv.authenticatedContext(TEST_USER_INACTIVE).firestore();
+    try {
+      await getDoc(doc(inactiveDb, 'users', TEST_USER_INACTIVE, 'cash_launches', INACTIVE_CASH_LAUNCH_ID));
+      fail('Perfil inativo conseguiu ler cash_launch proprio');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') fail(`Leitura inativa falhou com erro inesperado: ${error?.code || error}`);
+      else console.log('   ✅ Perfil inativo corretamente impedido de ler');
+    }
+    try {
+      await updateDoc(doc(inactiveDb, 'users', TEST_USER_INACTIVE, 'expenses', INACTIVE_EXPENSE_ID), {
+        note: 'write bloqueado',
+      });
+      fail('Perfil inativo conseguiu gravar despesa propria');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') fail(`Gravacao inativa falhou com erro inesperado: ${error?.code || error}`);
+      else console.log('   ✅ Perfil inativo corretamente impedido de gravar');
+    }
+
+    console.log('0b) Claim admin antiga nao libera perfil desativado');
+    const inactiveAdminDb = testEnv.authenticatedContext(TEST_USER_INACTIVE_ADMIN, { admin: true }).firestore();
+    try {
+      await getDoc(doc(inactiveAdminDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID));
+      fail('Admin desativado manteve leitura com claim antiga');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') fail(`Claim antiga falhou com erro inesperado: ${error?.code || error}`);
+      else console.log('   ✅ Perfil admin desativado corretamente impedido');
+    }
 
     console.log('1) Owner pode atualizar (soft delete) seu cash_launch');
     const ownerDb = testEnv.authenticatedContext(TEST_USER_OWNER).firestore();
@@ -316,7 +392,7 @@ async function runTests() {
       console.log('   Admin-claim conseguiu ler cash_launch de outro usuario');
     }
 
-    console.log('6) Admin via documento pode ler cash_launches de outro usuário');
+    console.log('6) Role admin no documento sem custom claim nao concede acesso');
     console.log('5b) Admin via custom claim NAO pode apagar fisicamente cash_launch de outro usuario');
     try {
       await deleteDoc(doc(adminClaimDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID));
@@ -331,32 +407,34 @@ async function runTests() {
     }
 
     const adminDocDb = testEnv.authenticatedContext(TEST_USER_ADMIN_DOC).firestore();
-    const adminRead = await getDoc(doc(adminDocDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID));
-    if (!adminRead.exists()) {
-      fail('Admin-document não conseguiu ler cash_launches de outro usuário');
-    } else {
-      console.log('   ✅ Admin-document conseguiu ler cash_launch de outro usuário');
+    try {
+      await getDoc(doc(adminDocDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID));
+      fail('Role admin no documento concedeu acesso sem custom claim');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') fail(`Role sem claim falhou com erro inesperado: ${error?.code || error}`);
+      else console.log('   ✅ Role admin sem custom claim corretamente negada');
     }
 
-    console.log('7) Owner pode criar operational_log e ler depois');
-    console.log('6b) Admin via documento NAO pode apagar fisicamente perfil de usuario');
+    console.log('6b) Admin via custom claim NAO pode apagar fisicamente perfil de usuario');
     try {
-      await deleteDoc(doc(adminDocDb, 'users', TEST_USER_REGULAR));
-      fail('Admin-document conseguiu delete fisico em perfil de usuario');
+      await deleteDoc(doc(adminClaimDb, 'users', TEST_USER_REGULAR));
+      fail('Admin-claim conseguiu delete fisico em perfil de usuario');
     } catch (error) {
-      const stillExists = await getDoc(doc(adminDocDb, 'users', TEST_USER_REGULAR));
-      if (!stillExists.exists()) {
+      let profileStillExists = false;
+      await testEnv.withSecurityRulesDisabled(async (context) => {
+        const stillExists = await getDoc(doc(context.firestore(), 'users', TEST_USER_REGULAR));
+        profileStillExists = stillExists.exists();
+      });
+      if (!profileStillExists) {
         fail('Perfil de usuario sumiu apos tentativa negada de delete fisico');
       } else {
-        console.log('   Admin-document corretamente impedido de delete fisico de perfil');
+        console.log('   Admin-claim corretamente impedido de delete fisico de perfil');
       }
     }
 
+    console.log('7) Owner pode criar operational_log e ler depois');
     const logId = 'op-log-001';
-    await setDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'operational_logs', logId), {
-      ...operationLogData,
-      createdAt: now(),
-    });
+    await setDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'operational_logs', logId), operationLogData);
     const opLog = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'operational_logs', logId));
     if (!opLog.exists()) {
       fail('Owner não conseguiu criar operational_log');
@@ -364,12 +442,12 @@ async function runTests() {
       console.log('   ✅ operational_log criado com sucesso por owner');
     }
 
-    console.log('8) Admin-document também pode ler operational_logs de outro usuário');
-    const adminOpLog = await getDoc(doc(adminDocDb, 'users', TEST_USER_OWNER, 'operational_logs', logId));
+    console.log('8) Admin via custom claim pode ler operational_logs de outro usuário');
+    const adminOpLog = await getDoc(doc(adminClaimDb, 'users', TEST_USER_OWNER, 'operational_logs', logId));
     if (!adminOpLog.exists()) {
-      fail('Admin-document não conseguiu acessar operational_logs de outro usuário');
+      fail('Admin-claim não conseguiu acessar operational_logs de outro usuário');
     } else {
-      console.log('   ✅ operational_logs acessível por admin');
+      console.log('   ✅ operational_logs acessível via custom claim');
     }
 
     console.log('9) Owner pode atualizar estoque de produto');
@@ -449,16 +527,16 @@ async function runTests() {
       console.log('   ✅ Usuário comum corretamente impedido de ler /users de outro usuário');
     }
 
-    console.log('14) Admin-document pode listar /users');
+    console.log('14) Admin via custom claim pode listar /users');
     try {
-      const allUsersSnapshot = await getDocs(query(collection(adminDocDb, 'users')));
+      const allUsersSnapshot = await getDocs(query(collection(adminClaimDb, 'users')));
       if (allUsersSnapshot.size >= 2) {
-        console.log(`   ✅ Admin-document listou /users (${allUsersSnapshot.size} docs)`);
+        console.log(`   ✅ Admin via custom claim listou /users (${allUsersSnapshot.size} docs)`);
       } else {
-        fail('Admin-document não conseguiu listar /users ou encontrou poucos documentos');
+        fail('Admin via custom claim não conseguiu listar /users ou encontrou poucos documentos');
       }
     } catch (error) {
-      fail('Admin-document não conseguiu listar /users');
+      fail('Admin via custom claim não conseguiu listar /users');
     }
 
     console.log('15) Owner pode finalizar cash_launch faturada com pagamento e baixa de estoque na mesma transacao');

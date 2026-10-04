@@ -31,18 +31,12 @@ import type { useMaintenanceActions } from '../../hooks/useMaintenanceActions';
 import type { ServiceListFilter, useMaintenanceStats } from '../../hooks/useMaintenanceStats';
 import type { useMessageLogActions } from '../../hooks/useMessageLogActions';
 import type { useProductActions } from '../../hooks/useProductActions';
-import type { useServiceTypeActions } from '../../hooks/useServiceTypeActions';
+import type { useOilTypeActions } from '../../hooks/useOilTypeActions';
 import type { useSettingsActions } from '../../hooks/useSettingsActions';
 import { getCashReceivableAmount } from '../../lib/cashPayments';
 import type { useWarrantyActions } from '../../hooks/useWarrantyActions';
 import type { useWhatsAppReminderActions } from '../../hooks/useWhatsAppReminderActions';
 import { downloadProductsWorkbook } from '../../services/productSpreadsheet';
-import {
-  exportCashLaunchesCsv,
-  exportClientsCsv,
-  exportMotorcyclesCsv,
-  exportWarrantiesCsv,
-} from '../../services/emergencyBackup';
 import { systemBackupApi } from '../../services/systemBackupApi';
 
 const AdminView = lazy(() => import('../admin/AdminView').then((module) => ({ default: module.AdminView })));
@@ -95,7 +89,7 @@ type MaintenanceActions = ReturnType<typeof useMaintenanceActions>;
 type MaintenanceStats = ReturnType<typeof useMaintenanceStats>;
 type MessageLogActions = ReturnType<typeof useMessageLogActions>;
 type ProductActions = ReturnType<typeof useProductActions>;
-type ServiceTypeActions = ReturnType<typeof useServiceTypeActions>;
+type OilTypeActions = ReturnType<typeof useOilTypeActions>;
 type SettingsActions = ReturnType<typeof useSettingsActions>;
 type WarrantyActions = ReturnType<typeof useWarrantyActions>;
 type SendWhatsApp = ReturnType<typeof useWhatsAppReminderActions>['sendWhatsApp'];
@@ -112,7 +106,7 @@ type AppViewRendererActions = {
   messageLog: MessageLogActions;
   product: ProductActions;
   sendWhatsApp: SendWhatsApp;
-  serviceType: ServiceTypeActions;
+  oilType: OilTypeActions;
   settings: SettingsActions;
   warranty: WarrantyActions;
 };
@@ -121,6 +115,7 @@ type AppViewRendererData = {
   allUsers: UserProfile[];
   appointments: Appointment[];
   cashLaunches: CashRegisterLaunch[];
+  cashLaunchesLoaded: boolean;
   chartData: ChartDataPoint[];
   clients: Client[];
   dailyPendingAlerts: Client[];
@@ -150,10 +145,12 @@ type AppViewRendererSession = {
 };
 
 type AppViewRendererUi = {
+  clientScheduleReturnView: AppView;
   colorMode: ColorMode;
   expandedTopService: string | null;
   fiscalModuleAvailable: boolean;
   isNewService: boolean;
+  setClientScheduleReturnView: Dispatch<SetStateAction<AppView>>;
   searchQuery: string;
   serviceListFilter: ServiceListFilter;
   setExpandedTopService: Dispatch<SetStateAction<string | null>>;
@@ -162,6 +159,7 @@ type AppViewRendererUi = {
   setServiceListFilter: Dispatch<SetStateAction<ServiceListFilter>>;
   setSettings: Dispatch<SetStateAction<Settings>>;
   setView: Dispatch<SetStateAction<AppView>>;
+  onColorModeChange: (mode: ColorMode) => void;
   view: AppView;
 };
 
@@ -190,7 +188,7 @@ export const AppViewRenderer = ({
     messageLog: messageLogActions,
     product: productActions,
     sendWhatsApp,
-    serviceType: serviceTypeActions,
+    oilType: oilTypeActions,
     settings: settingsActions,
     warranty: warrantyActions,
   } = actions;
@@ -198,6 +196,7 @@ export const AppViewRenderer = ({
     allUsers,
     appointments,
     cashLaunches,
+    cashLaunchesLoaded,
     chartData,
     clients,
     dailyPendingAlerts,
@@ -225,18 +224,21 @@ export const AppViewRenderer = ({
     offlineSyncStatus,
   } = session;
   const {
+    clientScheduleReturnView,
     colorMode,
     expandedTopService,
     fiscalModuleAvailable,
     isNewService,
     searchQuery,
     serviceListFilter,
+    setClientScheduleReturnView,
     setExpandedTopService,
     setIsNewService,
     setSearchQuery,
     setServiceListFilter,
     setSettings,
     setView,
+    onColorModeChange,
     view,
   } = ui;
   const {
@@ -258,24 +260,6 @@ export const AppViewRenderer = ({
     getCashReceivableAmount(launch) > 0
   ));
   const pendingPaymentCount = pendingPaymentClients.length + pendingCashLaunches.length;
-  const operationalDataCount = (
-    appointments.length
-    + cashLaunches.length
-    + expenseEntries.length
-    + fiscalInvoices.length
-    + fiscalLogs.length
-    + maintenances.length
-    + messageLogs.length
-    + warranties.length
-  );
-  const fullBackupItemsCount = (
-    operationalDataCount
-    + clients.length
-    + productCatalog.length
-    + fiscalCompanies.length
-    + operationalLogs.length
-    + 1
-  );
   const [cashLaunchToOpenId, setCashLaunchToOpenId] = useState<string | null>(null);
 
   const exportFullBackup = async () => {
@@ -314,7 +298,9 @@ export const AppViewRenderer = ({
           topServicesData={topServicesData}
           expandedTopService={expandedTopService}
           onViewChange={setView}
+          onNewService={() => setView('cash-register')}
           onNewClient={() => {
+            setClientScheduleReturnView('clients-schedule');
             clientForm.startScheduleClient();
             setView('clients-schedule-add');
           }}
@@ -342,6 +328,7 @@ export const AppViewRenderer = ({
             setView('new-client');
           }}
           onNewClient={() => {
+            setClientScheduleReturnView('clients-schedule');
             clientForm.startScheduleClient();
             setView('clients-schedule-add');
           }}
@@ -412,6 +399,7 @@ export const AppViewRenderer = ({
           processingId={maintenanceActions.processingId}
           deleteConfirmId={getDeleteConfirmId('maintenance')}
           onNewClient={() => {
+            setClientScheduleReturnView('clients-schedule');
             clientForm.startScheduleClient();
             setView('clients-schedule-add');
           }}
@@ -427,6 +415,7 @@ export const AppViewRenderer = ({
           onSettleDebt={(maintenance) => maintenanceActions.settleDebt(maintenance.id, maintenance)}
           onSendWhatsApp={sendWhatsApp}
           onEditClient={(client) => {
+            setClientScheduleReturnView('clients-schedule');
             clientForm.startEditClient(client);
             setView('new-client');
           }}
@@ -441,6 +430,7 @@ export const AppViewRenderer = ({
       return (
         <CashRegisterView
           cashLaunches={cashLaunches}
+          cashLaunchesLoaded={cashLaunchesLoaded}
           clients={clients}
           products={productCatalog}
           settings={settings}
@@ -450,9 +440,13 @@ export const AppViewRenderer = ({
           deletingLaunchId={cashRegisterActions.deletingLaunchId}
           initialLaunchId={cashLaunchToOpenId}
           draftStorageKey={`${currentUserId}:cash-register`}
-          onBack={() => setView('clients')}
-          onOpenRecurringServices={() => setView('clients')}
+          onBack={() => setView('dashboard')}
           onInitialLaunchLoaded={() => setCashLaunchToOpenId(null)}
+          onOpenClientRegistration={() => {
+            setClientScheduleReturnView('cash-register');
+            clientForm.startScheduleClient();
+            setView('clients-schedule-add');
+          }}
           onQuickSaveClient={clientActions.quickCreateClient}
           onSaveLaunch={cashRegisterActions.saveLaunch}
           onAutoIssueFiscalFromCashLaunch={(cashLaunchId) => {
@@ -462,10 +456,8 @@ export const AppViewRenderer = ({
               void fiscalActions.issueFromCashLaunch(cashLaunch);
             }
           }}
-          onDeleteLaunchClick={(launch) => {
-            confirmOrRequestDelete('cashLaunch', launch.id, () => {
-              void cashRegisterActions.deleteLaunch(launch);
-            });
+          onDeleteLaunchClick={async (launch) => {
+            return confirmOrRequestDelete('cashLaunch', launch.id, () => cashRegisterActions.deleteLaunch(launch));
           }}
         />
       );
@@ -477,8 +469,11 @@ export const AppViewRenderer = ({
           products={productCatalog}
           isSavingProduct={productActions.isSavingProduct}
           isDeletingProducts={productActions.isDeletingProducts}
+          isRestoringBackup={productActions.isImportingProducts}
           deletingProductId={productActions.deletingProductId}
           deleteConfirmId={getDeleteConfirmId('product')}
+          onExportBackup={() => downloadProductsWorkbook(productCatalog)}
+          onRestoreBackup={productActions.importProductsWorkbook}
           onSaveProduct={productActions.saveProduct}
           onDeleteProductClick={(product) => {
             confirmOrRequestDelete('product', product.id, () => {
@@ -543,6 +538,7 @@ export const AppViewRenderer = ({
           deleteConfirmId={getDeleteConfirmId('client')}
           onBack={() => setView('dashboard')}
           onAddClient={() => {
+            setClientScheduleReturnView('clients-schedule');
             clientForm.startScheduleClient();
             setView('clients-schedule-add');
           }}
@@ -563,9 +559,9 @@ export const AppViewRenderer = ({
           editingClient={clientForm.editingClient}
           historyRows={scheduleClientHistoryRows}
           isSaving={clientActions.isSaving}
-          onBack={() => setView('clients-schedule')}
+          onBack={() => setView(clientScheduleReturnView)}
           onSave={clientActions.saveClient}
-          onAfterSubmit={() => setView('clients-schedule')}
+          onAfterSubmit={() => setView(clientScheduleReturnView)}
           draftStorageKey={`${currentUserId}:client-schedule-form`}
         />
       );
@@ -647,7 +643,7 @@ export const AppViewRenderer = ({
           warranties={warranties}
           appointments={appointments}
           settings={settings}
-          onBack={() => setView('history')}
+          onBack={() => setView('dashboard')}
           onViewChange={setView}
         />
       );
@@ -661,6 +657,10 @@ export const AppViewRenderer = ({
           onNewWarranty={warrantyActions.startNewWarranty}
           onEditWarranty={warrantyActions.startEditWarranty}
           onGeneratePDF={warrantyActions.generateWarrantyPDF}
+          onOpenCashLaunch={(cashLaunchId) => {
+            setCashLaunchToOpenId(cashLaunchId);
+            setView('cash-register');
+          }}
           onDeleteWarrantyClick={(warranty) => {
             confirmOrRequestDelete('warranty', warranty.id, () => warrantyActions.deleteWarranty(warranty.id));
           }}
@@ -672,6 +672,8 @@ export const AppViewRenderer = ({
       return (
         <WarrantyForm
           editingWarranty={warrantyActions.editingWarranty}
+          cashLaunches={cashLaunches}
+          clients={clients}
           settings={settings}
           isSaving={warrantyActions.isSaving}
           onBack={() => setView('warranties')}
@@ -685,25 +687,17 @@ export const AppViewRenderer = ({
     if (view === 'settings') {
       return (
         <SettingsView
-          clientsCount={clients.length}
-          fullBackupItemsCount={fullBackupItemsCount}
-          operationalDataCount={operationalDataCount}
-          productsCount={productCatalog.length}
           userEmail={userEmail}
           userProfile={userProfile}
           settings={settings}
           setSettings={setSettings}
           colorMode={colorMode}
+          onColorModeChange={onColorModeChange}
           saveMessage={settingsActions.saveMessage}
           onSaveProfile={settingsActions.saveCompanyProfile}
           onSaveSettings={settingsActions.saveSettings}
           onSaveSettingsPatch={settingsActions.saveSettingsPatch}
           onExportClientsBackup={clientActions.exportClientsBackup}
-          onExportClientsEmergencyCsv={() => exportClientsCsv(clients)}
-          onExportMotorcyclesEmergencyCsv={() => exportMotorcyclesCsv(clients)}
-          onExportCashLaunchesEmergencyCsv={() => exportCashLaunchesCsv(cashLaunches)}
-          onExportWarrantiesEmergencyCsv={() => exportWarrantiesCsv(warranties)}
-          onExportOperationalBackup={exportFullBackup}
           onExportFullBackup={exportFullBackup}
           onImportFullBackup={importFullBackup}
           onImportClientsBackup={clientActions.importClientsBackup}
@@ -735,10 +729,14 @@ export const AppViewRenderer = ({
             clientForm.resetAfterSave();
             setView('clients');
           }}
+          onBackToHome={() => {
+            clientForm.resetAfterSave();
+            setView('dashboard');
+          }}
           onClientNameChange={clientForm.handleClientNameChange}
           onSelectClientSuggestion={clientForm.selectClientSuggestion}
           onServiceTypeChange={clientForm.setServiceType}
-          onAddCustomServiceType={serviceTypeActions.addCustomServiceType}
+          onAddCustomOilType={oilTypeActions.addCustomOilType}
           onSave={clientActions.saveClient}
           draftStorageKey={`${currentUserId}:client-form`}
         />
@@ -763,8 +761,6 @@ export const AppViewRenderer = ({
           onToggleUserStatus={adminActions.toggleUserStatus}
           onUpdateSubscription={adminActions.updateSubscription}
           onSetSubscriptionDate={adminActions.setSubscriptionDate}
-          onOpenFinancialHealth={() => setView('financial-health')}
-          onOpenGeneralReport={() => setView('general-report')}
         />
       );
     }

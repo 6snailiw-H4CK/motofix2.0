@@ -8,7 +8,6 @@ import {
   MoreHorizontal,
   Package,
   ReceiptText,
-  RefreshCw,
   Settings as SettingsIcon,
   Shield,
   ShieldCheck,
@@ -53,9 +52,9 @@ export const BottomNav = ({ view, fiscalModuleAvailable, isAdmin, onViewChange }
     {
       id: 'clients',
       icon: ClipboardList,
-      label: 'Servicos/Oleo',
+      label: 'Recorrência',
       match: ['clients', 'new-client'],
-      shortLabel: 'Serv./Oleo',
+      shortLabel: 'Recorrência',
     },
     {
       id: 'appointments',
@@ -78,14 +77,13 @@ export const BottomNav = ({ view, fiscalModuleAvailable, isAdmin, onViewChange }
       title: 'Atendimento',
       items: [
         { id: 'clients-schedule', icon: Users, label: 'Clientes', match: ['clients-schedule', 'clients-schedule-add'], shortLabel: 'Clientes' },
-        { id: 'returns', icon: RefreshCw, label: 'Retornos', match: ['returns'], shortLabel: 'Retornos' },
         { id: 'warranties', icon: ShieldCheck, label: 'Garantias', match: ['warranties', 'new-warranty'], shortLabel: 'Garantias' },
       ],
     },
         {
       title: 'Financeiro',
       items: [
-        { id: 'cash-register', icon: ReceiptText, label: 'Lancamentos Caixa', match: ['cash-register'], shortLabel: 'Caixa' },
+        { id: 'cash-register', icon: ReceiptText, label: 'Ordem de Serviço', match: ['cash-register'], shortLabel: 'O.S.' },
         { id: 'expenses', icon: DollarSign, label: 'Gastos', match: ['expenses'], shortLabel: 'Gastos' },
         { id: 'products', icon: Package, label: 'Mercadorias', match: ['products'], shortLabel: 'Mercadorias' },
       ],
@@ -95,6 +93,7 @@ export const BottomNav = ({ view, fiscalModuleAvailable, isAdmin, onViewChange }
       items: [
         { id: 'settings', icon: SettingsIcon, label: 'Configuracoes', match: ['settings'], shortLabel: 'Config.' },
         ...(fiscalModuleAvailable ? [{ id: 'fiscal' as AppView, icon: FileText, label: 'Fiscal', match: ['fiscal' as AppView], shortLabel: 'Fiscal' }] : []),
+        ...(isAdmin ? [{ id: 'general-report' as AppView, icon: FileText, label: 'Relatorios', match: ['general-report' as AppView, 'financial-health' as AppView], shortLabel: 'Relatorios' }] : []),
         ...(isAdmin ? [{ id: 'admin' as AppView, icon: Shield, label: 'Admin', match: ['admin' as AppView], shortLabel: 'Admin' }] : []),
       ],
     },

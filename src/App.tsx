@@ -38,7 +38,7 @@ import { useNotifications } from './hooks/useNotifications';
 import { useOfflineDataPreload } from './hooks/useOfflineDataPreload';
 import { useOfflineSyncStatus } from './hooks/useOfflineSyncStatus';
 import { useProductActions } from './hooks/useProductActions';
-import { useServiceTypeActions } from './hooks/useServiceTypeActions';
+import { useOilTypeActions } from './hooks/useOilTypeActions';
 import { useSettingsActions } from './hooks/useSettingsActions';
 import { useSubscriptionStatus } from './hooks/useSubscriptionStatus';
 import { useSubscriptionExpiryGuard } from './hooks/useSubscriptionExpiryGuard';
@@ -65,6 +65,7 @@ export default function App() {
     messageLogs,
     productCatalog,
     cashLaunches,
+    cashLaunchesLoaded,
     fiscalCompanies,
     fiscalInvoices,
     fiscalLogs,
@@ -75,11 +76,13 @@ export default function App() {
   useOfflineDataPreload({ user, userProfile });
   const {
     colorMode,
+    clientScheduleReturnView,
     expandedTopService,
     isNewService,
     searchQuery,
     serviceListFilter,
     setColorMode,
+    setClientScheduleReturnView,
     setExpandedTopService,
     setIsNewService,
     setSearchQuery,
@@ -136,11 +139,10 @@ export default function App() {
     setView,
     view,
   });
-  const serviceTypeActions = useServiceTypeActions({
+  const oilTypeActions = useOilTypeActions({
     user,
     settings,
     setSettings,
-    onSelectServiceType: clientForm.setServiceType,
   });
   const clientActions = useClientActions({
     user,
@@ -205,11 +207,7 @@ export default function App() {
     workshopName,
   });
 
-  const {
-    alertCount,
-    dailyPendingAlerts,
-    requestNotificationPermission
-  } = useNotifications({ clients });
+  const { dailyPendingAlerts } = useNotifications({ clients });
   const { sendWhatsApp } = useWhatsAppReminderActions({
     user,
     settings,
@@ -259,7 +257,11 @@ export default function App() {
 
   const billingLoading = !!user && (profileLoading || !subscriptionResolved);
   const authenticated = !!user;
-  const shouldBlockUser = authenticated && !billingLoading && (!userProfile || (!subscriptionActive && userProfile.role !== 'admin'));
+  const shouldBlockUser = authenticated && !billingLoading && (
+    !userProfile
+    || userProfile.isActive !== true
+    || (!subscriptionActive && userProfile.role !== 'admin')
+  );
   const diagnosticNow = new Date();
   const diagnosticPeriodEnd = userProfile?.billing?.currentPeriodEnd || null;
   const diagnosticPeriodEndDate = diagnosticPeriodEnd ? new Date(diagnosticPeriodEnd) : null;
@@ -339,7 +341,6 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AppShell
-        alertCount={alertCount}
         colorMode={colorMode}
         settings={settings}
         collectionListenerIssues={collectionListenerIssues}
@@ -348,7 +349,6 @@ export default function App() {
         userProfile={userProfile}
         view={view}
         onColorModeChange={setColorMode}
-        onRequestNotifications={requestNotificationPermission}
         onSignOut={() => signOut(auth)}
         onViewChange={handleViewChange}
       >
@@ -365,7 +365,7 @@ export default function App() {
             messageLog: messageLogActions,
             product: productActions,
             sendWhatsApp,
-            serviceType: serviceTypeActions,
+            oilType: oilTypeActions,
             settings: settingsActions,
             warranty: warrantyActions,
           }}
@@ -373,6 +373,7 @@ export default function App() {
             allUsers,
             appointments,
             cashLaunches,
+            cashLaunchesLoaded,
             chartData,
             clients,
             dailyPendingAlerts,
@@ -400,6 +401,7 @@ export default function App() {
             offlineSyncStatus,
           }}
           ui={{
+            clientScheduleReturnView,
             colorMode,
             expandedTopService,
             fiscalModuleAvailable,
@@ -407,11 +409,13 @@ export default function App() {
             searchQuery,
             serviceListFilter,
             setExpandedTopService,
+            setClientScheduleReturnView,
             setIsNewService,
             setSearchQuery,
             setServiceListFilter,
             setSettings,
             setView: handleViewChange,
+            onColorModeChange: setColorMode,
             view,
           }}
         />

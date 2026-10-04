@@ -6,6 +6,7 @@ import {
 import {
   Bell,
   Calendar,
+  CalendarDays,
   DollarSign,
   MessageSquare,
   Plus,
@@ -55,6 +56,7 @@ type DashboardViewProps = {
   topServicesData: TopServiceRow[];
   expandedTopService: string | null;
   onViewChange: (view: AppView) => void;
+  onNewService: () => void;
   onNewClient: () => void;
   onNewExpense: () => void;
   onNewReturn: () => void;
@@ -132,6 +134,7 @@ export const DashboardView = ({
   nextAppointment,
   overdueClients,
   onViewChange,
+  onNewService,
   onNewClient,
   onNewExpense,
   onNewReturn,
@@ -141,6 +144,19 @@ export const DashboardView = ({
   const appointmentsToday = appointments.filter((appointment) => (
     appointment.scheduledDate?.slice(0, 10) === todayKey && !appointment.completed
   ));
+  const pendingAppointments = appointments
+    .filter((appointment) => !appointment.completed)
+    .sort((first, second) => {
+      const firstDate = first.scheduledDate?.slice(0, 10) || '';
+      const secondDate = second.scheduledDate?.slice(0, 10) || '';
+      const firstIsOverdue = firstDate < todayKey;
+      const secondIsOverdue = secondDate < todayKey;
+
+      if (firstIsOverdue !== secondIsOverdue) return firstIsOverdue ? -1 : 1;
+      if (firstIsOverdue) return secondDate.localeCompare(firstDate);
+      return firstDate.localeCompare(secondDate);
+    });
+  const visibleAppointments = pendingAppointments.slice(0, 5);
   const warrantiesDueSoon = warranties
     .map((warranty) => ({ warranty, days: getDaysUntil(warranty.expiryDate) }))
     .filter(({ days }) => days >= 0 && days <= 30)
@@ -166,7 +182,7 @@ export const DashboardView = ({
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4 lg:min-w-[46rem]">
             <button
               type="button"
-              onClick={() => onViewChange('cash-register')}
+              onClick={onNewService}
               className="inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-primary px-4 text-sm font-black text-white shadow-lg shadow-primary/20 transition hover:bg-primary/90"
             >
               <Plus className="h-4 w-4" />
@@ -262,6 +278,70 @@ export const DashboardView = ({
             </div>
           </div>
         )}
+
+        <section className="mt-4 border-t border-slate-800/80 pt-4" aria-labelledby="dashboard-agenda-title">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <span className="grid h-9 w-9 place-items-center rounded-xl bg-sky-400/10 text-sky-300">
+                <CalendarDays className="h-4 w-4" />
+              </span>
+              <div>
+                <h3 id="dashboard-agenda-title" className="text-sm font-black text-white">Agenda</h3>
+                <p className="text-xs text-slate-400">
+                  {pendingAppointments.length} agendamento{pendingAppointments.length === 1 ? '' : 's'} em aberto
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onViewChange('appointments')}
+              className="inline-flex min-h-9 items-center justify-center rounded-xl border border-slate-700 bg-slate-900/70 px-3 text-xs font-bold text-slate-200 transition hover:border-sky-400/50 hover:bg-slate-800"
+            >
+              Abrir agenda
+            </button>
+          </div>
+
+          {visibleAppointments.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-slate-700/80 px-4 py-5 text-center text-sm text-slate-400">
+              Nenhum agendamento em aberto.
+            </p>
+          ) : (
+            <ul className="divide-y divide-slate-800/80 overflow-hidden rounded-xl border border-slate-800/80">
+              {visibleAppointments.map((appointment) => {
+                const appointmentDate = appointment.scheduledDate?.slice(0, 10) || '';
+                const isOverdueAppointment = appointmentDate < todayKey;
+                const isTodayAppointment = appointmentDate === todayKey;
+
+                return (
+                  <li key={appointment.id} className="flex flex-col gap-2 bg-slate-950/20 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-sm font-black text-white">{appointment.clientName}</p>
+                        {isOverdueAppointment && (
+                          <span className="rounded-full border border-red-400/30 bg-red-500/10 px-2 py-0.5 text-[9px] font-black uppercase text-red-300">Atrasado</span>
+                        )}
+                        {isTodayAppointment && (
+                          <span className="rounded-full border border-amber-400/30 bg-amber-500/10 px-2 py-0.5 text-[9px] font-black uppercase text-amber-200">Hoje</span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 truncate text-xs text-slate-400">
+                        {appointment.bikeModel} {appointment.serviceRequested ? `· ${appointment.serviceRequested}` : ''}
+                      </p>
+                    </div>
+                    <p className="shrink-0 text-xs font-bold tabular-nums text-slate-300">
+                      {safeFormat(appointment.scheduledDate, 'dd/MM/yyyy') || 'Data nao informada'}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {pendingAppointments.length > visibleAppointments.length && (
+            <p className="mt-2 text-right text-[11px] font-bold text-slate-500">
+              +{pendingAppointments.length - visibleAppointments.length} na agenda completa
+            </p>
+          )}
+        </section>
       </section>
     </div>
   );

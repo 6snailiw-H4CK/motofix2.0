@@ -1,5 +1,4 @@
-import { Bell, LogOut, Moon, Search, Settings as SettingsIcon, Sun } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { LogOut, Moon, Search, Sun } from 'lucide-react';
 import type { AppView, ColorMode } from '../../types';
 import type { OfflineSyncStatus } from '../../hooks/useOfflineSyncStatus';
 import { OfflineSyncPill } from './OfflineSyncPill';
@@ -18,11 +17,11 @@ const viewTitles: Partial<Record<AppView, { title: string; subtitle: string }>> 
     subtitle: 'Clientes com valores a receber',
   },
   clients: {
-    title: 'Servicos/Oleo',
+    title: 'Recorrência',
     subtitle: 'Servicos rapidos, oleo e recorrencia',
   },
   'cash-register': {
-    title: 'Lancamentos Caixa',
+    title: 'Ordem de Serviço',
     subtitle: 'Venda rapida com mercadorias importadas',
   },
   products: {
@@ -65,6 +64,10 @@ const viewTitles: Partial<Record<AppView, { title: string; subtitle: string }>> 
     title: 'Relatorios',
     subtitle: 'Analise detalhada por periodo',
   },
+  'financial-health': {
+    title: 'Relatorios',
+    subtitle: 'Saude financeira e metas da oficina',
+  },
   admin: {
     title: 'Admin',
     subtitle: 'Usuarios e assinaturas',
@@ -72,26 +75,20 @@ const viewTitles: Partial<Record<AppView, { title: string; subtitle: string }>> 
 };
 
 type TopBarProps = {
-  alertCount: number;
   businessName?: string;
   colorMode: ColorMode;
   offlineSyncStatus: OfflineSyncStatus;
   view: AppView;
   onColorModeChange: (mode: ColorMode) => void;
-  onRequestNotifications: () => void;
-  onSettingsClick: () => void;
   onSignOut: () => void;
 };
 
 export const TopBar = ({
-  alertCount,
   businessName,
   colorMode,
   offlineSyncStatus,
   view,
   onColorModeChange,
-  onRequestNotifications,
-  onSettingsClick,
   onSignOut,
 }: TopBarProps) => {
   const meta = viewTitles[view] || viewTitles.dashboard;
@@ -121,34 +118,6 @@ export const TopBar = ({
             className="grid h-9 w-9 place-items-center rounded-lg border border-slate-800 bg-slate-950/60 text-slate-400 transition-colors hover:border-primary/40 hover:text-white"
           >
             {colorMode === 'dark' ? <Moon className="h-4.5 w-4.5" /> : <Sun className="h-4.5 w-4.5" />}
-          </button>
-
-          <button
-            type="button"
-            onClick={onRequestNotifications}
-            aria-label="Notificacoes"
-            title="Notificacoes"
-            className="relative grid h-9 w-9 place-items-center rounded-lg border border-slate-800 bg-slate-950/60 text-slate-400 transition-colors hover:border-primary/40 hover:text-white"
-          >
-            <Bell className="h-4.5 w-4.5" />
-            {alertCount > 0 && (
-              <span className="absolute -right-1 -top-1 rounded-full bg-primary px-1.5 text-[10px] font-black text-white">
-                {alertCount}
-              </span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={onSettingsClick}
-            aria-label="Configuracoes"
-            title="Configuracoes"
-            className={cn(
-              'grid h-9 w-9 place-items-center rounded-lg border border-slate-800 bg-slate-950/60 text-slate-400 transition-colors hover:border-primary/40 hover:text-white',
-              view === 'settings' && 'border-primary/40 text-primary'
-            )}
-          >
-            <SettingsIcon className="h-4.5 w-4.5" />
           </button>
 
           <button

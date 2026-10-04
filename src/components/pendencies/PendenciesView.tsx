@@ -102,136 +102,161 @@ export const PendenciesView = ({
 
   return (
     <div className="light-readable-view space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3">
           <button
             type="button"
             onClick={onBack}
-            className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-700/70 bg-slate-900/70 text-slate-300 transition hover:border-primary/40 hover:text-white"
+            className="mt-1 grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-slate-700/80 bg-slate-900/70 text-slate-300 transition hover:border-amber-400/40 hover:bg-slate-800 hover:text-white"
             aria-label="Voltar"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-amber-300">Cobranca rapida</p>
-            <h2 className="text-xl font-black text-white">Pendencias</h2>
-            <p className="text-xs text-slate-400">Clientes com saldo a receber e acao direta para registrar pagamento.</p>
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-400">Cobranca rapida</p>
+            <h2 className="mt-0.5 text-2xl font-black tracking-tight text-white">Pendencias</h2>
+            <p className="mt-0.5 text-xs text-slate-400 sm:text-sm">Clientes com valores em aberto. Utilize esta area para registrar pagamentos.</p>
+          </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="flex items-center gap-3 rounded-xl border border-orange-500/25 bg-gradient-to-r from-orange-500/[0.09] to-slate-900/60 p-3.5 shadow-lg shadow-black/10 sm:p-4">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-orange-500/10 text-orange-400">
+            <DollarSign className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">A receber</p>
+            <p className="mt-0.5 truncate text-xl font-black text-white">R$ {currency(totalDue)}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 rounded-xl border border-slate-700/80 bg-gradient-to-r from-slate-800/50 to-slate-900/60 p-3.5 shadow-lg shadow-black/10 sm:p-4">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-orange-500/10 text-orange-400">
+            <CheckCircle2 className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Clientes</p>
+            <p className="mt-1 text-2xl font-black leading-none text-white">{combinedRows.length}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 rounded-xl border border-orange-500/25 bg-gradient-to-r from-orange-500/[0.06] to-slate-900/60 p-3.5 shadow-lg shadow-black/10 sm:p-4">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-lg bg-orange-500/10 text-orange-400">
+            <ReceiptText className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Caixa</p>
+            <p className="mt-1 text-2xl font-black leading-none text-white">{pendingCashRows.length}</p>
+            {partialCount > 0 && <p className="mt-1.5 text-[10px] font-medium text-slate-400">{partialCount} parcial(is)</p>}
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
-          <p className="text-[9px] font-bold uppercase tracking-widest text-amber-300">A receber</p>
-          <p className="mt-1 text-lg font-black text-white">R$ {currency(totalDue)}</p>
+      <div className="rounded-xl border border-slate-700/80 bg-slate-900/45 p-2 shadow-lg shadow-black/10">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Buscar cliente, moto ou servico..."
+            className="w-full rounded-lg border border-transparent bg-transparent py-2.5 pl-10 pr-3 text-sm text-white outline-none transition placeholder:text-slate-400 focus:border-primary/50 focus:bg-slate-950/60"
+          />
         </div>
-        <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
-          <p className="text-[9px] font-bold uppercase tracking-widest text-primary">Clientes</p>
-          <p className="mt-1 text-2xl font-black text-white">{combinedRows.length}</p>
-        </div>
-        <div className="rounded-xl border border-orange-500/20 bg-orange-500/5 p-3">
-          <p className="text-[9px] font-bold uppercase tracking-widest text-orange-300">Caixa</p>
-          <p className="mt-1 text-2xl font-black text-white">{pendingCashRows.length}</p>
-          {partialCount > 0 && <p className="mt-1 text-[9px] text-slate-500">{partialCount} parcial(is)</p>}
-        </div>
-      </div>
-
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Buscar cliente, moto ou servico..."
-          className="w-full rounded-xl border border-slate-800 bg-slate-950/50 py-3 pl-10 pr-3 text-sm text-white outline-none transition focus:border-primary/50"
-        />
       </div>
 
       {filteredRows.length === 0 ? (
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6 text-center text-sm text-slate-400">
+        <div className="rounded-2xl border border-dashed border-slate-700 bg-slate-900/40 px-6 py-14 text-center text-sm text-slate-400">
           Nenhuma pendencia encontrada.
         </div>
       ) : (
-        <div className="space-y-2">
-          {filteredRows.map((row) => {
-            const isCash = row.type === 'cash';
-            const isProcessing = !isCash && processingId === row.id;
+        <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/30 shadow-lg shadow-black/10">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px] text-left">
+              <thead className="border-b border-slate-800 bg-slate-800/45 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <tr>
+                  <th className="px-4 py-3.5">Cliente</th>
+                  <th className="px-4 py-3.5">Valor devido</th>
+                  <th className="px-4 py-3.5">Data</th>
+                  <th className="px-4 py-3.5 text-center">Status</th>
+                  <th className="px-4 py-3.5 text-right">Acao</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/90">
+                {filteredRows.map((row) => {
+                  const isCash = row.type === 'cash';
+                  const isProcessing = !isCash && processingId === row.id;
 
-            return (
-              <article
-                key={`${row.type}-${row.id}`}
-                className="rounded-2xl border border-slate-800 bg-slate-900/55 p-3 shadow-lg shadow-black/10"
-              >
-                <div className="grid gap-3 md:grid-cols-[1.3fr_0.7fr_0.7fr_auto] md:items-center">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="truncate text-base font-black text-white">{row.clientName}</p>
-                      {isCash && (
-                        <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-sky-300">
-                          Caixa
+                  return (
+                    <tr key={`${row.type}-${row.id}`} className="transition-colors hover:bg-slate-800/25">
+                      <td className="max-w-[420px] px-4 py-3">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <p className="truncate text-sm font-black text-slate-100">{row.clientName}</p>
+                          {isCash && (
+                            <span className="shrink-0 rounded-md bg-sky-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-sky-300">
+                              Caixa
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 truncate text-[11px] text-slate-400">
+                          {row.bikeModel} <span className="px-1 text-slate-600">·</span> {row.label}
+                        </p>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <span className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-slate-500">Valor devido</span>
+                        <span className="text-sm font-black text-orange-400">R$ {currency(row.debt)}</span>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <span className="mb-0.5 block text-[9px] font-bold uppercase tracking-wider text-slate-500">Data</span>
+                        <span className="text-xs font-bold text-slate-200">{safeFormat(row.date) || '-'}</span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span
+                          className={cn(
+                            'inline-flex rounded-lg px-2.5 py-1 text-[9px] font-black uppercase tracking-wide',
+                            row.status.toLowerCase() === 'parcial'
+                              ? 'bg-orange-500/15 text-orange-300'
+                              : row.status.toLowerCase() === 'pendente'
+                                ? 'bg-rose-500/15 text-rose-300'
+                                : 'bg-slate-700/60 text-slate-300'
+                          )}
+                        >
+                          {row.status}
                         </span>
-                      )}
-                    </div>
-                    <p className="mt-0.5 truncate text-xs text-slate-400">{row.bikeModel} - {row.label}</p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 md:contents">
-                    <div className="rounded-xl bg-slate-950/40 p-2 md:bg-transparent md:p-0">
-                      <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Valor devido</p>
-                      <p className="mt-1 font-black text-primary">R$ {currency(row.debt)}</p>
-                    </div>
-                    <div className="rounded-xl bg-slate-950/40 p-2 md:bg-transparent md:p-0">
-                      <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">Data</p>
-                      <p className="mt-1 font-bold text-white">{safeFormat(row.date) || '-'}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-2 md:justify-end">
-                    <span
-                      className={cn(
-                        'rounded-full px-2 py-1 text-[9px] font-black uppercase tracking-widest',
-                        row.status.toLowerCase() === 'parcial'
-                          ? 'bg-orange-500/10 text-orange-300'
-                          : isCash
-                            ? 'bg-sky-500/10 text-sky-300'
-                          : 'bg-primary/10 text-primary'
-                      )}
-                    >
-                      {row.status}
-                    </span>
-                    {isCash ? (
-                      <button
-                        type="button"
-                        onClick={() => onOpenCashLaunch(row.launch)}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-500 px-3 py-2 text-xs font-bold text-white transition hover:bg-sky-600"
-                      >
-                        <ReceiptText className="h-4 w-4" />
-                        Abrir caixa
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => void onRegisterPayment(row.maintenance)}
-                        disabled={isProcessing}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-500"
-                      >
-                        {isProcessing ? (
-                          <>
-                            <DollarSign className="h-4 w-4" />
-                            Salvando...
-                          </>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-right">
+                        {isCash ? (
+                          <button
+                            type="button"
+                            onClick={() => onOpenCashLaunch(row.launch)}
+                            className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-500 px-3.5 py-2 text-xs font-bold text-white shadow-sm shadow-sky-950/30 transition hover:bg-sky-400"
+                          >
+                            <ReceiptText className="h-4 w-4" />
+                            Abrir caixa
+                          </button>
                         ) : (
-                          <>
-                            <CheckCircle2 className="h-4 w-4" />
-                            Registrar pagamento
-                          </>
+                          <button
+                            type="button"
+                            onClick={() => void onRegisterPayment(row.maintenance)}
+                            disabled={isProcessing}
+                            className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-3.5 py-2 text-xs font-bold text-white shadow-sm shadow-emerald-950/30 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+                          >
+                            {isProcessing ? (
+                              <>
+                                <DollarSign className="h-4 w-4" />
+                                Salvando...
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 className="h-4 w-4" />
+                                Registrar pagamento
+                              </>
+                            )}
+                          </button>
                         )}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </article>
-            );
-          })}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>
