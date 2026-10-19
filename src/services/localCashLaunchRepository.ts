@@ -103,21 +103,82 @@ export const applyLocalStockAdjustment = ({
   return updatedProduct;
 };
 
-export const applyLocalStockDeduction = (items: Array<{ productId?: string; quantity?: number; description?: string }>, products: ProductCatalogItem[] = getLocalProducts()) => {
+const adjustLocalStock = (
+  items: Array<{ productId?: string; variationId?: string; quantity?: number; description?: string }>,
+  products: ProductCatalogItem[],
+  direction: 'deduct' | 'restore'
+) => {
   const nextProducts = products.map((product) => {
     const matchingItems = items.filter((item) => item.productId === product.id);
-    const requestedQuantity = matchingItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    if (!product.trackStock || matchingItems.length === 0) return product;
 
-    if (!product.trackStock || requestedQuantity <= 0) {
+    const variationQuantities = new Map<string, number>();
+    let productQuantity = 0;
+    matchingItems.forEach((item) => {
+      const quantity = Math.max(0, Math.floor(Number(item.quantity || 0)));
+      const variationId = String(item.variationId || '').trim();
+      if (!variationId) {
+        productQuantity += quantity;
+        return;
+      }
+      variationQuantities.set(variationId, (variationQuantities.get(variationId) || 0) + quantity);
+    });
+
+    if (variationQuantities.size > 0 && productQuantity > 0) {
+      console.error(`Nao foi possivel atualizar estoque local de "${product.description}": itens gerais e por variacao misturados.`);
       return product;
     }
 
-    const previousQuantity = Number(product.stockQuantity || 0);
-    const nextQuantity = Math.max(0, previousQuantity - requestedQuantity);
+    const variationStockIsConfigured = Boolean(
+      product.variations?.length
+      && product.variations.every((variation) => variation.stockQuantity !== undefined)
+    );
+    if (variationQuantities.size > 0 && !variationStockIsConfigured) {
+      const totalQuantity = Array.from(variationQuantities.values()).reduce((sum, quantity) => sum + quantity, 0);
+      const previousQuantity = Number(product.stockQuantity || 0);
+      return {
+        ...product,
+        stockQuantity: direction === 'deduct'
+          ? Math.max(0, previousQuantity - totalQuantity)
+          : previousQuantity + totalQuantity,
+        updatedAt: new Date().toISOString(),
+      };
+    }
 
+    if (variationQuantities.size > 0) {
+      const variations = (product.variations || []).map((variation) => {
+        const quantity = variationQuantities.get(variation.id);
+        if (quantity === undefined) return variation;
+        const previousQuantity = Math.max(0, Math.floor(Number(variation.stockQuantity || 0)));
+        return {
+          ...variation,
+          stockQuantity: direction === 'deduct'
+            ? Math.max(0, previousQuantity - quantity)
+            : previousQuantity + quantity,
+        };
+      });
+      const foundVariationIds = new Set(variations.map((variation) => variation.id));
+      const missingVariationIds = Array.from(variationQuantities.keys()).filter((id) => !foundVariationIds.has(id));
+      if (missingVariationIds.length > 0) {
+        console.error(`Variacao(oes) ${missingVariationIds.join(', ')} nao encontrada(s) para "${product.description}" no estoque local.`);
+        return product;
+      }
+
+      return {
+        ...product,
+        variations,
+        stockQuantity: variations.reduce((sum, variation) => sum + Math.max(0, Math.floor(Number(variation.stockQuantity || 0))), 0),
+        updatedAt: new Date().toISOString(),
+      };
+    }
+
+    if (productQuantity <= 0) return product;
+    const previousQuantity = Number(product.stockQuantity || 0);
     return {
       ...product,
-      stockQuantity: nextQuantity,
+      stockQuantity: direction === 'deduct'
+        ? Math.max(0, previousQuantity - productQuantity)
+        : previousQuantity + productQuantity,
       updatedAt: new Date().toISOString(),
     };
   });
@@ -126,25 +187,10 @@ export const applyLocalStockDeduction = (items: Array<{ productId?: string; quan
   return nextProducts;
 };
 
-export const applyLocalStockRestore = (items: Array<{ productId?: string; quantity?: number; description?: string }>, products: ProductCatalogItem[] = getLocalProducts()) => {
-  const nextProducts = products.map((product) => {
-    const matchingItems = items.filter((item) => item.productId === product.id);
-    const requestedQuantity = matchingItems.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+export const applyLocalStockDeduction = (items: Array<{ productId?: string; variationId?: string; quantity?: number; description?: string }>, products: ProductCatalogItem[] = getLocalProducts()) => (
+  adjustLocalStock(items, products, 'deduct')
+);
 
-    if (!product.trackStock || requestedQuantity <= 0) {
-      return product;
-    }
-
-    const previousQuantity = Number(product.stockQuantity || 0);
-    const nextQuantity = previousQuantity + requestedQuantity;
-
-    return {
-      ...product,
-      stockQuantity: nextQuantity,
-      updatedAt: new Date().toISOString(),
-    };
-  });
-
-  writeStorageItem(LOCAL_PRODUCTS_STORAGE_KEY, nextProducts);
-  return nextProducts;
-};
+export const applyLocalStockRestore = (items: Array<{ productId?: string; variationId?: string; quantity?: number; description?: string }>, products: ProductCatalogItem[] = getLocalProducts()) => (
+  adjustLocalStock(items, products, 'restore')
+);

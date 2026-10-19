@@ -39,6 +39,7 @@ type StockAdjustment = {
   productRef: DocumentReference;
   previousQuantity: number;
   nextQuantity: number;
+  usesVariationStock: boolean;
 };
 
 const cashLaunchCollectionPath = (userId: string) => collection(db, 'users', userId, 'cash_launches');
@@ -80,22 +81,24 @@ const groupStockItems = (items: CashRegisterItem[] = []) => {
 
   items.forEach((item) => {
     const productId = String(item.productId || '').trim();
+    const variationId = String(item.variationId || '').trim();
     const quantity = normalizeQuantity(item.quantity);
     if (!productId || quantity <= 0) return;
 
-    const current = groups.get(productId) || {
+    const groupKey = `${productId}:${variationId}`;
+    const current = groups.get(groupKey) || {
       productId,
       quantity: 0,
       itemIds: [],
       sourceCode: item.sourceCode,
       description: item.description,
-      variationId: item.variationId,
+      variationId,
       variation: item.variation,
     };
 
     current.quantity += quantity;
     current.itemIds.push(item.id);
-    groups.set(productId, current);
+    groups.set(groupKey, current);
   });
 
   return Array.from(groups.values());
@@ -103,7 +106,7 @@ const groupStockItems = (items: CashRegisterItem[] = []) => {
 
 const stockSignature = (items: CashRegisterItem[] = []) => (
   groupStockItems(items)
-    .map((group) => `${group.productId}:${group.quantity}`)
+    .map((group) => `${group.productId}:${group.variationId || ''}:${group.quantity}`)
     .sort()
     .join('|')
 );
@@ -141,6 +144,7 @@ const collectStockAdjustments = async (
 ): Promise<StockAdjustment[]> => {
   const groups = groupStockItems(items);
   const adjustments: StockAdjustment[] = [];
+  const legacyVariantQuantities = new Map<string, number>();
 
   for (const group of groups) {
     const productRef = productDocPath(userId, group.productId);
@@ -158,7 +162,24 @@ const collectStockAdjustments = async (
 
     if (product.trackStock !== true) continue;
 
-    const previousQuantity = normalizeQuantity(product.stockQuantity);
+    const variation = group.variationId
+      ? product.variations?.find((candidate) => candidate.id === group.variationId)
+      : undefined;
+    if (group.variationId && !variation) {
+      throw new Error(`A variacao "${group.variation || group.variationId}" nao existe mais em "${product.description || group.description}".`);
+    }
+
+    const usesVariationStock = Boolean(
+      variation
+      && product.variations?.every((candidate) => candidate.stockQuantity !== undefined)
+    );
+    const previouslyAdjusted = legacyVariantQuantities.get(product.id) || 0;
+    const productQuantity = normalizeQuantity(product.stockQuantity);
+    const previousQuantity = usesVariationStock
+      ? normalizeQuantity(variation?.stockQuantity)
+      : action === 'deduct'
+        ? productQuantity - previouslyAdjusted
+        : productQuantity + previouslyAdjusted;
     const nextQuantity = action === 'deduct'
       ? previousQuantity - group.quantity
       : previousQuantity + group.quantity;
@@ -173,7 +194,11 @@ const collectStockAdjustments = async (
       productRef,
       previousQuantity,
       nextQuantity,
+      usesVariationStock,
     });
+    if (!usesVariationStock) {
+      legacyVariantQuantities.set(product.id, previouslyAdjusted + (action === 'deduct' ? group.quantity : -group.quantity));
+    }
   }
 
   return adjustments;
@@ -191,11 +216,36 @@ const applyStockAdjustments = (
   const movementType: StockMovementType = action === 'deduct' ? 'saida_os' : 'estorno_os';
 
   adjustments.forEach((adjustment) => {
-    transaction.update(adjustment.productRef, {
-      stockQuantity: adjustment.nextQuantity,
-      updatedAt: now,
-    });
+    const relatedAdjustments = adjustments.filter((candidate) => candidate.product.id === adjustment.product.id);
+    if (relatedAdjustments[0] !== adjustment) return;
 
+    const variantAdjustments = relatedAdjustments.filter((candidate) => candidate.usesVariationStock);
+    const productLevelAdjustments = relatedAdjustments.filter((candidate) => !candidate.usesVariationStock);
+    if (variantAdjustments.length && productLevelAdjustments.length) {
+      throw new Error(`Nao foi possivel sincronizar simultaneamente o estoque geral e as variacoes de "${adjustment.product.description}".`);
+    }
+
+    if (variantAdjustments.length) {
+      const nextVariations = (adjustment.product.variations || []).map((variation) => {
+        const variantAdjustment = variantAdjustments.find((candidate) => candidate.group.variationId === variation.id);
+        return variantAdjustment
+          ? { ...variation, stockQuantity: variantAdjustment.nextQuantity }
+          : variation;
+      });
+      transaction.update(adjustment.productRef, {
+        variations: nextVariations,
+        stockQuantity: nextVariations.reduce((sum, variation) => sum + normalizeQuantity(variation.stockQuantity), 0),
+        updatedAt: now,
+      });
+    } else {
+      transaction.update(adjustment.productRef, {
+        stockQuantity: productLevelAdjustments[productLevelAdjustments.length - 1].nextQuantity,
+        updatedAt: now,
+      });
+    }
+  });
+
+  adjustments.forEach((adjustment) => {
     const movement: StockMovement = {
       userId,
       productId: adjustment.group.productId,

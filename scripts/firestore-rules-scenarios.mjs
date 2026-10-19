@@ -39,15 +39,15 @@ const scenarios = [
     ]
   },
   {
-    name: '👨‍💼 Admin via custom claim deletando qualquer cash_launch',
-    user: { uid: 'admin-789', role: 'user', isActive: true, admin: true },
+    name: '🚫 Admin de oficina tentando alterar dados de outra conta',
+    user: { uid: 'admin-789', role: 'admin', isActive: true, admin: true, master_admin: false },
     resource: { userId: 'user-123', deletedAt: null },
     operation: 'update com soft-delete',
-    expected: '✅ PERMITIDO',
+    expected: '❌ NEGADO',
     rules: [
-      'isAdmin() verifica hasAdminClaim() = true',
-      'request.auth.token.admin == true',
-      'Primeira condição (isAdmin) = true → PERMITIDO'
+      'role admin de oficina não possui alcance global',
+      'isWorkshopAdmin() = true, mas userId não é o UID do administrador',
+      'Owner e escopo administrativo não correspondem → permission-denied'
     ]
   },
   {
@@ -57,9 +57,9 @@ const scenarios = [
     operation: 'update com soft-delete',
     expected: '❌ NEGADO',
     rules: [
-      'isAdmin() verifica somente request.auth.token.admin == true',
-      'role == "admin" no documento não é consultado pelas regras',
-      'Sem custom claim → permission-denied'
+      'isWorkshopAdmin() exige claim admin e role admin no perfil',
+      'A ausência do custom claim impede a autorização',
+      'Sem claim correspondente → permission-denied'
     ]
   },
   {
@@ -82,7 +82,7 @@ const scenarios = [
     operation: 'get /users/user-222',
     expected: '✅ PERMITIDO',
     rules: [
-      'match /users/{userId}: allow get: if isOwner(userId) || isAdmin()',
+      'match /users/{userId}: allow get: if isOwner(userId)',
       'isOwner(user-222) = true',
       'Primeira condição = true → PERMITIDO'
     ]
@@ -94,32 +94,33 @@ const scenarios = [
     operation: 'list /users',
     expected: '❌ NEGADO',
     rules: [
-      'match /users/{userId}: allow list: if isAdmin()',
-      'isAdmin() = false (não tem custom claim admin)',
-      'Condição falhou → permission-denied'
+      'match /users/{userId}: allow list: if false',
+      'A listagem global é feita pela API administrativa server-side',
+      'Acesso direto via Firestore Rules → permission-denied'
     ]
   },
   {
-    name: '✅ Admin listando todos os usuários',
-    user: { uid: 'admin-444', role: 'admin', isActive: true, admin: false },
+    name: '🚫 Master Admin tentando listar todos os usuários diretamente',
+    user: { uid: 'admin-444', role: 'master_admin', isActive: true, admin: true, master_admin: true },
     resource: 'collection /users',
     operation: 'list /users',
-    expected: '✅ PERMITIDO',
+    expected: '❌ NEGADO',
     rules: [
-      'match /users/{userId}: allow list: if isAdmin()',
-      'isAdmin() verifica request.auth.token.admin == true',
-      'isAdmin() = true → PERMITIDO'
+      'match /users/{userId}: allow list: if false',
+      'O painel consulta a API protegida com Firebase Admin',
+      'A role não concede enumeração direta pelo SDK cliente'
     ]
   },
   {
-    name: '📝 Admin criando cash_launch para outro usuário',
-    user: { uid: 'admin-555', role: 'admin', isActive: true, admin: false },
+    name: '🚫 Master Admin tentando criar cash_launch para outra conta',
+    user: { uid: 'admin-555', role: 'master_admin', isActive: true, admin: true, master_admin: true },
     resource: { userId: 'other-user-123' },
     operation: 'create cash_launch',
-    expected: '✅ PERMITIDO',
+    expected: '❌ NEGADO',
     rules: [
-      'match /cash_launches: allow create: if isAdmin() || (...)',
-      'isAdmin() = true → PERMITIDO'
+      'match /cash_launches: allow create exige isActiveOwner(userId)',
+      'A identidade não é dona da conta operacional',
+      'Sem permissão cross-account → permission-denied'
     ]
   },
   {
@@ -153,8 +154,8 @@ const scenarios = [
     ]
   },
   {
-    name: 'Admin tentando delete fisico de cash_launch',
-    user: { uid: 'admin-789', role: 'admin', isActive: true, admin: true },
+    name: 'Master Admin tentando delete fisico de cash_launch',
+    user: { uid: 'admin-789', role: 'master_admin', isActive: true, admin: true, master_admin: true },
     resource: { userId: 'user-123' },
     operation: 'deleteDoc fisico',
     expected: 'NEGADO',
@@ -183,27 +184,18 @@ scenarios.forEach((scenario, idx) => {
 
 console.log('=' .repeat(60));
 console.log('\n📊 Resumo de Testes de Autorização:\n');
-console.log('✅ 4 cenários de PERMISSÃO CONCEDIDA (esperado):');
-console.log('   • Owner operando sobre próprio recurso');
-console.log('   • Admin via custom claim');
-console.log('   • Admin via custom claim');
-console.log('   • Admin operações em recursos alheios');
-console.log('   • Soft-delete com metadados válidos\n');
-
-console.log('❌ 5 cenários de PERMISSÃO NEGADA (esperado):');
-console.log('   • Outro usuário sem autorização');
-console.log('   • Usuário inativo');
-console.log('   • Acesso a /users sem ser admin');
-console.log('   • Validação de soft-delete fields falhando');
-console.log('   • Operações sem ownership ou admin status\n');
+const permittedScenarios = scenarios.filter((scenario) => scenario.expected.includes('PERMITIDO')).length;
+const deniedScenarios = scenarios.length - permittedScenarios;
+console.log(`✅ ${permittedScenarios} cenários de PERMISSÃO CONCEDIDA (esperado).`);
+console.log(`❌ ${deniedScenarios} cenários de PERMISSÃO NEGADA (esperado).\n`);
 
 console.log('🔒 Proteções de Segurança Validadas:\n');
-console.log('   ✅ Admin check exclusivo por custom claim');
+console.log('   ✅ Admin check exige custom claim e role correspondente');
 console.log('   ✅ isActive validation em todas as operações');
 console.log('   ✅ Ownership validation (userId match)');
 console.log('   ✅ Soft-delete metadata validation');
-console.log('   ✅ Collection-level access control (/users → admin only)');
-console.log('   ✅ Subcollection permissions (cash_launches → owner || admin)');
+console.log('   ✅ Perfil operacional isolado por proprietário');
+console.log('   ✅ Control plane usa API server-side, sem acesso global via cliente');
 console.log('   ✅ Field validation (cashLaunchShape includes all required fields)\n');
 
 console.log('=' .repeat(60) + '\n');

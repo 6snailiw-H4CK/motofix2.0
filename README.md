@@ -75,6 +75,10 @@ npm run build
 npm run start
 ```
 
+## Painel Master Admin independente
+
+Com o servidor local iniciado em `npm run dev`, acesse `http://localhost:3001/master-admin.html`. O painel tem entrada, autenticação e shell próprios e reutiliza o Firebase Auth e as APIs administrativas existentes. A tela só é liberada após a API confirmar a autorização Master Admin; autenticar no Firebase, por si só, não concede acesso.
+
 ## Estrutura de dados
 
 Os dados operacionais ficam em subcolecoes por usuario:
@@ -92,7 +96,62 @@ users/{uid}/message_logs
 users/{uid}/settings/config
 ```
 
-Admins podem listar e gerenciar usuarios quando autenticados por custom claim `admin`.
+As Rules não permitem leitura geral de `/users` nem acesso administrativo às subcoleções operacionais de outras contas.
+
+### Solicitações de acesso manual
+
+Novos cadastros criam, em um único batch Firestore, um perfil inativo com `role: "user"` e `access_requests/{uid}`. A solicitação contém somente UID, e-mail autenticado, nome de exibição, estado e timestamp; começa como `pending`. Claims administrativas não fazem o próprio cadastro nascer aprovado.
+
+As Rules permitem a consulta administrativa somente de solicitações `pending`, por uma conta com claim assinada `master_admin` e perfil `master_admin` ativo. Aprovar, bloquear, liberar ou renovar exige uma única operação atômica que atualize `access_requests/{uid}` e `users/{uid}` e crie `access_decisions/{eventId}`. As Rules validam a transição, ator, estado anterior/posterior, entitlement manual com vencimento e projeção correspondente. A auditoria é imutável e não pode ser criada isoladamente, alterada, apagada nem lida pelo cliente; mudanças de role, claims, Stripe, billing e `ownerAccess` não fazem parte desse fluxo.
+
+O catálogo inclui contas com role `user` ou `admin` que tenham um documento `access_requests` cujo ID e campo `uid` correspondam ao ID do perfil, e cujo estado seja `pending`, `approved` ou `blocked`. A conta proprietária designada e contas `master_admin` são operadores, não alvos de concessão comercial. Perfis legados elegíveis sem solicitação correspondente não aparecem no painel; roles desconhecidas, solicitações órfãs, IDs divergentes e estados fora do conjunto consultado exigem revisão antes de qualquer ativação.
+
+Antes da implantação, a cobertura pode ser auditada com um procedimento Admin SDK estritamente somente leitura. Ele pagina `/users` e `/access_requests` por ID de documento, exige projeto e principal explicitamente confirmados e imprime somente contagens e referências hash truncadas — nunca UID, e-mail ou claims. Se as credenciais locais já tiverem autorização de leitura no projeto `appmotofix`, configure os três valores a partir de fontes autorizadas:
+
+```powershell
+$env:MOTOFIX_FIREBASE_PROJECT_ID = "appmotofix"
+$env:MOTOFIX_FIREBASE_EXECUTION_PRINCIPAL = "<principal esperado, confirmado por fonte autorizada>"
+$env:MOTOFIX_FIREBASE_SERVICE_ACCOUNT_PATH = "<caminho local protegido da service account autorizada>"
+npm run admin:audit-access-catalog -- --expected-project appmotofix --confirm-project appmotofix
+```
+
+O script aborta diante de projeto/principal divergente, emulator ou configuração ambígua. A consulta usa Admin SDK, portanto precisa de credencial autorizada e não é limitada pelas Firestore Rules; o código executa somente leituras e não corrige, cria ou apaga documentos. Não execute até conferir independentemente o projeto e o principal.
+
+## Acesso permanente do proprietário
+
+O acesso operacional e a role administrativa são políticas separadas. `master_admin` sozinho não concede acesso ao app. A identidade proprietária autoritativa é `system/access_config.ownerUid`, gerenciada somente por Admin SDK. A conta precisa coincidir com esse UID e ter `isActive: true`, role `master_admin`, entitlement persistido `ownerAccess: { enabled: true, permanent: true }`, claim assinada `motofix_owner` e projeção `source: "owner"` com `validUntil: null`. Backend, Cloud Functions e Rules falham fechados quando o documento está ausente ou inválido; as Rules comparam também o UID autenticado diretamente com o documento, portanto a claim isolada não autoriza. A sincronização de claims/projeções é derivada dessa configuração e não concede `ownerAccess`. `manualAccess.expiresAt: null` não significa acesso permanente.
+
+Concessões e revogações são feitas pelo script administrativo, não pelo frontend nem pelo endpoint de acesso manual. Ele exige confirmação do projeto Firebase, valida que o ator é um Master Admin ativo e verifica o alvo contra `system/access_config.ownerUid` dentro da transação. O script registra `actor`, alvo, estado anterior/novo, motivo e timestamp em `audit_events`. Ao conceder owner access, ele também remove o entitlement manual temporário emergencial e seu espelho legado; essa transição fica registrada no mesmo evento. A configuração de identidade não é definida por esse script.
+
+```powershell
+$env:MOTOFIX_FIREBASE_PROJECT_ID = "<projeto-firebase-confirmado>"
+node --import tsx scripts/set-owner-access.ts grant <uid-do-ator-master-admin> <uid-do-proprietario-designado> "Motivo aprovado"
+```
+
+### Provisionamento inicial da identidade canônica
+
+O provisionamento é uma operação distinta de `set-owner-access.ts`. O operador deve confirmar o UID por uma fonte institucional independente, obter referências de identidade e aprovação e revisar projeto, credencial e principal de execução antes de iniciar. As referências são texto fornecido pelo operador: o programa não consulta nem valida os registros referenciados. O operador precisa verificar ambos por canais externos autorizados; a confirmação digitada registra apenas essa declaração e não é prova automática de aprovação. O comando exige caminho explícito para a service account, projeto esperado e principal esperado; recusa ADC, configuração conflitante, Emulator e Apps Admin já inicializados. Esses checks comparam a configuração declarada localmente e não provam, por si sós, a identidade remota aceita pelo Google.
+
+Para a autorização operacional do proprietário, o código atual usa o UID de Auth designado no repositório e exige, além da autenticação, `isActive=true`, `role=master_admin` e `ownerAccess.enabled/permanent=true`. Essa verificação não depende de `system/access_config` nem da claim `motofix_owner`; Rules não permitem que o cliente altere esses campos no perfil existente. A política só terá efeito depois que as Rules e qualquer backend usado pela aplicação forem publicados. A implementação local, isoladamente, não comprova a restauração do acesso.
+
+Em terminal interativo, o script solicita o UID duas vezes, as referências de identidade e aprovação, um motivo, a frase `REFERENCES VERIFIED EXTERNALLY` e a frase literal `PROVISION MOTOFIX OWNER IDENTITY`. A operação valida o perfil existente sem alterar role, estado da conta, `ownerAccess` ou billing; cria `system/access_config` quando ausente ou preenche somente `ownerUid` quando esse campo está ausente; e recalcula a projeção do proprietário. Por segurança, antes de qualquer escrita ela exige que `motofix_owner` já esteja definida como `true`. O Firebase Admin SDK substitui o conjunto completo de custom claims e não oferece compare-and-set; portanto, o script não tenta definir a claim, pois uma releitura antes da escrita não impediria a sobrescrita concorrente de outras claims. Se a claim estiver ausente ou falsa, o procedimento aborta antes de ler ou escrever Firestore. Claims não são alteradas por este comando.
+
+Firestore e Authentication não são transacionais em conjunto. A claim é lida antes da operação e conferida novamente após a sincronização Firestore; a auditoria mantém estado pendente, sucesso ou falha e contador de tentativas, e uma nova execução com as mesmas referências retoma o mesmo evento. O sucesso significa apenas que a configuração/projeção Firestore foi sincronizada e que a claim existente foi observada como correta; não comprova acesso operacional, nem a autorização pelo backend publicado ou pelas Firestore Rules. Depois de eventual execução bem-sucedida, o operador ainda precisa renovar o ID token, validar `/api/account/access` e verificar o acesso real protegido pelas Rules. O procedimento não depende de Cloud Functions implantadas.
+
+O núcleo local pode ser testado sem Firebase:
+
+```powershell
+npm run test:owner-identity-provisioning
+```
+
+Antes de qualquer execução real, revise `scripts/provision-owner-identity.ts` e `server/provisionOwnerIdentity.ts`; confirme o projeto e o principal por procedimento institucional, valide externamente a fonte independente do UID e a aprovação registrada, e obtenha autorização operacional separada. O comando não consegue validar esses registros e não sincroniza a claim se ela ainda não estiver correta. Não execute o comando como parte dos testes:
+
+```powershell
+$env:MOTOFIX_FIREBASE_PROJECT_ID = "<projeto-confirmado>"
+$env:MOTOFIX_FIREBASE_EXECUTION_PRINCIPAL = "<principal-da-service-account-aprovado>"
+$env:MOTOFIX_FIREBASE_SERVICE_ACCOUNT_PATH = "<caminho-local-protegido>"
+npm run admin:provision-owner-identity
+```
 
 ## Firestore Rules
 
@@ -109,19 +168,15 @@ As regras atuais foram endurecidas para:
 
 Antes de producao, aplique as regras no Firebase e renove o token dos admins apos configurar a custom claim. As regras devem ser publicadas junto com Hosting quando houver mudanca de schema ou permissao.
 
-## Stripe
+## Acesso e cobrança manual
 
-O backend possui endpoints para criar/verificar pagamentos e receber webhooks:
+O acesso operacional é concedido pelo Master Admin por uma decisão manual, após verificar o pagamento fora do aplicativo. A data de vigência é gravada como entitlement manual e é aplicada tanto pelo gate da interface quanto pelas Firestore Rules. O status Stripe legado não concede, renova nem revoga acesso.
 
-```text
-GET  /api/health
-GET  /api/payments/publishable-key
-POST /api/payments/create-checkout
-GET  /api/payments/session/:sessionId
-POST /api/payments/webhook
-```
+O Master Admin usa somente os documentos mínimos de `access_requests` e decisões auditadas; ele não lista nem lê a coleção `/users`. As decisões de ativação, renovação e suspensão atualizam solicitação, perfil protegido e auditoria em uma única gravação atômica validada pelas Rules. Contas antigas sem documento em `access_requests` não aparecem nesse catálogo.
 
-A tela de checkout do frontend ainda precisa ser integrada ao Stripe Elements para pagamento completo dentro da UI. Enquanto isso, o fluxo real de ativacao deve ser administrado pelo painel admin ou pelo webhook quando acionado por um pagamento valido.
+O fluxo manual para novos cadastros e contas que já possuam solicitação válida não depende da ferramenta `accessProjection` backfill: a decisão administrativa grava entitlement, projeção e auditoria em conjunto. Perfis legados ausentes do catálogo precisam primeiro de um procedimento específico, revisado e auditado; o backfill de projeções não cria solicitações e não deve ser usado como substituto. Concessões legadas com solicitação existente mas campos/projeção divergentes também precisam ser revisadas; uma renovação manual autorizada pode atualizar o conjunto quando a transição permitida pelas Rules se aplica.
+
+O checkout, portal, cancelamento e webhook Stripe ficam desativados no servidor e na interface. Os módulos e campos Stripe históricos permanecem no repositório para consulta/migração, mas não são fonte de autorização. Não há confirmação automática de PIX: comprovantes enviados pelo cliente não liberam acesso.
 
 ## Segredos
 
@@ -153,22 +208,44 @@ npm run build
 
 No Windows, esse comando aplica uma configuracao de memoria para reduzir falhas ocasionais do esbuild durante o build.
 
-O Firebase Hosting esta configurado para servir apenas `dist` com rewrite para `index.html`.
+O Firebase Hosting serve `dist`, encaminha `/api/**` ao servico `motofix-api` no Cloud Run
+(`southamerica-east1`) e reescreve as demais rotas para `index.html`. O backend e as Rules
+precisam ser publicados e validados separadamente; nao use `npm run deploy:prod` como deploy
+de rotina, pois esse comando publica Hosting e Firestore Rules juntos.
 
-Deploy recomendado:
+### Backend de producao no Cloud Run
 
-```bash
-npm run deploy:prod
-```
+O container do backend usa Application Default Credentials; nao inclua chave JSON de conta de
+servico na imagem. O Dockerfile compila apenas o servidor Express, executa como usuario nao-root
+e desativa o scheduler de backup local: o filesystem do Cloud Run e efemero, portanto esse
+scheduler nao pode ser usado como armazenamento de backup. Mantenha o fluxo de backups
+persistentes configurado separadamente antes de depender dele em producao.
 
-Esse comando roda o build e publica Hosting junto com Firestore Rules. Para publicar separadamente:
+O projeto Firebase usado atualmente e `appmotofix` e a regiao do Firestore e
+`southamerica-east1`. Antes do primeiro deploy, um administrador do Google Cloud precisa habilitar
+a API do Cloud Run e conceder as permissoes de deploy; a conta de deploy atual nao tem essas
+permissoes. Configure tambem uma conta de servico de runtime com somente os papeis necessarios
+para Firestore e Firebase Authentication.
+
+Publique primeiro o backend no Cloud Run. Em seguida publique o rewrite de Hosting e confirme
+`https://appmotofix.web.app/api/health`. As variaveis sensiveis (incluindo `STRIPE_SECRET_KEY` e
+`STRIPE_WEBHOOK_SECRET`) devem vir do Secret Manager, nunca de argumentos com valores secretos
+ou de arquivos enviados no build. Configure `APP_URL` e `FRONTEND_URL` como
+`https://appmotofix.web.app`, e configure as URLs de retorno do Stripe para o dominio publicado.
+
+Depois que o backend estiver acessivel pela URL do Cloud Run, publique somente o Hosting:
 
 ```bash
 npm run deploy:hosting
-npm run deploy:rules
 ```
 
-Evite rodar somente `firebase deploy --only hosting` em producao se as regras Firestore tambem tiverem mudado.
+Nao publique `firestore.rules` ate que a migracao das projecoes de acesso esteja validada em
+todos os perfis e o cliente novo esteja atendendo producao. Para regras, use o comando separado
+somente com autorizacao e verificacao previa:
+
+```bash
+npm run deploy:rules
+```
 
 ## Operacao offline
 

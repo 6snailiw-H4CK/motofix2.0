@@ -179,7 +179,10 @@ const formatMoneyForSheet = (value?: number) => {
 const formatVariationsForSheet = (variations?: ProductCatalogVariation[]) => (
   (variations || [])
     .filter(variation => variation.name?.trim())
-    .map(variation => `${variation.name.trim()}: ${formatMoneyForSheet(variation.salePrice)}`)
+    .map(variation => (
+      `${variation.name.trim()}: ${formatMoneyForSheet(variation.salePrice)}`
+      + (variation.stockQuantity === undefined ? '' : ` (Qtd: ${Math.max(0, Math.floor(Number(variation.stockQuantity) || 0))})`)
+    ))
     .join('; ')
 );
 
@@ -189,7 +192,9 @@ const parseVariations = (value?: string): ProductCatalogVariation[] => {
   return value
     .split(/[;\n|]+/)
     .map((part, index) => {
-      const cleaned = part.replace(/\s+/g, ' ').trim();
+      const raw = part.replace(/\s+/g, ' ').trim();
+      const stockMatch = raw.match(/\s*\(qtd:\s*(\d+)\)\s*$/i);
+      const cleaned = raw.replace(/\s*\(qtd:\s*\d+\)\s*$/i, '').trim();
       if (!cleaned) return null;
 
       const match = cleaned.match(/^(.+?)(?:\s*[:=-]\s*|\s+)([\d.,]+)$/);
@@ -201,6 +206,7 @@ const parseVariations = (value?: string): ProductCatalogVariation[] => {
         id: `${normalizeDocId(name) || 'variacao'}-${index + 1}`,
         name,
         salePrice: Number.isFinite(parsedSalePrice) ? parsedSalePrice : 0,
+        ...(stockMatch ? { stockQuantity: Number(stockMatch[1]) } : {}),
       };
     })
     .filter((variation): variation is ProductCatalogVariation => Boolean(variation));

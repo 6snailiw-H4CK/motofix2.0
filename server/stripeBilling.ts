@@ -2,12 +2,29 @@ import crypto from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import express from "express";
 import Stripe from "stripe";
-import { FieldValue, type Firestore } from "firebase-admin/firestore";
+import { FieldValue, Timestamp, type Firestore } from "firebase-admin/firestore";
 import type { Auth, DecodedIdToken } from "firebase-admin/auth";
+import { calculateApplicationAccess } from "./accountAccess";
+import { getOwnerUidInTransaction } from "./ownerIdentity";
 
 export type PaymentRequest = Request & { paymentAuth?: DecodedIdToken };
 
 const allowedStatuses = new Set(["active", "trialing"]);
+export const STRIPE_PLAN_CATALOG = {
+  basic: { priceEnv: "STRIPE_PRICE_PLAN_BASIC", legacyPriceEnv: null, legacyPlan: "monthly" },
+  pro: { priceEnv: "STRIPE_PRICE_PLAN_PRO", legacyPriceEnv: null, legacyPlan: "annual" },
+  monthly: { priceEnv: "STRIPE_PRICE_PLAN_MONTHLY", legacyPriceEnv: "STRIPE_PRICE_ID", legacyPlan: "monthly" },
+} as const;
+export const STRIPE_ACCESS_POLICY = {
+  active: "period_required",
+  trialing: "period_required",
+  past_due: "deny",
+  unpaid: "deny",
+  canceled: "deny",
+  incomplete: "deny",
+  incomplete_expired: "deny",
+  paused: "deny",
+} as const;
 const handledEventTypes = new Set([
   "checkout.session.completed",
   "customer.subscription.created",
@@ -38,6 +55,11 @@ const metadataValue = (value: unknown, key: string) => {
   const metadataEntry = metadata?.[key];
   return typeof metadataEntry === "string" ? metadataEntry : null;
 };
+const stripeErrorCode = (error: unknown) => (
+  typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+    ? error.code
+    : null
+);
 
 export const getSubscriptionPeriod = (subscription: unknown): SubscriptionPeriod => {
   const payload = asRecord(subscription);
@@ -87,9 +109,11 @@ export const isBillingEventNewer = (current: { created?: unknown; eventId?: unkn
   return incoming.eventId > (typeof current.eventId === "string" ? current.eventId : "");
 };
 
-export const isBillingStatusActive = (status: string, currentPeriodEnd: string | null, now = Date.now()) => (
-  status === "trialing" || (status === "active" && !!currentPeriodEnd && new Date(currentPeriodEnd).getTime() > now)
-);
+export const isBillingStatusActive = (status: string, currentPeriodEnd: string | null, now = Date.now()) => {
+  const policy = STRIPE_ACCESS_POLICY[status as keyof typeof STRIPE_ACCESS_POLICY];
+  const periodEnd = currentPeriodEnd ? Date.parse(currentPeriodEnd) : Number.NaN;
+  return policy === "period_required" && Number.isFinite(periodEnd) && periodEnd > now;
+};
 
 export const canRequestSubscriptionCancellation = (billing: { status?: string | null; cancelAtPeriodEnd?: boolean }) => (
   (billing.status === "active" || billing.status === "trialing") && billing.cancelAtPeriodEnd !== true
@@ -137,24 +161,19 @@ export const isUserAlreadySubscribedForCheckout = async (stripe: Stripe, billing
     if (existingSubscriptionId) {
       try {
         subscription = await stripe.subscriptions.retrieve(existingSubscriptionId);
-      } catch {
-        subscription = null;
+      } catch (error) {
+        if (stripeErrorCode(error) !== "resource_missing") throw error;
       }
     }
 
-    if (!subscription && billing.stripeCustomerId) {
-      try {
-        const list = await stripe.subscriptions.list({ customer: billing.stripeCustomerId, status: "all", limit: 50 });
-        subscription = list.data.find((item) => ["active", "trialing", "canceled", "unpaid", "incomplete", "incomplete_expired", "past_due"].includes(item.status)) ?? null;
-      } catch {
-        subscription = null;
-      }
+    const terminalStatuses = new Set(["canceled", "unpaid", "incomplete_expired"]);
+    if (subscription && (!subscription.status || !terminalStatuses.has(subscription.status))) return true;
+
+    if (billing.stripeCustomerId) {
+      const list = await stripe.subscriptions.list({ customer: billing.stripeCustomerId, status: "all", limit: 50 });
+      return list.data.some((item) => !terminalStatuses.has(item.status));
     }
 
-    const stripeStatus = subscription?.status ?? "inactive";
-    if (stripeStatus === "active" || stripeStatus === "trialing") return true;
-    if (["canceled", "unpaid", "incomplete", "incomplete_expired", "past_due"].includes(stripeStatus)) return false;
-    if (stripeStatus === "inactive" && !(status === "active" || status === "trialing")) return false;
     return false;
   }
 
@@ -163,7 +182,12 @@ export const isUserAlreadySubscribedForCheckout = async (stripe: Stripe, billing
 };
 
 export const shouldPreserveBillingWithoutSubscription = (eventType: string, subscription: unknown) => (
-  eventType !== "customer.subscription.deleted" && !isCompleteSubscriptionPayload(subscription)
+  eventType !== "customer.subscription.deleted"
+  && (
+    !asRecord(subscription)
+    || !stripeStatus(asRecord(subscription)?.status)
+    || (asRecord(subscription)?.status === "active" && getSubscriptionPeriod(subscription).end === null)
+  )
 );
 
 export const requireFirebaseAuth = (auth: Auth | null, initialized: boolean) => async (req: PaymentRequest, res: Response, next: NextFunction) => {
@@ -180,14 +204,19 @@ export const requireFirebaseAuth = (auth: Auth | null, initialized: boolean) => 
 };
 
 export const getStripePlanPrices = () => {
-  const plans: Record<string, string | undefined> = {
-    basic: process.env.STRIPE_PRICE_PLAN_BASIC,
-    pro: process.env.STRIPE_PRICE_PLAN_PRO,
-    // Compatibilidade temporaria com o unico plano existente.
-    monthly: process.env.STRIPE_PRICE_PLAN_MONTHLY || process.env.STRIPE_PRICE_ID,
-  };
-  return Object.fromEntries(Object.entries(plans).filter(([, price]) => Boolean(price))) as Record<string, string>;
+  const plans: Record<string, string> = {};
+  for (const [planId, entry] of Object.entries(STRIPE_PLAN_CATALOG)) {
+    const priceId = process.env[entry.priceEnv] || (entry.legacyPriceEnv ? process.env[entry.legacyPriceEnv] : undefined);
+    if (priceId) plans[planId] = priceId;
+  }
+  return plans;
 };
+
+export const getLegacySubscriptionPlan = (planId: string | null | undefined) => (
+  planId && planId in STRIPE_PLAN_CATALOG
+    ? STRIPE_PLAN_CATALOG[planId as keyof typeof STRIPE_PLAN_CATALOG].legacyPlan
+    : "monthly"
+);
 
 const resolveUserId = async (db: Firestore, stripe: Stripe, object: any): Promise<string | null> => {
   const metadataUid = object.metadata?.firebaseUid;
@@ -207,7 +236,7 @@ const resolveUserId = async (db: Firestore, stripe: Stripe, object: any): Promis
   return candidate;
 };
 
-const writeBilling = async (db: Firestore, uid: string, input: {
+export const writeBilling = async (db: Firestore, uid: string, input: {
   customerId: string | null; subscriptionId: string | null; sessionId?: string | null;
   status: string; planId?: string | null; start?: string | null; end?: string | null;
   cancelAtPeriodEnd?: boolean; eventId: string; eventType: string; eventCreated: number; amount?: number | null;
@@ -215,11 +244,33 @@ const writeBilling = async (db: Firestore, uid: string, input: {
   const userRef = db.collection("users").doc(uid);
   const applied = await db.runTransaction(async transaction => {
     const user = await transaction.get(userRef);
+    const ownerUid = await getOwnerUidInTransaction(transaction, db);
+    const currentProfile = (user.data() ?? {}) as Record<string, unknown>;
     const currentBilling = user.get("billing") || {};
     if (!isBillingEventNewer(currentBilling, { created: input.eventCreated, eventId: input.eventId })) return false;
 
     const mergedBilling = mergeBillingFields(currentBilling, input);
-    const active = isBillingStatusActive(mergedBilling.status, mergedBilling.currentPeriodEnd);
+    const currentSubscription = currentProfile.subscription && typeof currentProfile.subscription === "object"
+      ? currentProfile.subscription as Record<string, unknown>
+      : {};
+    const nextProfile = {
+      ...currentProfile,
+      role: typeof currentProfile.role === "string" ? currentProfile.role : undefined,
+      isActive: currentProfile.isActive,
+      billing: mergedBilling,
+      subscription: {
+        ...currentSubscription,
+        status: mergedBilling.status,
+        plan: getLegacySubscriptionPlan(mergedBilling.planId),
+        stripeCustomerId: mergedBilling.stripeCustomerId,
+        stripeSubscriptionId: mergedBilling.stripeSubscriptionId,
+        currentPeriodEnd: mergedBilling.currentPeriodEnd,
+      },
+      manualAccess: currentProfile.manualAccess,
+      ownerAccess: currentProfile.ownerAccess,
+    } as Record<string, unknown>;
+    const accessProjection = calculateApplicationAccess(nextProfile as any, Date.now(), uid, ownerUid);
+
     const billing: Record<string, unknown> = {
       ...mergedBilling,
       activationSource: "stripe",
@@ -228,23 +279,33 @@ const writeBilling = async (db: Firestore, uid: string, input: {
       updatedAt: FieldValue.serverTimestamp(),
     };
     if (input.sessionId) billing.stripeCheckoutSessionId = input.sessionId;
-    if (active) billing.activatedAt = FieldValue.serverTimestamp();
+    if (accessProjection.allowed && accessProjection.source === "stripe") billing.activatedAt = FieldValue.serverTimestamp();
 
     transaction.set(userRef, {
       billing,
       subscription: {
         status: mergedBilling.status,
-        plan: mergedBilling.planId === "pro" ? "annual" : "monthly",
+        plan: getLegacySubscriptionPlan(mergedBilling.planId),
         stripeCustomerId: mergedBilling.stripeCustomerId,
         stripeSubscriptionId: mergedBilling.stripeSubscriptionId,
         currentPeriodEnd: mergedBilling.currentPeriodEnd,
       },
       subscriptionExpiresAt: mergedBilling.currentPeriodEnd,
-      isActive: active,
+      manualAccess: currentProfile.manualAccess ?? null,
+      accessProjection: {
+        allowed: accessProjection.allowed,
+        source: accessProjection.source,
+        validUntil: accessProjection.validUntil,
+        evaluatedAt: accessProjection.evaluatedAt,
+        policyVersion: accessProjection.policyVersion,
+        reason: accessProjection.reason,
+      },
       updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
     transaction.set(userRef.collection("billing_events").doc(input.eventId), {
-      eventId: input.eventId, type: input.eventType, created: input.eventCreated,
+      eventId: input.eventId, type: input.eventType, eventType: input.eventType, created: input.eventCreated,
+      source: "stripe_webhook",
+      customerId: input.customerId, subscriptionId: input.subscriptionId,
       stripeCustomerId: input.customerId, stripeSubscriptionId: input.subscriptionId,
       planId: input.planId ?? null, amount: input.amount ?? null,
       status: input.status, processedAt: FieldValue.serverTimestamp(),
@@ -397,16 +458,43 @@ export const registerStripeBillingRoutes = (app: any, options: { stripe: Stripe;
       const subscription = await stripe.subscriptions.update(subscriptionId, { cancel_at_period_end: true });
       const subscriptionPeriod = getSubscriptionPeriod(subscription);
       const currentPeriodEnd = iso(subscriptionPeriod.end) ?? billing.currentPeriodEnd ?? null;
-      await userRef.set({ billing: {
-        cancelAtPeriodEnd: true,
-        currentPeriodEnd,
-        cancellationRequestLock: FieldValue.delete(),
-        updatedAt: FieldValue.serverTimestamp(),
-      } }, { merge: true });
+      const auditRef = db.collection("audit_events").doc();
+      await db.runTransaction(async (transaction) => {
+        const latestUser = await transaction.get(userRef);
+        const latestBilling = latestUser.get("billing") || {};
+        transaction.set(userRef, { billing: {
+          cancelAtPeriodEnd: true,
+          currentPeriodEnd,
+          cancellationRequestLock: FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp(),
+        } }, { merge: true });
+        transaction.create(auditRef, {
+          actor: uid,
+          action: "subscription_cancel_scheduled",
+          target: uid,
+          before: {
+            status: latestBilling.status ?? null,
+            cancelAtPeriodEnd: latestBilling.cancelAtPeriodEnd ?? false,
+            currentPeriodEnd: latestBilling.currentPeriodEnd ?? null,
+          },
+          after: {
+            status: latestBilling.status ?? subscription.status,
+            cancelAtPeriodEnd: true,
+            currentPeriodEnd,
+          },
+          source: "user",
+          reason: null,
+          timestamp: FieldValue.serverTimestamp(),
+        });
+      });
       return res.json({ cancelAtPeriodEnd: true, currentPeriodEnd });
     } catch (error) {
       if (lockAcquiredByRequest) {
-        await clearCancellationRequestLock(userRef).catch(() => undefined);
+        try {
+          await clearCancellationRequestLock(userRef);
+        } catch (cleanupError) {
+          console.error("[STRIPE][ERROR] Cancellation lock cleanup failed", { uid, error: cleanupError });
+        }
       }
       console.error("[STRIPE][ERROR] Subscription cancellation failed", { uid, error });
       return res.status(500).json({ error: "Nao foi possivel agendar o cancelamento." });
@@ -431,83 +519,138 @@ export const registerStripeBillingRoutes = (app: any, options: { stripe: Stripe;
       console.info("[STRIPE] Webhook signature verified", { eventId: event.id, type: event.type });
     }
     catch (error: any) { console.error("[STRIPE][ERROR] Webhook signature invalid", error.message); return res.status(400).send("Webhook Error"); }
+    const object: any = event.data.object;
+    const customerId = objectId(object.customer);
+    const subscriptionId = objectId(object.subscription)
+      || objectId(object.parent?.subscription_details?.subscription)
+      || (object.object === "subscription" ? object.id : null);
+    const payloadHash = Buffer.isBuffer(req.body)
+      ? crypto.createHash("sha256").update(req.body).digest("hex")
+      : null;
     const eventRef = db.collection("stripe_events").doc(event.id);
     try {
-      const claimed = await db.runTransaction(async tx => {
+      const claimResult = await db.runTransaction(async tx => {
         const existing = await tx.get(eventRef);
-        if (existing.exists && existing.get("status") === "processed") return false;
+        if (existing.exists && existing.get("status") === "processed") return "processed" as const;
         if (existing.exists && existing.get("status") === "processing") {
           const startedAt = existing.get("processingStartedAt");
-          if (typeof startedAt === "number" && startedAt > Date.now() - 5 * 60_000) return false;
+          if (typeof startedAt === "number" && startedAt > Date.now() - 5 * 60_000) return "busy" as const;
         }
         tx.set(eventRef, {
           eventId: event.id,
+          eventType: event.type,
           type: event.type,
           created: event.created,
           status: "processing",
+          source: "stripe_webhook",
+          customerId,
+          subscriptionId,
+          receivedAt: existing.get("receivedAt") || FieldValue.serverTimestamp(),
+          processedAt: null,
+          error: null,
+          payloadHash,
+          attemptCount: Number(existing.get("attemptCount") || 0) + 1,
           processingStartedAt: Date.now(),
         }, { merge: true });
-        return true;
+        return "claimed" as const;
       });
-      if (!claimed) return res.json({ received: true, duplicate: true });
-      const object: any = event.data.object;
+      if (claimResult === "processed") return res.json({ received: true, duplicate: true });
+      if (claimResult === "busy") return res.status(500).json({ error: "Stripe event is still being processed; retry later." });
+      if (!handledEventTypes.has(event.type)) {
+        await eventRef.set({
+          status: "processed",
+          outcome: "ignored_unsupported_event",
+          processedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+        return res.json({ received: true, ignored: true });
+      }
       const uid = await resolveUserId(db, stripe, object);
-      const customerId = objectId(object.customer);
-      const subscriptionId = objectId(object.subscription) || (object.object === "subscription" ? object.id : null);
       if (!uid) {
-        await eventRef.set({ status: "unresolved", error: "No verified firebase UID mapping", processedAt: FieldValue.serverTimestamp() }, { merge: true });
+        const error = "No verified Firebase UID mapping; retry required.";
+        await eventRef.set({
+          status: "unresolved",
+          error,
+          unresolvedAt: FieldValue.serverTimestamp(),
+          processedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
         console.error("[STRIPE][ERROR] UID unresolved", { eventId: event.id, type: event.type });
-        return res.json({ received: true });
+        return res.status(500).json({ error: "Stripe event could not be linked to an account." });
       }
       const currentUser = await db.collection("users").doc(uid).get();
       const currentBilling = currentUser.get("billing") || {};
-      let subscription: unknown = object.object === "subscription" ? object : null;
       const knownSubscriptionId = subscriptionId || objectId(currentBilling.stripeSubscriptionId);
-      if (!subscription && knownSubscriptionId) {
-        subscription = await stripe.subscriptions.retrieve(knownSubscriptionId).catch(() => null);
+      let subscription: unknown = null;
+      if (knownSubscriptionId) {
+        try {
+          subscription = await stripe.subscriptions.retrieve(knownSubscriptionId);
+        } catch (error) {
+          if (event.type !== "customer.subscription.deleted" || object.object !== "subscription") throw error;
+          subscription = object;
+        }
       }
       const effectiveSubscriptionId = objectId(subscription) || knownSubscriptionId;
       if (shouldPreserveBillingWithoutSubscription(event.type, subscription)) {
+        const error = "Subscription status or period is unavailable; retry required.";
         await eventRef.set({
-          status: "processed",
+          status: "unresolved",
           firebaseUid: uid,
-          stripeCustomerId: customerId,
-          stripeSubscriptionId: effectiveSubscriptionId,
+          customerId,
+          subscriptionId: effectiveSubscriptionId,
           billingPreserved: true,
-          preservationReason: "Event without a complete Stripe Subscription",
+          error,
+          unresolvedAt: FieldValue.serverTimestamp(),
           processedAt: FieldValue.serverTimestamp(),
         }, { merge: true });
-        console.info("[STRIPE] Billing preserved", { eventId: event.id, type: event.type, uid });
-        return res.json({ received: true, billingPreserved: true });
+        console.error("[STRIPE][ERROR] Subscription state unresolved", { eventId: event.id, type: event.type, uid });
+        return res.status(500).json({ error: "Stripe subscription state unavailable." });
       }
       const status = event.type === "customer.subscription.deleted"
         ? "canceled"
         : stripeStatus(asRecord(subscription)?.status);
       if (status === null) {
         await eventRef.set({
-          status: "processed",
+          status: "unresolved",
           firebaseUid: uid,
-          stripeCustomerId: customerId,
-          stripeSubscriptionId: effectiveSubscriptionId,
+          customerId,
+          subscriptionId: effectiveSubscriptionId,
           billingPreserved: true,
-          preservationReason: "Stripe Subscription status unavailable",
+          error: "Stripe subscription status unavailable; retry required.",
+          unresolvedAt: FieldValue.serverTimestamp(),
           processedAt: FieldValue.serverTimestamp(),
         }, { merge: true });
-        return res.json({ received: true, billingPreserved: true });
+        return res.status(500).json({ error: "Stripe subscription status unavailable." });
       }
       const subscriptionPeriod = getSubscriptionPeriod(subscription);
       const planId = metadataValue(subscription, "planId") ?? metadataValue(object, "planId");
       const start = iso(subscriptionPeriod.start);
       const end = iso(subscriptionPeriod.end);
-      if (handledEventTypes.has(event.type)) {
-        await writeBilling(db, uid, { customerId, subscriptionId: effectiveSubscriptionId, sessionId: object.id?.startsWith("cs_") ? object.id : null, status, planId, start, end, cancelAtPeriodEnd: subscriptionCancelAtPeriodEnd(subscription), eventId: event.id, eventType: event.type, eventCreated: event.created, amount: object.amount_paid ?? null });
-      }
-      await eventRef.set({ status: "processed", firebaseUid: uid, stripeCustomerId: customerId, stripeSubscriptionId: effectiveSubscriptionId, processedAt: FieldValue.serverTimestamp() }, { merge: true });
-      console.info("[STRIPE] Billing updated", { eventId: event.id, type: event.type, uid, status });
+      const billingApplied = await writeBilling(db, uid, { customerId, subscriptionId: effectiveSubscriptionId, sessionId: object.id?.startsWith("cs_") ? object.id : null, status, planId, start, end, cancelAtPeriodEnd: subscriptionCancelAtPeriodEnd(subscription), eventId: event.id, eventType: event.type, eventCreated: event.created, amount: object.amount_paid ?? null });
+      await eventRef.set({
+        status: "processed",
+        outcome: billingApplied ? "applied" : "ignored_stale_event",
+        firebaseUid: uid,
+        customerId,
+        subscriptionId: effectiveSubscriptionId,
+        error: null,
+        processedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      console.info("[STRIPE] Webhook processed", { eventId: event.id, type: event.type, uid, status, billingApplied });
       return res.json({ received: true });
-    } catch (error: any) {
-      console.error("[STRIPE][ERROR] Webhook processing failed", { eventId: event.id, error: error.message });
-      await eventRef.set({ status: "error", error: error.message, processedAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[STRIPE][ERROR] Webhook processing failed", { eventId: event.id, error: message });
+      try {
+        await eventRef.set({
+          status: "error",
+          error: message,
+          source: "stripe_webhook",
+          customerId,
+          subscriptionId,
+          processedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      } catch (recordError) {
+        console.error("[STRIPE][ERROR] Could not record webhook failure", { eventId: event.id, error: recordError });
+      }
       return res.status(500).json({ error: "Webhook processing failed" });
     }
   });

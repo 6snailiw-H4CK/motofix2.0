@@ -1,27 +1,134 @@
 import fs from 'fs';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 import { initializeTestEnvironment } from '@firebase/rules-unit-testing';
-import { collection, deleteDoc, doc, getDoc, getDocs, query, runTransaction, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, deleteDoc, deleteField, doc, getDoc, getDocs, query, runTransaction, serverTimestamp, setDoc, Timestamp, updateDoc, writeBatch } from 'firebase/firestore';
 
 const firebaseConfig = JSON.parse(process.env.FIREBASE_CONFIG || '{}');
 const PROJECT_ID = process.env.GCLOUD_PROJECT || firebaseConfig.projectId || 'motofix-dev';
 const rulesPath = path.resolve('./firestore.rules');
 
-const TEST_USER_OWNER = 'owner-user-123';
+const TEST_USER_OWNER = 'o5XNtNFwKMQzZj28WfTEiGSFN0A3';
 const TEST_USER_ADMIN_CLAIM = 'admin-claim-user-123';
 const TEST_USER_ADMIN_DOC = 'admin-user-123';
 const TEST_USER_REGULAR = 'regular-user-123';
 const TEST_USER_INACTIVE = 'inactive-user-123';
 const TEST_USER_INACTIVE_ADMIN = 'inactive-admin-user-123';
+const TEST_USER_STALE_BILLING = 'stale-billing-user-123';
 const TEST_USER_OTHER = 'other-user-999';
 const CASH_LAUNCH_ID = 'cash-launch-001';
 const INACTIVE_CASH_LAUNCH_ID = 'inactive-cash-launch-001';
 const INACTIVE_EXPENSE_ID = 'inactive-expense-001';
+const ADMIN_EXPENSE_ID = 'admin-expense-001';
+const STALE_BILLING_EXPENSE_ID = 'stale-billing-expense-001';
 const CASH_LAUNCH_PAYMENT_ID = 'cash-launch-payment-stock';
 const PRODUCT_ID = 'produto-estoque-001';
 const PRODUCT_PAYMENT_ID = 'produto-010101';
+const MASTER_ADMIN_DENY_COLLECTIONS = [
+  'clients',
+  'maintenances',
+  'warranties',
+  'appointments',
+  'expenses',
+  'products',
+  'stock_movements',
+  'cash_launches',
+  'settings',
+  'message_logs',
+  'operational_logs',
+  'whatsapp_sessions',
+  'whatsapp_messages',
+  'whatsapp_contacts',
+  'whatsapp_automations',
+  'fiscal_companies',
+  'fiscal_invoices',
+  'fiscal_logs',
+  'fiscal_private',
+  'fiscal_invoice_files',
+];
 
 const now = () => new Date().toISOString();
+const validUntil = () => Timestamp.fromMillis(Date.now() + 24 * 60 * 60 * 1000);
+const allowedProjection = (source = 'manual') => ({
+  allowed: true,
+  source,
+  validUntil: validUntil(),
+});
+
+async function setupAccessProjectionScenarios(testEnv) {
+  const suffix = randomUUID();
+  const future = Timestamp.fromMillis(Date.now() + 60 * 60 * 1000);
+  const past = Timestamp.fromMillis(Date.now() - 60 * 60 * 1000);
+  const scenarios = [
+    { name: 'blocked-projection-allowed', isActive: false, accessProjection: { allowed: true, source: 'manual', validUntil: future } },
+    { name: 'active-projection-denied', isActive: true, accessProjection: { allowed: false, source: 'none' } },
+    { name: 'manual-expired', isActive: true, manualAccess: { enabled: true, expiresAt: past }, billing: { status: 'canceled' }, accessProjection: { allowed: false, source: 'none' } },
+    { name: 'manual-future', isActive: true, manualAccess: { enabled: true, expiresAt: future }, accessProjection: { allowed: true, source: 'manual', validUntil: future } },
+    { name: 'projection-absent', isActive: true },
+    { name: 'projection-incomplete', isActive: true, accessProjection: { allowed: true, source: 'manual' } },
+    { name: 'valid-until-past', isActive: true, accessProjection: { allowed: true, source: 'manual', validUntil: past } },
+    { name: 'stripe-projection-denied', isActive: true, billing: { status: 'active', currentPeriodEnd: future }, accessProjection: { allowed: true, source: 'stripe', validUntil: future } },
+    { name: 'valid-until-iso-string', isActive: true, accessProjection: { allowed: true, source: 'manual', validUntil: '2099-01-01T00:00:00.000Z' } },
+    { name: 'owner-entitlement-valid', role: 'master_admin', isActive: true, ownerAccess: { enabled: true, permanent: true }, accessProjection: { allowed: true, source: 'owner', validUntil: null } },
+    { name: 'owner-entitlement-no-owner-claim', role: 'master_admin', masterAdminClaim: true, isActive: true, ownerAccess: { enabled: true, permanent: true }, accessProjection: { allowed: true, source: 'owner', validUntil: null } },
+    { name: 'owner-entitlement-stale-config', role: 'master_admin', masterAdminClaim: true, ownerClaim: true, isActive: true, ownerAccess: { enabled: true, permanent: true }, accessProjection: { allowed: true, source: 'owner', validUntil: null } },
+    { name: 'owner-entitlement-no-owner-flag', role: 'master_admin', masterAdminClaim: true, isActive: true, accessProjection: { allowed: true, source: 'owner', validUntil: null } },
+    { name: 'owner-entitlement-not-permanent', role: 'master_admin', masterAdminClaim: true, isActive: true, ownerAccess: { enabled: true, permanent: false }, accessProjection: { allowed: true, source: 'owner', validUntil: null } },
+    { name: 'owner-entitlement-wrong-role', role: 'user', masterAdminClaim: true, isActive: true, ownerAccess: { enabled: true, permanent: true }, accessProjection: { allowed: true, source: 'owner', validUntil: null } },
+    { name: 'owner-entitlement-inactive', role: 'master_admin', masterAdminClaim: true, isActive: false, ownerAccess: { enabled: true, permanent: true }, accessProjection: { allowed: true, source: 'owner', validUntil: null } },
+  ].map((scenario) => ({
+    ...scenario,
+    uid: scenario.name === 'owner-entitlement-valid'
+      ? TEST_USER_OWNER
+      : `${scenario.name}-${suffix}`,
+    expenseId: `expense-${scenario.name}-${suffix}`,
+  }));
+
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const firestore = context.firestore();
+    for (const scenario of scenarios) {
+      await setDoc(doc(firestore, 'users', scenario.uid), {
+        uid: scenario.uid,
+        email: `${scenario.name}@example.com`,
+        role: scenario.role ?? 'user',
+        isActive: scenario.isActive,
+        ...(scenario.manualAccess ? { manualAccess: scenario.manualAccess } : {}),
+        ...(scenario.ownerAccess ? { ownerAccess: scenario.ownerAccess } : {}),
+        ...(scenario.billing ? { billing: scenario.billing } : {}),
+        ...(scenario.accessProjection ? { accessProjection: scenario.accessProjection } : {}),
+        createdAt: now(),
+        updatedAt: now(),
+      });
+      await setDoc(doc(firestore, 'users', scenario.uid, 'expenses', scenario.expenseId), {
+        userId: scenario.uid,
+        description: 'Projection runtime test',
+        amount: 1,
+        paymentMethod: 'Pix',
+        date: now(),
+        createdAt: now(),
+      });
+    }
+    await setDoc(doc(firestore, 'admin', `protected-${suffix}`), { protected: true });
+  });
+  const configuredOwner = scenarios.find(({ name }) => name === 'owner-entitlement-valid');
+  const configuredOwnerClientDb = testEnv.authenticatedContext(configuredOwner.uid).firestore();
+  for (const operation of [
+    () => getDoc(doc(configuredOwnerClientDb, 'system', 'access_config')),
+    () => setDoc(doc(configuredOwnerClientDb, 'system', 'access_config'), { ownerUid: configuredOwner.uid }),
+  ]) {
+    try {
+      await operation();
+      fail('Cliente conseguiu ler ou escrever system/access_config');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') throw error;
+    }
+  }
+
+  return {
+    scenarios,
+    adminPath: `admin/protected-${suffix}`,
+  };
+}
 
 const ownerCashLaunchData = {
   userId: TEST_USER_OWNER,
@@ -42,11 +149,14 @@ const ownerCashLaunchData = {
   deletedReason: null,
 };
 
+const adminUserProjection = allowedProjection();
 const adminUserData = {
   uid: TEST_USER_ADMIN_DOC,
   email: 'admin@example.com',
   role: 'admin',
   isActive: true,
+  manualAccess: { enabled: true, expiresAt: adminUserProjection.validUntil },
+  accessProjection: adminUserProjection,
   createdAt: now(),
   updatedAt: now(),
 };
@@ -54,7 +164,7 @@ const adminUserData = {
 const adminClaimUserData = {
   uid: TEST_USER_ADMIN_CLAIM,
   email: 'admin-claim@example.com',
-  role: 'admin',
+  role: 'master_admin',
   isActive: true,
   createdAt: now(),
   updatedAt: now(),
@@ -78,11 +188,15 @@ const inactiveAdminUserData = {
   updatedAt: now(),
 };
 
+const ownerUserProjection = allowedProjection();
 const ownerUserData = {
   uid: TEST_USER_OWNER,
   email: 'owner@example.com',
   role: 'user',
   isActive: true,
+  manualAccess: { enabled: true, expiresAt: ownerUserProjection.validUntil },
+  accessProjection: ownerUserProjection,
+  subscriptionExpiresAt: '2030-01-01T00:00:00.000Z',
   createdAt: now(),
   updatedAt: now(),
 };
@@ -219,6 +333,15 @@ async function setupTestData(testEnv) {
     await setDoc(doc(firestore, 'users', TEST_USER_REGULAR), regularUserData);
     await setDoc(doc(firestore, 'users', TEST_USER_INACTIVE), inactiveUserData);
     await setDoc(doc(firestore, 'users', TEST_USER_INACTIVE_ADMIN), inactiveAdminUserData);
+    await setDoc(doc(firestore, 'users', TEST_USER_STALE_BILLING), {
+      uid: TEST_USER_STALE_BILLING,
+      email: 'stale-billing@example.com',
+      role: 'user',
+      isActive: true,
+      billing: { status: 'past_due' },
+      createdAt: now(),
+      updatedAt: now(),
+    });
     await setDoc(doc(firestore, 'users', TEST_USER_OTHER), {
       uid: TEST_USER_OTHER,
       email: 'other@example.com',
@@ -242,6 +365,22 @@ async function setupTestData(testEnv) {
       date: '2026-10-03',
       createdAt: now(),
     });
+    await setDoc(doc(firestore, 'users', TEST_USER_ADMIN_DOC, 'expenses', ADMIN_EXPENSE_ID), {
+      userId: TEST_USER_ADMIN_DOC,
+      description: 'Despesa de teste do administrador',
+      amount: 10,
+      paymentMethod: 'Pix',
+      date: '2026-10-03',
+      createdAt: now(),
+    });
+    await setDoc(doc(firestore, 'users', TEST_USER_STALE_BILLING, 'expenses', STALE_BILLING_EXPENSE_ID), {
+      userId: TEST_USER_STALE_BILLING,
+      description: 'Despesa de teste com billing vencido',
+      amount: 10,
+      paymentMethod: 'Pix',
+      date: '2026-10-03',
+      createdAt: now(),
+    });
     await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'products', PRODUCT_ID), ownerProductData);
     await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_PAYMENT_ID), ownerPaymentCashLaunchData);
     await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'products', PRODUCT_PAYMENT_ID), ownerPaymentProductData);
@@ -251,6 +390,13 @@ async function setupTestData(testEnv) {
       clientName: 'Cliente Teste Regular',
       orderNumber: 'LC-20260623-0002',
     });
+    for (const collectionName of MASTER_ADMIN_DENY_COLLECTIONS) {
+      const documentId = collectionName === 'settings' ? 'config' : 'master-admin-probe';
+      await setDoc(doc(firestore, 'users', TEST_USER_OWNER, collectionName, documentId), {
+        userId: TEST_USER_OWNER,
+        createdAt: now(),
+      });
+    }
   });
 }
 
@@ -268,6 +414,143 @@ async function runTests() {
 
   try {
     await setupTestData(testEnv);
+    const { scenarios: projectionScenarios, adminPath } = await setupAccessProjectionScenarios(testEnv);
+
+    console.log('P1.2) Cliente nao pode criar accessProjection; backend continua podendo materializa-la');
+    const profileUid = `p12-profile-${randomUUID()}`;
+    const futureProjection = allowedProjection('manual');
+    const baseNewProfile = {
+      email: `${profileUid}@example.com`,
+      displayName: 'Perfil de teste P1.2',
+      isActive: false,
+      subscription: {
+        status: 'inactive',
+        plan: 'free',
+        startsAt: now(),
+        expiresAt: now(),
+        currentPeriodEnd: now(),
+        autoRenew: false,
+      },
+      subscriptionExpiresAt: now(),
+      createdAt: now(),
+    };
+    const attemptProfileCreate = async (uid, claims, profile, label) => {
+      const clientDb = testEnv.authenticatedContext(uid, {
+        email: profile.email,
+        ...claims,
+      }).firestore();
+      try {
+        const batch = writeBatch(clientDb);
+        batch.set(doc(clientDb, 'users', uid), profile);
+        batch.set(doc(clientDb, 'access_requests', uid), {
+          uid,
+          email: profile.email,
+          displayName: profile.displayName,
+          status: 'pending',
+          createdAt: serverTimestamp(),
+        });
+        await batch.commit();
+        fail(`${label}: cliente conseguiu criar accessProjection`);
+      } catch (error) {
+        if (error?.code !== 'permission-denied') {
+          fail(`${label}: erro inesperado ${error?.code || error}`);
+        } else {
+          console.log(`   ✅ ${label}: DENY`);
+        }
+      }
+    };
+    await attemptProfileCreate(
+      `${profileUid}-common`,
+      {},
+      {
+        ...baseNewProfile,
+        uid: `${profileUid}-common`,
+        role: 'user',
+        ...{ isActive: false, subscription: baseNewProfile.subscription },
+        accessProjection: futureProjection,
+      },
+      'cliente comum',
+    );
+    await attemptProfileCreate(
+      `${profileUid}-admin`,
+      { admin: true },
+      {
+        ...baseNewProfile,
+        uid: `${profileUid}-admin`,
+        role: 'admin',
+        isActive: true,
+        accessProjection: futureProjection,
+      },
+      'claim admin',
+    );
+    await attemptProfileCreate(
+      `${profileUid}-master`,
+      { admin: true, master_admin: true },
+      {
+        ...baseNewProfile,
+        uid: `${profileUid}-master`,
+        role: 'master_admin',
+        isActive: true,
+        accessProjection: allowedProjection('manual'),
+      },
+      'claim master_admin',
+    );
+    await attemptProfileCreate(
+      `${profileUid}-manual`,
+      {},
+      {
+        ...baseNewProfile,
+        uid: `${profileUid}-manual`,
+        role: 'user',
+        manualAccess: { enabled: true, expiresAt: Timestamp.fromMillis(Date.now() + 86_400_000) },
+      },
+      'cliente comum com manualAccess fabricado',
+    );
+
+    const normalProfileUid = `${profileUid}-normal`;
+    const normalProfileDb = testEnv.authenticatedContext(normalProfileUid, {
+      email: `${normalProfileUid}@example.com`,
+    }).firestore();
+    const normalProfile = {
+      ...baseNewProfile,
+      uid: normalProfileUid,
+      email: `${normalProfileUid}@example.com`,
+      role: 'user',
+    };
+    const normalSignupBatch = writeBatch(normalProfileDb);
+    normalSignupBatch.set(doc(normalProfileDb, 'users', normalProfileUid), normalProfile);
+    normalSignupBatch.set(doc(normalProfileDb, 'access_requests', normalProfileUid), {
+      uid: normalProfileUid,
+      email: normalProfile.email,
+      displayName: normalProfile.displayName,
+      status: 'pending',
+      createdAt: serverTimestamp(),
+    });
+    await normalSignupBatch.commit();
+    console.log('   ✅ criação normal sem accessProjection: ALLOW');
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const backendDb = context.firestore();
+      await updateDoc(doc(backendDb, 'users', normalProfileUid), {
+        isActive: true,
+        manualAccess: { enabled: true, expiresAt: futureProjection.validUntil },
+        accessProjection: futureProjection,
+      });
+      await setDoc(doc(backendDb, 'users', normalProfileUid, 'expenses', 'p12-backend-projection'), {
+        userId: normalProfileUid,
+        description: 'Backend materialized access projection',
+        amount: 1,
+        paymentMethod: 'Pix',
+        date: now(),
+        createdAt: now(),
+      });
+    });
+    const backendGrantedExpense = await getDoc(doc(normalProfileDb, 'users', normalProfileUid, 'expenses', 'p12-backend-projection'));
+    if (!backendGrantedExpense.exists()) {
+      fail('backend/Admin SDK nao conseguiu materializar projection para acesso operacional');
+    } else {
+      console.log('   ✅ backend/Admin SDK gravou projection; cliente autorizado leu dado: PASS');
+    }
 
     console.log('0) Perfil inativo nao pode ler nem gravar dados operacionais');
     const inactiveDb = testEnv.authenticatedContext(TEST_USER_INACTIVE).firestore();
@@ -298,8 +581,123 @@ async function runTests() {
       else console.log('   ✅ Perfil admin desativado corretamente impedido');
     }
 
+    console.log('0c) Admin ativo com entitlement canônico acessa os próprios dados');
+    const activeAdminDb = testEnv.authenticatedContext(TEST_USER_ADMIN_DOC, { admin: true }).firestore();
+    const adminExpense = await getDoc(doc(activeAdminDb, 'users', TEST_USER_ADMIN_DOC, 'expenses', ADMIN_EXPENSE_ID));
+    if (!adminExpense.exists()) {
+      fail('Admin ativo sem assinatura nao conseguiu ler os próprios dados');
+    } else {
+      console.log('   ✅ Admin ativo com entitlement manual vigente acessa os próprios dados');
+    }
+
+    console.log('0d) Billing Stripe bloqueado impede acesso direto com isActive desatualizado');
+    const staleBillingDb = testEnv.authenticatedContext(TEST_USER_STALE_BILLING).firestore();
+    try {
+      await getDoc(doc(staleBillingDb, 'users', TEST_USER_STALE_BILLING, 'expenses', STALE_BILLING_EXPENSE_ID));
+      fail('Perfil past_due com isActive desatualizado conseguiu ler dados');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') fail(`Billing bloqueado falhou com erro inesperado: ${error?.code || error}`);
+      else console.log('   ✅ Estado past_due corretamente impede leitura direta');
+    }
+    try {
+      await updateDoc(doc(staleBillingDb, 'users', TEST_USER_STALE_BILLING, 'expenses', STALE_BILLING_EXPENSE_ID), {
+        note: 'write bloqueado',
+      });
+      fail('Perfil past_due com isActive desatualizado conseguiu gravar dados');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') fail(`Gravacao com billing bloqueado falhou com erro inesperado: ${error?.code || error}`);
+      else console.log('   ✅ Estado past_due corretamente impede gravação direta');
+    }
+
     console.log('1) Owner pode atualizar (soft delete) seu cash_launch');
     const ownerDb = testEnv.authenticatedContext(TEST_USER_OWNER).firestore();
+    const readProjectionScenario = async (scenario, expectedAllowed, expectedLabel) => {
+      const db = testEnv.authenticatedContext(
+        scenario.uid,
+        {
+          ...(scenario.masterAdminClaim ? { master_admin: true } : {}),
+          ...(scenario.ownerClaim ? { motofix_owner: true } : {}),
+        },
+      ).firestore();
+      let allowed = false;
+      try {
+        const snapshot = await getDoc(doc(db, 'users', scenario.uid, 'expenses', scenario.expenseId));
+        allowed = snapshot.exists();
+      } catch (error) {
+        if (error?.code !== 'permission-denied') throw error;
+      }
+      if (allowed === expectedAllowed) {
+        console.log(`   ✅ ${expectedLabel}: ${allowed ? 'ALLOW' : 'DENY'}`);
+      } else {
+        console.log(`   ⚠️ ${expectedLabel}: comportamento diferente; observado ${allowed ? 'ALLOW' : 'DENY'}, esperado ${expectedAllowed ? 'ALLOW' : 'DENY'}`);
+        fail(`${expectedLabel}: comportamento diferente do esperado`);
+      }
+      return allowed;
+    };
+
+    console.log('P0.2-A) isActive=false com projection allowed e Timestamp futuro deve negar');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'blocked-projection-allowed'), false, 'BLOCKED + PROJECTION ALLOWED');
+    console.log('P0.2-B) isActive=true com projection denied deve negar');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'active-projection-denied'), false, 'ACTIVE + PROJECTION DENIED');
+    console.log('P0.2-C) manualAccess expirado com projection denied deve negar');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'manual-expired'), false, 'MANUAL ACCESS EXPIRADO');
+    console.log('P0.2-C2) manual access com Timestamp futuro deve permitir');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'manual-future'), true, 'MANUAL ACCESS FUTURO');
+    console.log('P0.2-D) projection ausente deve negar conforme política canônica');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'projection-absent'), false, 'PROJECTION AUSENTE');
+    console.log('P0.2-E) projection allowed sem validUntil deve negar quando expiry é obrigatório');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'projection-incomplete'), false, 'PROJECTION INCOMPLETA');
+    console.log('P0.2-F) validUntil Timestamp passado deve negar');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'valid-until-past'), false, 'VALIDUNTIL TIMESTAMP PASSADO');
+    console.log('P0.2-G) validUntil Timestamp futuro deve permitir');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'stripe-projection-denied'), false, 'PROJEÇÃO STRIPE NÃO CONCEDE ACESSO');
+    console.log('P0.2-H) validUntil string ISO não deve permitir');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'valid-until-iso-string'), false, 'VALIDUNTIL STRING ISO');
+    console.log('P1.5-A) identidade UID designada e ownerAccess permanente permitem sem projeção de billing');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'owner-entitlement-valid'), true, 'OWNER ENTITLEMENT EXPLÍCITO');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'owner-entitlement-no-owner-claim'), false, 'MASTER ADMIN NÃO DESIGNADO');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'owner-entitlement-stale-config'), false, 'OWNER ANTIGO APÓS ROTAÇÃO');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'owner-entitlement-valid'), true, 'OWNER SEM CONFIGURAÇÃO OU CLAIM');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'owner-entitlement-no-owner-flag'), false, 'OWNER SEM ENTITLEMENT');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'owner-entitlement-not-permanent'), false, 'OWNER SEM MARCADOR PERMANENTE');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'owner-entitlement-wrong-role'), false, 'OWNER COM ROLE USER');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'owner-entitlement-inactive'), false, 'OWNER INATIVO');
+
+    console.log('0f) Proprietário mantém leitura operacional em sua própria conta');
+    for (const collectionName of MASTER_ADMIN_DENY_COLLECTIONS.filter((name) => (
+      name !== 'fiscal_private' && name !== 'fiscal_invoice_files'
+    ))) {
+      const documentId = collectionName === 'settings' ? 'config' : 'master-admin-probe';
+      try {
+        const ownDocument = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, collectionName, documentId));
+        if (!ownDocument.exists()) fail(`Documento próprio não encontrado em ${collectionName}`);
+      } catch (error) {
+        fail(`Proprietário perdeu leitura em ${collectionName}: ${error?.code || error}`);
+      }
+    }
+    console.log('0e) Cliente não pode alterar campos de acesso/billing no perfil raiz');
+    const profileRef = doc(ownerDb, 'users', TEST_USER_OWNER);
+    const protectedProfileWrites = [
+      { label: 'role existente', data: { role: 'admin' } },
+      { label: 'isActive existente', data: { isActive: false } },
+      { label: 'billing adicionado', data: { billing: { status: 'active' } } },
+      { label: 'Stripe IDs adicionados', data: { subscription: { stripeCustomerId: 'cus_forged', stripeSubscriptionId: 'sub_forged' } } },
+      { label: 'accessProjection adicionada', data: { accessProjection: allowedProjection('manual') } },
+      { label: 'manualAccess adicionado', data: { manualAccess: { enabled: true, expiresAt: validUntil() } } },
+      { label: 'ownerAccess adicionado', data: { ownerAccess: { enabled: true } } },
+      { label: 'subscriptionExpiresAt alterado', data: { subscriptionExpiresAt: '2099-01-01T00:00:00.000Z' } },
+      { label: 'campo de expiração removido', data: { subscriptionExpiresAt: deleteField() } },
+    ];
+    for (const write of protectedProfileWrites) {
+      try {
+        await updateDoc(profileRef, write.data);
+        fail(`Cliente conseguiu alterar ${write.label} no perfil raiz`);
+      } catch (error) {
+        if (error?.code !== 'permission-denied') fail(`Tentativa de alterar ${write.label} falhou inesperadamente: ${error?.code || error}`);
+      }
+    }
+    console.log('   ✅ role, isActive, billing, Stripe IDs, accessProjection, manualAccess, ownerAccess e subscriptionExpiresAt protegidos');
+
     await updateDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID), {
       deletedAt: now(),
       deletedBy: TEST_USER_OWNER,
@@ -364,6 +762,24 @@ async function runTests() {
     }
 
     const commonDb = testEnv.authenticatedContext(TEST_USER_REGULAR).firestore();
+    console.log('P0.2-I) Usuário comum não pode ler documento administrativo direto');
+    try {
+      await getDoc(doc(commonDb, adminPath));
+      fail('Usuário comum conseguiu ler documento administrativo protegido');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') throw error;
+      console.log('   ✅ leitura administrativa negada pelas Rules');
+    }
+    try {
+      await setDoc(doc(commonDb, 'audit_events', 'client-forged'), {
+        actor: TEST_USER_REGULAR,
+        action: 'role_changed',
+        source: 'admin',
+      });
+      fail('Usuário comum conseguiu escrever audit event');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') fail(`Escrita de audit event falhou inesperadamente: ${error?.code || error}`);
+    }
     try {
       await updateDoc(doc(commonDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID), {
         deletedAt: now(),
@@ -383,27 +799,58 @@ async function runTests() {
       console.log('   ✅ Usuário comum corretamente impedido de restaurar outro usuário');
     }
 
-    console.log('5) Admin via custom claim pode ler cash_launches de outro usuario');
-    const adminClaimDb = testEnv.authenticatedContext(TEST_USER_ADMIN_CLAIM, { admin: true }).firestore();
-    const adminClaimRead = await getDoc(doc(adminClaimDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID));
-    if (!adminClaimRead.exists()) {
-      fail('Admin-claim nao conseguiu ler cash_launches de outro usuario');
-    } else {
-      console.log('   Admin-claim conseguiu ler cash_launch de outro usuario');
+    console.log('5) Master Admin não pode ler nem alterar dados operacionais de outra oficina');
+    const adminClaimDb = testEnv.authenticatedContext(TEST_USER_ADMIN_CLAIM, { admin: true, master_admin: true }).firestore();
+    for (const collectionName of MASTER_ADMIN_DENY_COLLECTIONS) {
+      const documentId = collectionName === 'settings' ? 'config' : 'master-admin-probe';
+      try {
+        await getDoc(doc(adminClaimDb, 'users', TEST_USER_OWNER, collectionName, documentId));
+        fail(`Master Admin conseguiu ler users/${TEST_USER_OWNER}/${collectionName}`);
+      } catch (error) {
+        if (error?.code !== 'permission-denied') {
+          fail(`Leitura Master Admin em ${collectionName} falhou inesperadamente: ${error?.code || error}`);
+        }
+      }
+      try {
+        const writeDocumentId = collectionName === 'settings' ? 'config' : `master-write-${collectionName}`;
+        await setDoc(doc(adminClaimDb, 'users', TEST_USER_OWNER, collectionName, writeDocumentId), {
+          userId: TEST_USER_OWNER,
+          createdAt: now(),
+        });
+        fail(`Master Admin conseguiu criar em users/${TEST_USER_OWNER}/${collectionName}`);
+      } catch (error) {
+        if (error?.code !== 'permission-denied') {
+          fail(`Escrita Master Admin em ${collectionName} falhou inesperadamente: ${error?.code || error}`);
+        }
+      }
     }
+    try {
+      await getDoc(doc(adminClaimDb, 'users', TEST_USER_OWNER));
+      fail('Master Admin conseguiu ler perfil de outra conta via Rules');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') fail(`Leitura de perfil cross-account falhou inesperadamente: ${error?.code || error}`);
+    }
+    try {
+      await getDocs(query(collection(adminClaimDb, 'users')));
+      fail('Master Admin conseguiu enumerar users diretamente via Rules');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') fail(`Listagem de perfis via Rules falhou inesperadamente: ${error?.code || error}`);
+    }
+    console.log(`   ✅ Leitura/escrita negadas em ${MASTER_ADMIN_DENY_COLLECTIONS.length} subcoleções operacionais e listagem global negada`);
 
     console.log('6) Role admin no documento sem custom claim nao concede acesso');
     console.log('5b) Admin via custom claim NAO pode apagar fisicamente cash_launch de outro usuario');
     try {
       await deleteDoc(doc(adminClaimDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID));
-      fail('Admin-claim conseguiu delete fisico em cash_launch');
+      fail('Master Admin conseguiu delete fisico em cash_launch');
     } catch (error) {
-      const stillExists = await getDoc(doc(adminClaimDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID));
-      if (!stillExists.exists()) {
-        fail('Documento sumiu apos tentativa negada de delete fisico pelo admin-claim');
-      } else {
-        console.log('   Admin-claim corretamente impedido de delete fisico');
-      }
+      if (error?.code !== 'permission-denied') fail(`Delete físico falhou inesperadamente: ${error?.code || error}`);
+      let stillExists = false;
+      await testEnv.withSecurityRulesDisabled(async (context) => {
+        stillExists = (await getDoc(doc(context.firestore(), 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID))).exists();
+      });
+      if (!stillExists) fail('Documento sumiu após tentativa negada de delete físico pelo Master Admin');
+      else console.log('   Master Admin corretamente impedido de delete físico');
     }
 
     const adminDocDb = testEnv.authenticatedContext(TEST_USER_ADMIN_DOC).firestore();
@@ -433,7 +880,7 @@ async function runTests() {
     }
 
     console.log('7) Owner pode criar operational_log e ler depois');
-    const logId = 'op-log-001';
+    const logId = `op-log-${randomUUID()}`;
     await setDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'operational_logs', logId), operationLogData);
     const opLog = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'operational_logs', logId));
     if (!opLog.exists()) {
@@ -442,12 +889,12 @@ async function runTests() {
       console.log('   ✅ operational_log criado com sucesso por owner');
     }
 
-    console.log('8) Admin via custom claim pode ler operational_logs de outro usuário');
-    const adminOpLog = await getDoc(doc(adminClaimDb, 'users', TEST_USER_OWNER, 'operational_logs', logId));
-    if (!adminOpLog.exists()) {
-      fail('Admin-claim não conseguiu acessar operational_logs de outro usuário');
-    } else {
-      console.log('   ✅ operational_logs acessível via custom claim');
+    console.log('8) Master Admin não pode ler operational_logs de outra oficina');
+    try {
+      await getDoc(doc(adminClaimDb, 'users', TEST_USER_OWNER, 'operational_logs', logId));
+      fail('Master Admin conseguiu acessar operational_logs de outra oficina');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') fail(`Leitura de operational_logs falhou inesperadamente: ${error?.code || error}`);
     }
 
     console.log('9) Owner pode atualizar estoque de produto');
@@ -463,8 +910,9 @@ async function runTests() {
     }
 
     console.log('10) Owner pode criar stock_movement');
-    await setDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'stock_movements', 'stock-move-001'), stockMovementData);
-    const stockMovementDoc = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'stock_movements', 'stock-move-001'));
+    const stockMovementId = `stock-move-${randomUUID()}`;
+    await setDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'stock_movements', stockMovementId), stockMovementData);
+    const stockMovementDoc = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'stock_movements', stockMovementId));
     if (!stockMovementDoc.exists()) {
       fail('Owner nao conseguiu criar stock_movement');
     } else {
@@ -527,16 +975,13 @@ async function runTests() {
       console.log('   ✅ Usuário comum corretamente impedido de ler /users de outro usuário');
     }
 
-    console.log('14) Admin via custom claim pode listar /users');
+    console.log('14) Master Admin não pode listar /users diretamente pelo SDK cliente');
     try {
-      const allUsersSnapshot = await getDocs(query(collection(adminClaimDb, 'users')));
-      if (allUsersSnapshot.size >= 2) {
-        console.log(`   ✅ Admin via custom claim listou /users (${allUsersSnapshot.size} docs)`);
-      } else {
-        fail('Admin via custom claim não conseguiu listar /users ou encontrou poucos documentos');
-      }
+      await getDocs(query(collection(adminClaimDb, 'users')));
+      fail('Master Admin conseguiu listar /users diretamente');
     } catch (error) {
-      fail('Admin via custom claim não conseguiu listar /users');
+      if (error?.code !== 'permission-denied') fail(`Listagem Firestore falhou inesperadamente: ${error?.code || error}`);
+      else console.log('   ✅ Listagem direta bloqueada; painel usa a API administrativa');
     }
 
     console.log('15) Owner pode finalizar cash_launch faturada com pagamento e baixa de estoque na mesma transacao');
@@ -544,7 +989,7 @@ async function runTests() {
       const timestamp = now();
       const productRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'products', PRODUCT_PAYMENT_ID);
       const launchRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_PAYMENT_ID);
-      const movementRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'stock_movements', 'stock-move-payment-001');
+      const movementRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'stock_movements', `stock-move-payment-${randomUUID()}`);
       transaction.update(productRef, {
         stockQuantity: 4,
         updatedAt: timestamp,

@@ -4,7 +4,7 @@ import { AppHeader } from './AppHeader';
 import { BottomNav } from './BottomNav';
 import { SidebarNav } from './SidebarNav';
 import { TopBar } from './TopBar';
-import type { AppView, ColorMode, Settings, UserProfile } from '../../types';
+import { isAdminRole, isMasterAdminRole, type AppView, type ColorMode, type Settings, type UserProfile } from '../../types';
 import type { OfflineSyncStatus } from '../../hooks/useOfflineSyncStatus';
 import type { CollectionListenerIssue } from '../../hooks/useUserCollections';
 
@@ -35,7 +35,8 @@ export const AppShell = ({
   onSignOut,
   onViewChange,
 }: AppShellProps) => {
-  const isAdmin = userProfile?.role === 'admin';
+  const isAdmin = isAdminRole(userProfile?.role);
+  const isMasterAdmin = isMasterAdminRole(userProfile?.role);
   const businessName = settings.businessName || 'MotoFix Oficina';
   const userName = userProfile?.displayName || userProfile?.email || businessName;
 
@@ -47,6 +48,7 @@ export const AppShell = ({
           currentUserName={userName}
           fiscalModuleAvailable={fiscalModuleAvailable}
           isAdmin={isAdmin}
+          isMasterAdmin={isMasterAdmin}
           view={view}
           onViewChange={onViewChange}
         />
@@ -95,6 +97,7 @@ export const AppShell = ({
         view={view}
         fiscalModuleAvailable={fiscalModuleAvailable}
         isAdmin={isAdmin}
+        isMasterAdmin={isMasterAdmin}
         onViewChange={onViewChange}
       />
     </div>

@@ -2,6 +2,11 @@ export type MaintenanceStatus = 'OK' | 'WARNING' | 'OVERDUE';
 
 export type ColorMode = 'dark' | 'light';
 
+export type UserRole = 'user' | 'admin' | 'master_admin';
+
+export const isAdminRole = (role?: UserRole | null) => role === 'admin' || role === 'master_admin';
+export const isMasterAdminRole = (role?: UserRole | null) => role === 'master_admin';
+
 export interface SoftDeletable {
   deletedAt?: string | null;
   deletedBy?: string | null;
@@ -26,6 +31,7 @@ export type AppView =
   | 'warranties'
   | 'new-warranty'
   | 'admin'
+  | 'master-admin'
   | 'report'
   | 'general-report'
   | 'cash-register'
@@ -173,6 +179,7 @@ export interface ProductCatalogVariation {
   id: string;
   name: string;
   salePrice: number;
+  stockQuantity?: number;
 }
 
 export type ProductCatalogFormInput = Pick<ProductCatalogItem, 'sourceCode' | 'description' | 'variation' | 'variations' | 'ncm' | 'salePrice' | 'stockQuantity' | 'minStockQuantity' | 'trackStock'>;
@@ -455,7 +462,7 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName: string;
-  role: 'admin' | 'user';
+  role: UserRole;
   isActive: boolean;
   subscription: Subscription;
   billing?: {
@@ -468,6 +475,19 @@ export interface UserProfile {
     currentPeriodEnd?: string | null;
     cancelAtPeriodEnd?: boolean;
     activationSource?: 'stripe' | 'manual';
+  };
+  manualAccess?: {
+    enabled?: boolean;
+    expiresAt?: string | null;
+  };
+  ownerAccess?: {
+    enabled?: boolean;
+    permanent?: boolean;
+  };
+  accessProjection?: {
+    allowed?: boolean | null;
+    source?: 'owner' | 'stripe' | 'manual' | 'none' | null;
+    validUntil?: string | null;
   };
   subscriptionExpiresAt?: string; // ISO timestamp
   createdAt: string;

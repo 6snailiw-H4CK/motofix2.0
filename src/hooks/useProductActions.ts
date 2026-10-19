@@ -2,9 +2,9 @@ import type { User } from 'firebase/auth';
 import { useCallback, useState } from 'react';
 import { toast as sonnerToast } from 'sonner';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
-import { productRepository } from '../services/productRepository';
+import { ProductStockResetError, productRepository } from '../services/productRepository';
 import { parseProductsWorkbook } from '../services/productSpreadsheet';
-import type { ProductCatalogFormInput } from '../types';
+import type { ProductCatalogFormInput, ProductCatalogItem } from '../types';
 
 type UseProductActionsParams = {
   user: User | null;
@@ -16,6 +16,7 @@ export const useProductActions = ({ user, onDeleted }: UseProductActionsParams) 
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   const [isDeletingProducts, setIsDeletingProducts] = useState(false);
+  const [isZeroingStock, setIsZeroingStock] = useState(false);
 
   const importProductsWorkbook = useCallback(async (file: File) => {
     if (!user) return 0;
@@ -126,6 +127,39 @@ export const useProductActions = ({ user, onDeleted }: UseProductActionsParams) 
     }
   }, [onDeleted, user]);
 
+  const zeroStock = useCallback(async (products: Array<Pick<ProductCatalogItem, 'id' | 'variations'>>) => {
+    if (!user) return false;
+
+    const uniqueProducts = Array.from(new Map(products.filter((product) => product.id).map((product) => [product.id, product])).values());
+    if (uniqueProducts.length === 0) {
+      sonnerToast.error('Nenhuma mercadoria ativa para zerar o estoque.');
+      return false;
+    }
+
+    setIsZeroingStock(true);
+    try {
+      const updated = await productRepository.zeroStockMany(user.uid, uniqueProducts);
+      sonnerToast.success(`Estoque zerado para ${updated} mercadoria(s). Os precos de venda foram mantidos.`);
+      return true;
+    } catch (error) {
+      console.error('Erro ao zerar estoque das mercadorias:', error);
+      if (error instanceof ProductStockResetError && error.completedCount > 0) {
+        sonnerToast.error(`${error.message} Confira a lista antes de tentar novamente.`);
+      } else {
+        sonnerToast.error('Nao foi possivel zerar o estoque das mercadorias.');
+      }
+      const firestoreError = error instanceof ProductStockResetError ? error.originalError : error;
+      try {
+        handleFirestoreError(firestoreError, OperationType.UPDATE, 'products');
+      } catch {
+        // O helper tambem registra o erro; mantemos o fluxo da tela sem quebrar.
+      }
+      return false;
+    } finally {
+      setIsZeroingStock(false);
+    }
+  }, [user]);
+
   return {
     deleteProduct,
     deleteProducts,
@@ -134,6 +168,8 @@ export const useProductActions = ({ user, onDeleted }: UseProductActionsParams) 
     isImportingProducts,
     isDeletingProducts,
     isSavingProduct,
+    isZeroingStock,
     saveProduct,
+    zeroStock,
   };
 };

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { addDays, format } from 'date-fns';
-import { getIdTokenResult, getRedirectResult, onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
+import { getRedirectResult, onAuthStateChanged, User } from 'firebase/auth';
+import { doc, getDoc, onSnapshot, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { auth, authPersistenceReady, db } from '../firebase';
-import { queueFirestoreVoidWrite } from '../services/firestoreOfflineQueue';
+import { createPendingAccessRequest, type AccessRequest } from '../types/accessRequest';
 import { UserProfile } from '../types';
 
 const areUserProfilesEqual = (currentProfile: UserProfile | null, nextProfile: UserProfile | null) => {
@@ -17,6 +17,8 @@ const areUserProfilesEqual = (currentProfile: UserProfile | null, nextProfile: U
     currentProfile.displayName === nextProfile.displayName &&
     currentProfile.role === nextProfile.role &&
     currentProfile.isActive === nextProfile.isActive &&
+    currentProfile.billing?.status === nextProfile.billing?.status &&
+    currentProfile.billing?.currentPeriodEnd === nextProfile.billing?.currentPeriodEnd &&
     currentProfile.subscription.status === nextProfile.subscription.status &&
     currentProfile.subscription.plan === nextProfile.subscription.plan &&
     currentProfile.subscription.startsAt === nextProfile.subscription.startsAt &&
@@ -28,34 +30,15 @@ const areUserProfilesEqual = (currentProfile: UserProfile | null, nextProfile: U
     currentProfile.subscription.canceledAt === nextProfile.subscription.canceledAt &&
     currentProfile.subscription.cancelReason === nextProfile.subscription.cancelReason &&
     currentProfile.subscription.paymentMethodId === nextProfile.subscription.paymentMethodId &&
-    currentProfile.subscriptionExpiresAt === nextProfile.subscriptionExpiresAt &&
-    currentProfile.createdAt === nextProfile.createdAt
+    currentProfile.createdAt === nextProfile.createdAt &&
+    currentProfile.ownerAccess?.enabled === nextProfile.ownerAccess?.enabled &&
+    currentProfile.ownerAccess?.permanent === nextProfile.ownerAccess?.permanent &&
+    currentProfile.manualAccess?.enabled === nextProfile.manualAccess?.enabled &&
+    currentProfile.manualAccess?.expiresAt === nextProfile.manualAccess?.expiresAt &&
+    currentProfile.accessProjection?.allowed === nextProfile.accessProjection?.allowed &&
+    currentProfile.accessProjection?.source === nextProfile.accessProjection?.source &&
+    currentProfile.accessProjection?.validUntil === nextProfile.accessProjection?.validUntil
   );
-};
-
-const getTokenResultWithOfflineFallback = async (firebaseUser: User) => {
-  try {
-    const forceRefresh = typeof navigator === 'undefined' ? true : navigator.onLine;
-    return await Promise.race([
-      getIdTokenResult(firebaseUser, forceRefresh),
-      new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Timeout refreshing auth token (>5s)')), 5000);
-      }),
-    ]);
-  } catch (error) {
-    console.warn('Falha ao atualizar token; usando token local quando disponivel:', error);
-    try {
-      return await Promise.race([
-        getIdTokenResult(firebaseUser),
-        new Promise<never>((_, reject) => {
-          setTimeout(() => reject(new Error('Timeout loading local auth token (>3s)')), 3000);
-        }),
-      ]);
-    } catch (localTokenError) {
-      console.warn('Falha ao carregar token local; seguindo com perfil em cache:', localTokenError);
-      return null;
-    }
-  }
 };
 
 export function useAuthProfile() {
@@ -74,8 +57,6 @@ export function useAuthProfile() {
 
     const loadUserProfile = async (firebaseUser: User, generation: number) => {
       try {
-        const tokenResult = await getTokenResultWithOfflineFallback(firebaseUser);
-        const isAdminClaim = tokenResult?.claims.admin === true;
         const userDoc = doc(db, 'users', firebaseUser.uid);
         const userSnap = await Promise.race([
           getDoc(userDoc),
@@ -101,20 +82,27 @@ export function useAuthProfile() {
             uid: firebaseUser.uid,
             email: firebaseUser.email || '',
             displayName: firebaseUser.displayName || 'Usuário',
-            role: isAdminClaim ? 'admin' : 'user',
-            isActive: isAdminClaim,
+            role: 'user',
+            isActive: false,
             subscription: {
-              status: isAdminClaim ? 'active' : 'inactive',
+              status: 'inactive',
               plan: 'free',
               startsAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
               expiresAt: format(addDays(new Date(), 30), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
               currentPeriodEnd: format(addDays(new Date(), 30), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
               autoRenew: false
             },
-            subscriptionExpiresAt: format(addDays(new Date(), 30), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
             createdAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'")
           };
-          await queueFirestoreVoidWrite(() => setDoc(userDoc, newProfile), 'Criar perfil de usuario');
+          const accessRequest: AccessRequest<ReturnType<typeof serverTimestamp>> = createPendingAccessRequest({
+            uid: firebaseUser.uid,
+            email: firebaseUser.email || '',
+            displayName: firebaseUser.displayName || 'Usuário',
+          }, serverTimestamp());
+          const batch = writeBatch(db);
+          batch.set(userDoc, newProfile);
+          batch.set(doc(db, 'access_requests', firebaseUser.uid), accessRequest);
+          await batch.commit();
           setUserProfile((currentProfile) => {
             if (areUserProfilesEqual(currentProfile, newProfile)) {
               return currentProfile;

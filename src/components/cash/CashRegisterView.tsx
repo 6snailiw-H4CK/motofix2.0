@@ -171,16 +171,24 @@ const formatShortOrderNumber = (orderNumber?: string) => {
   return compact ? `OS ${compact.slice(-6)}` : 'OS';
 };
 
-const getProductStockLabel = (product: ProductCatalogItem) => {
+const getProductStockLabel = (product: ProductCatalogItem, variation?: ProductCatalogVariation) => {
   if (!product.trackStock) return 'Sem controle';
-  const stockQuantity = Number(product.stockQuantity || 0);
+  const stockQuantity = Number(
+    variation && variation.stockQuantity !== undefined
+      ? variation.stockQuantity
+      : product.stockQuantity || 0
+  );
   if (stockQuantity <= 0) return 'Zerado';
   return `${stockQuantity} disp.`;
 };
 
-const getProductStockClass = (product: ProductCatalogItem) => {
+const getProductStockClass = (product: ProductCatalogItem, variation?: ProductCatalogVariation) => {
   if (!product.trackStock) return 'text-slate-500';
-  const stockQuantity = Number(product.stockQuantity || 0);
+  const stockQuantity = Number(
+    variation && variation.stockQuantity !== undefined
+      ? variation.stockQuantity
+      : product.stockQuantity || 0
+  );
   const minStockQuantity = Number(product.minStockQuantity || 0);
   if (stockQuantity <= 0) return 'text-red-300';
   if (minStockQuantity > 0 && stockQuantity <= minStockQuantity) return 'text-amber-200';
@@ -355,7 +363,7 @@ export const CashRegisterView = ({
     const search = normalizeSearch(productSearch.trim());
     const rows = search
       ? expandedRows.filter(({ product, variation }) => {
-        const haystack = normalizeSearch(`${product.sourceCode} ${product.description} ${product.variation || ''} ${variation?.name || ''} ${variation?.salePrice || ''} ${product.ncm} ${product.stockQuantity || 0} ${getProductStockLabel(product)}`);
+        const haystack = normalizeSearch(`${product.sourceCode} ${product.description} ${product.variation || ''} ${variation?.name || ''} ${variation?.salePrice || ''} ${variation?.stockQuantity || 0} ${product.ncm} ${product.stockQuantity || 0} ${getProductStockLabel(product, variation)}`);
         return haystack.includes(search);
       })
       : expandedRows;
@@ -1870,7 +1878,7 @@ export const CashRegisterView = ({
                             <td className="max-w-[360px] px-3 py-2.5 font-bold text-white">{product.description}</td>
                             <td className="px-3 py-2.5 text-slate-400">{variation?.name || product.variation || '-'}</td>
                             <td className="px-3 py-2.5 text-slate-400">{product.ncm || '-'}</td>
-                            <td className={cn('px-3 py-2.5 text-right text-[11px] font-black', getProductStockClass(product))}>{getProductStockLabel(product)}</td>
+                            <td className={cn('px-3 py-2.5 text-right text-[11px] font-black', getProductStockClass(product, variation))}>{getProductStockLabel(product, variation)}</td>
                             <td className="px-3 py-2.5 text-right font-black text-primary">{compactCurrency(parsePositiveMoney(variation?.salePrice ?? product.salePrice))}</td>
                             <td className="px-4 py-2.5 text-right">
                               <button

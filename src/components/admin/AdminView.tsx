@@ -18,7 +18,7 @@ import {
 import { useMemo, useState } from 'react';
 import { DateInput } from '../DateInput';
 import { cn } from '../../lib/utils';
-import type { UserProfile } from '../../types';
+import { isMasterAdminRole, type UserProfile } from '../../types';
 
 type AdminViewProps = {
   users: UserProfile[];
@@ -44,14 +44,16 @@ const formatUserDate = (value?: string | null) => {
 };
 
 const getPlanLabel = (user: UserProfile) => {
-  switch (user.subscription?.plan) {
-    case 'monthly':
-      return 'Mensal';
-    case 'annual':
-      return 'Anual';
-    default:
-      return 'Gratuito';
-  }
+  if (user.accessProjection?.source === 'manual') return 'Acesso manual';
+  if (user.accessProjection?.source === 'none') return 'Sem acesso';
+  return 'Entitlement indisponível';
+};
+
+const getEntitlementSourceLabel = (user: UserProfile) => {
+  if (user.accessProjection?.allowed === false) return 'Sem acesso operacional';
+  if (user.accessProjection?.allowed !== true) return 'Entitlement indisponível';
+  if (user.accessProjection.source === 'manual') return 'Origem: Manual';
+  return 'Origem indisponível';
 };
 
 const getInitials = (name: string) =>
@@ -83,7 +85,9 @@ export const AdminView = ({
     const nextWeek = new Date(today);
     nextWeek.setDate(today.getDate() + 7);
     const upcomingCount = users.filter((user) => {
-      const expiryDate = getSafeDate(user.subscriptionExpiresAt);
+      const expiryDate = user.isActive && user.accessProjection?.allowed === true
+        ? getSafeDate(user.accessProjection.validUntil)
+        : null;
       return expiryDate && !isBefore(expiryDate, today) && !isAfter(expiryDate, nextWeek);
     }).length;
 
@@ -113,8 +117,12 @@ export const AdminView = ({
     return result.sort((a, b) => {
       if (sortBy === 'name') return a.displayName.localeCompare(b.displayName, 'pt-BR');
       if (sortBy === 'expiry') {
-        const aExpiry = getSafeDate(a.subscriptionExpiresAt)?.getTime() ?? Number.MAX_SAFE_INTEGER;
-        const bExpiry = getSafeDate(b.subscriptionExpiresAt)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+        const aExpiry = a.accessProjection?.allowed === true
+          ? getSafeDate(a.accessProjection.validUntil)?.getTime() ?? Number.MAX_SAFE_INTEGER
+          : Number.MAX_SAFE_INTEGER;
+        const bExpiry = b.accessProjection?.allowed === true
+          ? getSafeDate(b.accessProjection.validUntil)?.getTime() ?? Number.MAX_SAFE_INTEGER
+          : Number.MAX_SAFE_INTEGER;
         return aExpiry - bExpiry;
       }
 
@@ -163,7 +171,7 @@ export const AdminView = ({
               <Shield className="h-5 w-5" />
             </span>
             <div>
-              <h2 className="text-2xl font-black tracking-tight text-white sm:text-3xl">Usuários e assinaturas</h2>
+              <h2 className="text-2xl font-black tracking-tight text-white sm:text-3xl">Usuários e acesso</h2>
               <p className="mt-1 text-sm text-slate-400">Gerencie acessos, permissões e vencimentos do sistema.</p>
             </div>
           </div>
@@ -204,9 +212,9 @@ export const AdminView = ({
         />
         <MetricCard
           icon={CalendarDays}
-          label="Assinaturas próximas"
+          label="Acessos próximos"
           value={metrics.upcomingCount}
-          detail="Vencem nos próximos 7 dias"
+          detail="Projeção operacional · próximos 7 dias"
           tone="blue"
         />
       </section>
@@ -218,7 +226,7 @@ export const AdminView = ({
             type="search"
             value={searchQuery}
             onChange={event => updateSearch(event.target.value)}
-            placeholder="Buscar por nome, e-mail ou plano..."
+            placeholder="Buscar por nome, e-mail ou origem..."
             aria-label="Buscar usuários"
             className="w-full rounded-xl border border-slate-700 bg-slate-950/60 py-2.5 pl-10 pr-3 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
           />
@@ -249,6 +257,7 @@ export const AdminView = ({
           >
             <option value="all">Todas as funções</option>
             <option value="admin">Administradores</option>
+            <option value="master_admin">Master Admin</option>
             <option value="user">Usuários</option>
           </select>
           <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
@@ -265,7 +274,7 @@ export const AdminView = ({
             <option value="recent">Mais recentes</option>
             <option value="oldest">Mais antigos</option>
             <option value="name">Nome (A–Z)</option>
-            <option value="expiry">Vencimento próximo</option>
+            <option value="expiry">Acesso vencendo</option>
           </select>
           <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
         </label>
@@ -308,17 +317,21 @@ export const AdminView = ({
               <tr className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                 <th className="px-4 py-3">Usuário</th>
                 <th className="px-3 py-3">Função</th>
-                <th className="px-3 py-3">Plano</th>
-                <th className="px-3 py-3">Status</th>
+                <th className="px-3 py-3">Entitlement</th>
+                <th className="px-3 py-3">Conta</th>
                 <th className="px-3 py-3">Cadastro</th>
-                <th className="px-3 py-3">Vencimento e ações</th>
+                <th className="px-3 py-3">Acesso manual e efetivo</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/80">
               {pageUsers.map((appUser) => {
                 const isCurrentUser = appUser.uid === currentUserId;
-                const expiryDate = getSafeDate(appUser.subscriptionExpiresAt);
-                const isExpired = expiryDate ? isBefore(expiryDate, new Date()) : false;
+                const expiryDate = appUser.manualAccess?.enabled
+                  ? getSafeDate(appUser.manualAccess.expiresAt)
+                  : null;
+                const accessExpiryDate = appUser.accessProjection?.allowed === true
+                  ? getSafeDate(appUser.accessProjection.validUntil)
+                  : null;
 
                 return (
                   <tr key={appUser.uid} className={cn('align-top transition hover:bg-slate-800/35', isCurrentUser && 'bg-slate-800/20')}>
@@ -342,15 +355,15 @@ export const AdminView = ({
                     <td className="px-3 py-3">
                       <span className={cn(
                         'inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold',
-                        appUser.role === 'admin' ? 'bg-amber-500/10 text-amber-300' : 'bg-slate-800 text-slate-300'
+                        isMasterAdminRole(appUser.role) ? 'bg-violet-500/10 text-violet-300' : appUser.role === 'admin' ? 'bg-amber-500/10 text-amber-300' : 'bg-slate-800 text-slate-300'
                       )}>
-                        {appUser.role === 'admin' ? 'Administrador' : 'Usuário'}
+                        {isMasterAdminRole(appUser.role) ? 'Master Admin' : appUser.role === 'admin' ? 'Administrador' : 'Usuário'}
                       </span>
                     </td>
                     <td className="px-3 py-3">
                       <span className="block text-sm font-semibold text-slate-200">{getPlanLabel(appUser)}</span>
                       <span className="mt-0.5 block text-[11px] text-slate-500">
-                        {appUser.subscription?.autoRenew ? 'Renovação automática' : 'Acesso manual'}
+                        {getEntitlementSourceLabel(appUser)}
                       </span>
                     </td>
                     <td className="px-3 py-3">
@@ -375,15 +388,25 @@ export const AdminView = ({
                             onChange={value => {
                               if (value) void onSetSubscriptionDate(appUser.uid, value);
                             }}
-                            aria-label={`Vencimento da assinatura de ${appUser.displayName}`}
+                            aria-label={`Vencimento do acesso manual de ${appUser.displayName}`}
                             disabled={isCurrentUser}
                           />
                           {expiryDate && (
-                            <span className={cn('shrink-0 text-[10px] font-semibold', isExpired ? 'text-red-300' : 'text-emerald-300')}>
-                              {isExpired ? 'Expirou' : 'Ativa'}
+                            <span className="shrink-0 text-[10px] font-semibold text-violet-300">
+                              Manual
                             </span>
                           )}
                         </div>
+                        <span className="text-[10px] text-slate-500">
+                          Acesso efetivo: {!appUser.isActive
+                            ? 'Bloqueado'
+                            : appUser.accessProjection?.allowed === true
+                              ? 'Permitido'
+                              : appUser.accessProjection?.allowed === false
+                                ? 'Bloqueado'
+                                : 'Indisponível'}
+                          {accessExpiryDate ? ` · até ${format(accessExpiryDate, 'dd/MM/yyyy')}` : ''}
+                        </span>
                         <div className="flex flex-wrap items-center gap-1.5">
                           <SubscriptionButton tone="red" title="Remover 30 dias" onClick={() => void onUpdateSubscription(appUser.uid, -30)} disabled={isCurrentUser}>−30d</SubscriptionButton>
                           <SubscriptionButton tone="red" title="Remover 7 dias" onClick={() => void onUpdateSubscription(appUser.uid, -7)} disabled={isCurrentUser}>−7d</SubscriptionButton>

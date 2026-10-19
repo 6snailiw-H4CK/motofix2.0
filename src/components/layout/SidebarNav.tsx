@@ -26,7 +26,7 @@ export type SidebarNavItem = {
   group?: 'primary' | 'tools';
 };
 
-export const getPrimaryNavItems = (isAdmin: boolean, fiscalModuleAvailable: boolean): SidebarNavItem[] => [
+export const getPrimaryNavItems = (isAdmin: boolean, fiscalModuleAvailable: boolean, isMasterAdmin = false): SidebarNavItem[] => [
   {
     id: 'dashboard',
     icon: LayoutDashboard,
@@ -115,8 +115,14 @@ export const getPrimaryNavItems = (isAdmin: boolean, fiscalModuleAvailable: bool
       group: 'tools' as const,
     }]
     : []),
-  ...(isAdmin
+  ...(isMasterAdmin
     ? [{
+      id: 'master-admin' as AppView,
+      icon: ShieldCheck,
+      label: 'Master Admin',
+      match: ['master-admin' as AppView],
+      group: 'tools' as const,
+    }, {
       id: 'admin' as AppView,
       icon: Shield,
       label: 'Admin',
@@ -131,6 +137,7 @@ type SidebarNavProps = {
   currentUserName?: string;
   fiscalModuleAvailable: boolean;
   isAdmin: boolean;
+  isMasterAdmin: boolean;
   view: AppView;
   onViewChange: (view: AppView) => void;
 };
@@ -140,10 +147,11 @@ export const SidebarNav = ({
   currentUserName,
   fiscalModuleAvailable,
   isAdmin,
+  isMasterAdmin,
   view,
   onViewChange,
 }: SidebarNavProps) => {
-  const items = getPrimaryNavItems(isAdmin, fiscalModuleAvailable);
+  const items = getPrimaryNavItems(isAdmin, fiscalModuleAvailable, isMasterAdmin);
   const [isCollapsed, setIsCollapsed] = useState(() => (
     typeof window !== 'undefined' && window.localStorage.getItem('motofix-sidebar-collapsed') === 'true'
   ));

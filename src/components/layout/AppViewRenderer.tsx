@@ -1,22 +1,24 @@
 import { lazy, Suspense, useState, type Dispatch, type SetStateAction } from 'react';
 import { toast as sonnerToast } from 'sonner';
-import type {
-  AppView,
-  Appointment,
-  CashRegisterLaunch,
-  Client,
-  ColorMode,
-  ExpenseRecord,
-  FiscalCompany,
-  FiscalInvoice,
-  FiscalLog,
-  MaintenanceRecord,
-  MessageLog,
-  OperationalLog,
-  ProductCatalogItem,
-  Settings,
-  UserProfile,
-  Warranty,
+import {
+  isAdminRole,
+  isMasterAdminRole,
+  type AppView,
+  type Appointment,
+  type CashRegisterLaunch,
+  type Client,
+  type ColorMode,
+  type ExpenseRecord,
+  type FiscalCompany,
+  type FiscalInvoice,
+  type FiscalLog,
+  type MaintenanceRecord,
+  type MessageLog,
+  type OperationalLog,
+  type ProductCatalogItem,
+  type Settings,
+  type UserProfile,
+  type Warranty,
 } from '../../types';
 import type { OfflineSyncStatus } from '../../hooks/useOfflineSyncStatus';
 import type { useAdminActions } from '../../hooks/useAdminActions';
@@ -40,6 +42,7 @@ import { downloadProductsWorkbook } from '../../services/productSpreadsheet';
 import { systemBackupApi } from '../../services/systemBackupApi';
 
 const AdminView = lazy(() => import('../admin/AdminView').then((module) => ({ default: module.AdminView })));
+const MasterAdminView = lazy(() => import('../admin/MasterAdminView').then((module) => ({ default: module.MasterAdminView })));
 const AppointmentsView = lazy(() => import('../appointments/AppointmentsView').then((module) => ({ default: module.AppointmentsView })));
 const CashRegisterView = lazy(() => import('../cash/CashRegisterView').then((module) => ({ default: module.CashRegisterView })));
 const ClientForm = lazy(() => import('../clients/ClientForm').then((module) => ({ default: module.ClientForm })));
@@ -469,6 +472,7 @@ export const AppViewRenderer = ({
           products={productCatalog}
           isSavingProduct={productActions.isSavingProduct}
           isDeletingProducts={productActions.isDeletingProducts}
+          isZeroingStock={productActions.isZeroingStock}
           isRestoringBackup={productActions.isImportingProducts}
           deletingProductId={productActions.deletingProductId}
           deleteConfirmId={getDeleteConfirmId('product')}
@@ -481,6 +485,7 @@ export const AppViewRenderer = ({
             });
           }}
           onDeleteAllProductsClick={productActions.deleteProducts}
+          onZeroStockClick={productActions.zeroStock}
         />
       );
     }
@@ -589,7 +594,7 @@ export const AppViewRenderer = ({
             setCashLaunchToOpenId(launch.id);
             setView('cash-register');
           }}
-          onOpenGeneralReport={userProfile?.role === 'admin' ? () => setView('general-report') : undefined}
+          onOpenGeneralReport={isAdminRole(userProfile?.role) ? () => setView('general-report') : undefined}
         />
       );
     }
@@ -630,7 +635,7 @@ export const AppViewRenderer = ({
     }
 
     if (view === 'general-report') {
-      if (userProfile?.role !== 'admin') {
+      if (!isAdminRole(userProfile?.role)) {
         return null;
       }
 
@@ -707,7 +712,6 @@ export const AppViewRenderer = ({
           isImportingProducts={productActions.isImportingProducts}
           onResetOperationalData={settingsActions.resetOperationalData}
           isResettingOperationalData={settingsActions.isResettingOperationalData}
-          onOpenCheckout={() => setView('checkout')}
           offlineSyncStatus={offlineSyncStatus}
           operationalLogs={operationalLogs}
         />
@@ -745,15 +749,11 @@ export const AppViewRenderer = ({
 
     if (view === 'checkout') {
       return (
-        <CheckoutScreen
-          userId={currentUserId}
-          userEmail={userEmail ?? ''}
-          onPaymentSuccess={() => setView('dashboard')}
-        />
+        <CheckoutScreen />
       );
     }
 
-        if (view === 'admin' && userProfile?.role === 'admin') {
+        if (view === 'admin' && isMasterAdminRole(userProfile?.role)) {
       return (
         <AdminView
           users={allUsers}
@@ -765,7 +765,11 @@ export const AppViewRenderer = ({
       );
     }
 
-    if (view === 'financial-health' && userProfile?.role === 'admin') {
+    if (view === 'master-admin' && isMasterAdminRole(userProfile?.role)) {
+      return <MasterAdminView currentUserId={currentUserId} />;
+    }
+
+    if (view === 'financial-health' && isAdminRole(userProfile?.role)) {
       return (
         <FinancialHealthView
           maintenances={maintenances}

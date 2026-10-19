@@ -22,6 +22,7 @@ type BottomNavProps = {
   view: AppView;
   fiscalModuleAvailable: boolean;
   isAdmin: boolean;
+  isMasterAdmin: boolean;
   onViewChange: (view: AppView) => void;
 };
 
@@ -38,7 +39,7 @@ type MoreGroup = {
   items: BottomNavItem[];
 };
 
-export const BottomNav = ({ view, fiscalModuleAvailable, isAdmin, onViewChange }: BottomNavProps) => {
+export const BottomNav = ({ view, fiscalModuleAvailable, isAdmin, isMasterAdmin, onViewChange }: BottomNavProps) => {
   const [isMoreOpen, setIsMoreOpen] = useState(false);
 
   const primaryItems: BottomNavItem[] = [
@@ -94,7 +95,8 @@ export const BottomNav = ({ view, fiscalModuleAvailable, isAdmin, onViewChange }
         { id: 'settings', icon: SettingsIcon, label: 'Configuracoes', match: ['settings'], shortLabel: 'Config.' },
         ...(fiscalModuleAvailable ? [{ id: 'fiscal' as AppView, icon: FileText, label: 'Fiscal', match: ['fiscal' as AppView], shortLabel: 'Fiscal' }] : []),
         ...(isAdmin ? [{ id: 'general-report' as AppView, icon: FileText, label: 'Relatorios', match: ['general-report' as AppView, 'financial-health' as AppView], shortLabel: 'Relatorios' }] : []),
-        ...(isAdmin ? [{ id: 'admin' as AppView, icon: Shield, label: 'Admin', match: ['admin' as AppView], shortLabel: 'Admin' }] : []),
+        ...(isMasterAdmin ? [{ id: 'master-admin' as AppView, icon: ShieldCheck, label: 'Master Admin', match: ['master-admin' as AppView], shortLabel: 'Master Admin' }] : []),
+        ...(isMasterAdmin ? [{ id: 'admin' as AppView, icon: Shield, label: 'Admin', match: ['admin' as AppView], shortLabel: 'Admin' }] : []),
       ],
     },
   ];

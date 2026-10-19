@@ -1,5 +1,4 @@
 import { Dispatch, SetStateAction, useEffect, useState } from 'react';
-import { isBefore, parseISO } from 'date-fns';
 import { User } from 'firebase/auth';
 import { collection, doc, onSnapshot, query, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -19,11 +18,14 @@ import {
   OperationalLog,
   ProductCatalogItem,
   Settings,
+  AppView,
   UserProfile,
-  Warranty
+  Warranty,
+  isMasterAdminRole,
 } from '../types';
 import { DEFAULT_SETTINGS } from '../constants/appDefaults';
 import { recordFirestoreListenerCreate, recordFirestoreSnapshot } from '../debug/firestoreDebug';
+import { getMasterAdminUsers } from '../services/masterAdminService';
 
 export type CollectionListenerIssue = {
   key: string;
@@ -36,6 +38,7 @@ type UseUserCollectionsParams = {
   user: User | null;
   userProfile: UserProfile | null;
   isNewUser: boolean | null;
+  view: AppView;
 };
 
 type UseUserCollectionsResult = {
@@ -124,7 +127,8 @@ const mergeCashLaunches = (remoteLaunches: CashRegisterLaunch[]) => {
 export function useUserCollections({
   user,
   userProfile,
-  isNewUser
+  isNewUser,
+  view,
 }: UseUserCollectionsParams): UseUserCollectionsResult {
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
@@ -172,9 +176,92 @@ export function useUserCollections({
   }, [user?.uid, userProfile?.isActive]);
 
   useEffect(() => {
-    const hasExpiredSubscription = userProfile?.subscriptionExpiresAt
-      ? isBefore(parseISO(userProfile.subscriptionExpiresAt), new Date())
-      : false;
+    if (!user?.uid || !isMasterAdminRole(userProfile?.role) || userProfile?.isActive !== true || view !== "admin") {
+      setAllUsers([]);
+      return;
+    }
+
+    let alive = true;
+    let requestInFlight = false;
+    const loadUsers = async () => {
+      if (requestInFlight) return;
+      requestInFlight = true;
+      try {
+        const usersData: UserProfile[] = [];
+        let cursor: string | null = null;
+        do {
+          const page = await getMasterAdminUsers({
+            search: "",
+            status: "all",
+            role: "all",
+            pageSize: 50,
+          }, cursor);
+          usersData.push(...page.users.map((account): UserProfile => ({
+            uid: account.uid,
+            displayName: account.displayName ?? "",
+            email: account.email ?? "",
+            role: account.role ?? "user",
+            isActive: account.isActive,
+            createdAt: account.createdAt ?? "",
+            subscription: {
+              status: "inactive",
+              plan: account.legacyPlan === "monthly" || account.legacyPlan === "annual" ? account.legacyPlan : "free",
+              startsAt: account.createdAt ?? "",
+              expiresAt: "",
+              currentPeriodEnd: account.billingCurrentPeriodEnd ?? "",
+              autoRenew: account.legacyAutoRenew ?? false,
+            },
+            manualAccess: {
+              enabled: account.manualAccessState === "active",
+              expiresAt: account.manualAccessExpiresAt,
+            },
+            accessProjection: {
+              allowed: account.accessAllowed,
+              source: account.entitlementSource,
+              validUntil: account.accessValidUntil,
+            },
+          })));
+          cursor = page.nextCursor;
+        } while (cursor);
+        if (!alive) return;
+        setAllUsers(usersData);
+        setCollectionListenerIssuesByKey((current) => {
+          if (!current.admin_users) return current;
+          const next = { ...current };
+          delete next.admin_users;
+          return next;
+        });
+      } catch (error) {
+        if (!alive) return;
+        console.error("Falha ao consultar perfis administrativos:", error);
+        setAllUsers([]);
+        setCollectionListenerIssuesByKey((current) => ({
+          ...current,
+          admin_users: {
+            key: "admin_users",
+            label: "Usuários administrativos",
+            message: getListenerErrorMessage(error),
+            at: new Date().toISOString(),
+          },
+        }));
+      } finally {
+        requestInFlight = false;
+      }
+    };
+
+    const refresh = () => { void loadUsers(); };
+    refresh();
+    window.addEventListener("motofix:admin-users-changed", refresh);
+    const refreshInterval = window.setInterval(refresh, 60_000);
+    return () => {
+      alive = false;
+      window.removeEventListener("motofix:admin-users-changed", refresh);
+      window.clearInterval(refreshInterval);
+      setAllUsers([]);
+    };
+  }, [user?.uid, userProfile?.isActive, userProfile?.role, view]);
+
+  useEffect(() => {
     const userUid = user?.uid;
     const userRole = userProfile?.role;
     const userIsActive = userProfile?.isActive;
@@ -398,25 +485,6 @@ export function useUserCollections({
       setSettingsLoaded(true);
     });
 
-    let unsubscribeUsers = () => {};
-    if (userRole === 'admin' && userIsActive) {
-      const usersQuery = collection(db, 'users');
-      recordFirestoreListenerCreate('admin_users', { userUid });
-      unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
-        clearListenerIssue('admin_users');
-        recordFirestoreSnapshot('admin_users', { docs: snapshot.docs.length, userUid });
-        const usersData = snapshot.docs.map(doc => doc.data() as UserProfile);
-        setAllUsers(usersData.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
-      }, (error) => {
-        if (error instanceof Error && error.message?.includes('permission')) {
-          clearListenerIssue('admin_users');
-          setAllUsers([]);
-          return;
-        }
-        recordListenerIssue('admin_users', 'Usuarios administrativos', error);
-      });
-    }
-
     const messageLogsQuery = query(collection(db, 'users', userUid, 'message_logs'));
     recordFirestoreListenerCreate('message_logs', { userUid });
     const unsubscribeMessageLogs = onSnapshot(messageLogsQuery, (snapshot) => {
@@ -441,7 +509,6 @@ export function useUserCollections({
       unsubscribeFiscalLogs();
       unsubscribeOperationalLogs();
       unsubscribeSettings();
-      unsubscribeUsers();
       unsubscribeMessageLogs();
     };
   }, [user?.uid, userProfile?.role, userProfile?.isActive, isNewUser]);

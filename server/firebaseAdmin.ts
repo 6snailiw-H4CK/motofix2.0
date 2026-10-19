@@ -3,11 +3,18 @@ import path from "node:path";
 import { applicationDefault, cert, getApps, initializeApp, type App, type ServiceAccount } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
+import { getEffectiveFirestoreProjectId } from "./firestoreProjectIdentity";
+import {
+  explicitServiceAccountIdentity,
+  type FirebaseCredentialIdentity,
+} from "./firebaseCredentialIdentity";
 
 type FirebaseAdminState = {
   app: App | null;
   auth: Auth | null;
   db: Firestore | null;
+  effectiveProjectId: string | null;
+  credentialIdentity: FirebaseCredentialIdentity | null;
   initialized: boolean;
   serviceAccountFilePath: string;
   error: unknown;
@@ -20,10 +27,15 @@ const serviceAccountFilePath = configuredServiceAccountPath
 
 const initializeFirebaseAdmin = (): FirebaseAdminState => {
   try {
-    const app = getApps()[0] || initializeApp({
-      credential: configuredServiceAccountPath
-        ? cert(JSON.parse(fs.readFileSync(serviceAccountFilePath, "utf8")) as ServiceAccount)
-        : applicationDefault(),
+    const existingApp = getApps()[0];
+    const serviceAccount = configuredServiceAccountPath
+      ? JSON.parse(fs.readFileSync(serviceAccountFilePath, "utf8")) as ServiceAccount
+      : null;
+    const credentialIdentity = !existingApp && serviceAccount
+      ? explicitServiceAccountIdentity(serviceAccount)
+      : null;
+    const app = existingApp || initializeApp({
+      credential: serviceAccount ? cert(serviceAccount) : applicationDefault(),
     });
     const db = getFirestore(app);
     db.settings({ ignoreUndefinedProperties: true });
@@ -32,6 +44,8 @@ const initializeFirebaseAdmin = (): FirebaseAdminState => {
       app,
       auth: getAuth(app),
       db,
+      effectiveProjectId: getEffectiveFirestoreProjectId(db),
+      credentialIdentity,
       initialized: true,
       serviceAccountFilePath,
       error: null,
@@ -41,6 +55,8 @@ const initializeFirebaseAdmin = (): FirebaseAdminState => {
       app: null,
       auth: null,
       db: null,
+      effectiveProjectId: null,
+      credentialIdentity: null,
       initialized: false,
       serviceAccountFilePath,
       error,
@@ -53,4 +69,6 @@ export const adminApp = firebaseAdmin.app;
 export const adminAuth = firebaseAdmin.auth;
 export const adminDb = firebaseAdmin.db;
 export const firebaseAdminInitialized = firebaseAdmin.initialized;
+export const firebaseAdminEffectiveProjectId = firebaseAdmin.effectiveProjectId;
+export const firebaseAdminCredentialIdentity = firebaseAdmin.credentialIdentity;
 export const firebaseAdminServiceAccountPath = firebaseAdmin.serviceAccountFilePath;

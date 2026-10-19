@@ -5,7 +5,7 @@ import {
   preloadUserOfflineData,
   shouldPreloadOfflineData,
 } from '../services/offlineDataPreload';
-import { UserProfile } from '../types';
+import { type UserProfile } from '../types';
 import { recordFirestorePreload } from '../debug/firestoreDebug';
 
 type UseOfflineDataPreloadParams = {
@@ -28,10 +28,7 @@ export const useOfflineDataPreload = ({
     if (!force && !shouldPreloadOfflineData(user.uid)) return;
 
     const startedAt = Date.now();
-    preloadPromiseRef.current = preloadUserOfflineData({
-      userId: user.uid,
-      includeAdminUsers: userProfile.role === 'admin' && userProfile.isActive,
-    })
+    preloadPromiseRef.current = preloadUserOfflineData({ userId: user.uid })
       .then((result) => {
         recordFirestorePreload(reason, Date.now() - startedAt, {
           status: result.status,

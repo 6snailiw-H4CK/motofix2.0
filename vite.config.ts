@@ -2,7 +2,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
-import path from 'path';
+import path, { resolve } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 
 const collectBuildAssets = (directory: string, root = directory): string[] => {
@@ -67,6 +67,10 @@ export default defineConfig(() => {
       cssMinify: lowMemoryBuild ? false : undefined,
       reportCompressedSize: !lowMemoryBuild,
       rollupOptions: {
+        input: {
+          main: resolve(__dirname, 'index.html'),
+          masterAdmin: resolve(__dirname, 'master-admin.html'),
+        },
         maxParallelFileOps: lowMemoryBuild ? 1 : undefined,
         output: {
           manualChunks(id) {

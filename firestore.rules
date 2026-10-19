@@ -6,6 +6,23 @@ service cloud.firestore {
       return request.auth != null && request.auth.token != null;
     }
 
+    function validDecisionMetadata(data) {
+      return data is map
+        && data.keys().hasOnly(['plan', 'amount', 'paymentMethod', 'paymentConfirmed', 'reason'])
+        && data.keys().hasAll(['plan', 'amount', 'paymentMethod', 'paymentConfirmed', 'reason'])
+        && data.plan is string
+        && data.plan.size() > 0
+        && data.plan.size() <= 80
+        && data.amount is number
+        && data.amount >= 0
+        && data.amount <= 1000000
+        && data.paymentMethod in ['pix', 'manual', 'none']
+        && data.paymentConfirmed is bool
+        && data.reason is string
+        && data.reason.size() > 0
+        && data.reason.size() <= 500;
+    }
+
     function isOwner(userId) {
       return signedIn() && request.auth.uid == userId;
     }
@@ -16,18 +33,319 @@ service cloud.firestore {
         && request.auth.token.admin == true;
     }
 
+    function hasMasterAdminClaim() {
+      return signedIn()
+        && request.auth.token.keys().hasAny(['master_admin'])
+        && request.auth.token.master_admin == true;
+    }
+
+    function isDesignatedOwner(userId) {
+      return signedIn()
+        && request.auth.uid == userId
+        && userId == 'o5XNtNFwKMQzZj28WfTEiGSFN0A3';
+    }
+
+    function hasPermanentOwnerEntitlement(userId) {
+      let profilePath = /databases/$(database)/documents/users/$(userId);
+      return isDesignatedOwner(userId)
+        && exists(profilePath)
+        && get(profilePath).data.isActive == true
+        && get(profilePath).data.role == 'master_admin'
+        && get(profilePath).data.ownerAccess is map
+        && get(profilePath).data.ownerAccess.enabled == true
+        && get(profilePath).data.ownerAccess.permanent == true;
+    }
+
     function userProfileIsActive(userId) {
       return get(/databases/$(database)/documents/users/$(userId)).data.isActive == true;
     }
 
-    function isAdmin() {
+    function accessProjectionValid(userId) {
+      let profile = get(/databases/$(database)/documents/users/$(userId)).data;
+      return profile.keys().hasAny(['accessProjection'])
+        && profile.accessProjection is map
+        && profile.isActive == true
+        && profile.accessProjection.allowed == true
+        && (
+          (
+            profile.accessProjection.source == 'owner'
+            && hasPermanentOwnerEntitlement(userId)
+            && profile.accessProjection.validUntil == null
+          )
+          || (
+            profile.accessProjection.source == 'manual'
+            && manualAccessEnabled(profile)
+            && manualAccessExpiry(profile) == profile.accessProjection.validUntil
+            && profile.accessProjection.validUntil is timestamp
+            && request.time < profile.accessProjection.validUntil
+          )
+        );
+    }
+
+    function userProfileHasAllowedBillingStatus(userId) {
+      return hasPermanentOwnerEntitlement(userId)
+        || accessProjectionValid(userId);
+    }
+
+    function isWorkshopAdmin() {
       return hasAdminClaim()
         && userProfileIsActive(request.auth.uid)
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
+    function isActiveMasterAdmin() {
+      let profilePath = /databases/$(database)/documents/users/$(request.auth.uid);
+      return hasMasterAdminClaim()
+        && exists(profilePath)
+        && get(profilePath).data.isActive == true
+        && get(profilePath).data.role == 'master_admin';
+    }
+
+    function manualAccessExpiry(profile) {
+      return profile.keys().hasAny(['manualAccess'])
+        && profile.manualAccess is map
+        && profile.manualAccess.keys().hasAny(['expiresAt'])
+        ? profile.manualAccess.expiresAt
+        : null;
+    }
+
+    function manualAccessEnabled(profile) {
+      return profile.keys().hasAny(['manualAccess'])
+        && profile.manualAccess is map
+        && profile.manualAccess.enabled == true;
+    }
+
+    function isValidAccessRequestCreate(userId) {
+      let profileAfter = getAfter(/databases/$(database)/documents/users/$(userId)).data;
+      return request.resource.data.keys().hasOnly([
+          'uid',
+          'email',
+          'displayName',
+          'status',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'uid',
+          'email',
+          'displayName',
+          'status',
+          'createdAt'
+        ])
+        && request.resource.data.uid == userId
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.email is string
+        && request.resource.data.email.size() <= 320
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 120
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt == request.time
+        && profileAfter.uid == userId
+        && profileAfter.email == request.resource.data.email
+        && profileAfter.displayName == request.resource.data.displayName
+        && profileAfter.role == 'user'
+        && profileAfter.isActive == false;
+    }
+
+    function hasValidAccessRequestForProfileCreate(userId) {
+      let requestAfter = getAfter(/databases/$(database)/documents/access_requests/$(userId)).data;
+      return requestAfter.uid == userId
+        && requestAfter.email == request.resource.data.email
+        && requestAfter.displayName == request.resource.data.displayName
+        && requestAfter.status == 'pending';
+    }
+
+    function isValidAccessDecisionTransition(fromStatus, toStatus, beforeExpiry, afterExpiry) {
+      return (fromStatus == 'pending' && toStatus in ['approved', 'blocked'])
+        || (fromStatus == 'approved' && toStatus == 'blocked')
+        || (fromStatus == 'blocked' && toStatus == 'approved')
+        || (fromStatus == 'approved'
+          && toStatus == 'approved'
+          && beforeExpiry is timestamp
+          && afterExpiry is timestamp
+          && beforeExpiry != afterExpiry);
+    }
+
+    function expectedAccessDecisionAction(fromStatus, toStatus) {
+      return fromStatus == 'pending' && toStatus == 'approved'
+        ? 'approved'
+        : fromStatus == 'blocked' && toStatus == 'approved'
+          ? 'released'
+          : fromStatus == 'approved' && toStatus == 'approved'
+            ? 'renewed'
+            : 'blocked';
+    }
+
+    function approvedAccessProfile(profile) {
+      let expiry = manualAccessExpiry(profile);
+      return profile.isActive == true
+        && manualAccessEnabled(profile)
+        && profile.manualAccess.keys().hasOnly(['enabled', 'expiresAt'])
+        && profile.manualAccess.keys().hasAll(['enabled', 'expiresAt'])
+        && expiry is timestamp
+        && request.time < expiry
+        && profile.accessProjection is map
+        && profile.accessProjection.keys().hasOnly([
+          'allowed',
+          'source',
+          'validUntil',
+          'evaluatedAt',
+          'policyVersion',
+          'reason'
+        ])
+        && profile.accessProjection.keys().hasAll([
+          'allowed',
+          'source',
+          'validUntil',
+          'evaluatedAt',
+          'policyVersion',
+          'reason'
+        ])
+        && profile.accessProjection.allowed == true
+        && profile.accessProjection.source == 'manual'
+        && profile.accessProjection.validUntil == expiry
+        && profile.accessProjection.evaluatedAt == request.time
+        && profile.accessProjection.policyVersion == 'access-v1'
+        && profile.accessProjection.reason == 'manual_entitlement';
+    }
+
+    function blockedAccessProfile(profile) {
+      return profile.isActive == false
+        && profile.manualAccess is map
+        && profile.manualAccess.keys().hasOnly(['enabled', 'expiresAt'])
+        && profile.manualAccess.keys().hasAll(['enabled', 'expiresAt'])
+        && profile.manualAccess.enabled == false
+        && profile.manualAccess.expiresAt == null
+        && profile.accessProjection is map
+        && profile.accessProjection.keys().hasOnly([
+          'allowed',
+          'source',
+          'validUntil',
+          'evaluatedAt',
+          'policyVersion',
+          'reason'
+        ])
+        && profile.accessProjection.keys().hasAll([
+          'allowed',
+          'source',
+          'validUntil',
+          'evaluatedAt',
+          'policyVersion',
+          'reason'
+        ])
+        && profile.accessProjection.allowed == false
+        && profile.accessProjection.source == 'none'
+        && profile.accessProjection.validUntil == null
+        && profile.accessProjection.evaluatedAt == request.time
+        && profile.accessProjection.policyVersion == 'access-v1'
+        && profile.accessProjection.reason == 'account_inactive';
+    }
+
+    function validAccessDecisionBundle(userId, auditId) {
+      let requestPath = /databases/$(database)/documents/access_requests/$(userId);
+      let profilePath = /databases/$(database)/documents/users/$(userId);
+      let auditPath = /databases/$(database)/documents/access_decisions/$(auditId);
+      let requestBefore = get(requestPath).data;
+      let requestAfter = getAfter(requestPath).data;
+      let profileBefore = get(profilePath).data;
+      let profileAfter = getAfter(profilePath).data;
+      let auditAfter = getAfter(auditPath).data;
+      let beforeExpiry = manualAccessExpiry(profileBefore);
+      let afterExpiry = manualAccessExpiry(profileAfter);
+      return request.auth.uid != userId
+        && profileBefore.role == 'user'
+        && profileAfter.role == 'user'
+        && requestAfter.uid == userId
+        && requestAfter.email == requestBefore.email
+        && requestAfter.displayName == requestBefore.displayName
+        && requestAfter.createdAt == requestBefore.createdAt
+        && requestAfter.lastAuditId == auditId
+        && validDecisionMetadata(requestAfter.accessDetails)
+        && requestAfter.manualAccessExpiresAt == afterExpiry
+        && (requestAfter.status != 'approved'
+          || (requestAfter.accessDetails.amount > 0
+            && requestAfter.accessDetails.paymentMethod in ['pix', 'manual']
+            && requestAfter.accessDetails.paymentConfirmed == true))
+        && isActiveMasterAdmin()
+        && isValidAccessDecisionTransition(requestBefore.status, requestAfter.status, beforeExpiry, afterExpiry)
+        && (requestAfter.status == 'approved'
+          ? approvedAccessProfile(profileAfter)
+          : blockedAccessProfile(profileAfter))
+        && auditAfter.keys().hasOnly([
+          'actor',
+          'targetUid',
+          'action',
+          'fromStatus',
+          'toStatus',
+          'before',
+          'after',
+          'details',
+          'manualAccessExpiresAt',
+          'createdAt'
+        ])
+        && auditAfter.keys().hasAll([
+          'actor',
+          'targetUid',
+          'action',
+          'fromStatus',
+          'toStatus',
+          'before',
+          'after',
+          'details',
+          'manualAccessExpiresAt',
+          'createdAt'
+        ])
+        && auditAfter.actor == request.auth.uid
+        && auditAfter.targetUid == userId
+        && auditAfter.action == expectedAccessDecisionAction(requestBefore.status, requestAfter.status)
+        && auditAfter.fromStatus == requestBefore.status
+        && auditAfter.toStatus == requestAfter.status
+        && auditAfter.before is map
+        && auditAfter.before.keys().hasOnly(['isActive', 'manualAccessEnabled', 'manualAccessExpiresAt'])
+        && auditAfter.before.keys().hasAll(['isActive', 'manualAccessEnabled', 'manualAccessExpiresAt'])
+        && auditAfter.before.isActive == profileBefore.isActive
+        && auditAfter.before.manualAccessEnabled == manualAccessEnabled(profileBefore)
+        && auditAfter.before.manualAccessExpiresAt == beforeExpiry
+        && auditAfter.after is map
+        && auditAfter.after.keys().hasOnly(['isActive', 'manualAccessEnabled', 'manualAccessExpiresAt'])
+        && auditAfter.after.keys().hasAll(['isActive', 'manualAccessEnabled', 'manualAccessExpiresAt'])
+        && auditAfter.after.isActive == profileAfter.isActive
+        && auditAfter.after.manualAccessEnabled == manualAccessEnabled(profileAfter)
+        && auditAfter.after.manualAccessExpiresAt == afterExpiry
+        && auditAfter.details == requestAfter.accessDetails
+        && auditAfter.manualAccessExpiresAt == requestAfter.manualAccessExpiresAt
+        && auditAfter.createdAt == request.time;
+    }
+
+    function validAccessRequestTransition(userId) {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'lastAuditId', 'manualAccessExpiresAt', 'accessDetails'])
+        && request.resource.data.keys().hasAll(['lastAuditId'])
+        && request.resource.data.lastAuditId is string
+        && request.resource.data.lastAuditId.size() > 0
+        && request.resource.data.lastAuditId.size() <= 128
+        && request.resource.data.lastAuditId.matches('^[A-Za-z0-9_-]+$')
+        && validAccessDecisionBundle(userId, request.resource.data.lastAuditId);
+    }
+
+    function validAccessProfileDecision(userId) {
+      let requestAfter = getAfter(/databases/$(database)/documents/access_requests/$(userId)).data;
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['isActive', 'manualAccess', 'accessProjection', 'updatedAt'])
+        && request.resource.data.updatedAt == request.time
+        && requestAfter.lastAuditId is string
+        && validAccessDecisionBundle(userId, requestAfter.lastAuditId);
+    }
+
+    function validAccessDecisionAuditCreate(userId, auditId) {
+      let requestAfter = getAfter(/databases/$(database)/documents/access_requests/$(userId)).data;
+      return requestAfter.lastAuditId == auditId
+        && validAccessDecisionBundle(userId, auditId);
+    }
+
     function isActiveOwner(userId) {
-      return isOwner(userId) && userProfileIsActive(userId);
+      return isOwner(userId)
+        && userProfileIsActive(userId)
+        && userProfileHasAllowedBillingStatus(userId);
     }
 
     function validUserProfileCreate(userId) {
@@ -43,30 +361,25 @@ service cloud.firestore {
           'createdAt',
           'updatedAt'
         ])
+        && !request.resource.data.keys().hasAny(['accessProjection', 'manualAccess', 'ownerAccess'])
         && request.resource.data.uid == userId
         && request.resource.data.email == request.auth.token.email
-        && request.resource.data.role in ['user', 'admin']
-        && (
-          (request.resource.data.role == 'admin' && hasAdminClaim())
-          || (request.resource.data.role == 'user' && request.resource.data.isActive == false)
-        );
-    }
-
-    function validOwnerAutoDeactivate() {
-      return request.resource.data.diff(resource.data).changedKeys().hasOnly(['isActive'])
-        && resource.data.isActive == true
-        && request.resource.data.isActive == false;
-    }
-
-    // Browser-admin compatibility for the legacy manual migration flow only.
-    // Stripe billing fields are never writable by any browser client.
-    function validAdminManualActivation() {
-      return request.resource.data.diff(resource.data).changedKeys()
-        .hasOnly(['isActive', 'subscriptionExpiresAt', 'updatedAt']);
+        && request.resource.data.role == 'user'
+        && request.resource.data.isActive == false
+        && request.resource.data.subscription.status == 'inactive'
+        && request.resource.data.subscription.plan == 'free'
+        && request.resource.data.subscription.autoRenew == false
+        && hasValidAccessRequestForProfileCreate(userId)
+        && !request.resource.data.subscription.keys().hasAny([
+          'stripeCustomerId',
+          'stripeSubscriptionId',
+          'paymentMethodId'
+        ])
+        && !request.resource.data.keys().hasAny(['billing'])
     }
 
     function canReadUserData(userId) {
-      return isActiveOwner(userId) || isAdmin();
+      return isActiveOwner(userId);
     }
 
     function optionalUserIdMatches(userId) {
@@ -1122,12 +1435,32 @@ service cloud.firestore {
       ];
     }
 
-    match /users/{userId} {
-      allow get: if isOwner(userId) || isAdmin();
-      allow list: if isAdmin();
-      allow create: if validUserProfileCreate(userId) || isAdmin();
-      allow update: if (isAdmin() && validAdminManualActivation()) || (isOwner(userId) && validOwnerAutoDeactivate());
+    match /access_requests/{userId} {
+      allow get: if isActiveMasterAdmin();
+      allow list: if isActiveMasterAdmin();
+      allow create: if signedIn() && isValidAccessRequestCreate(userId);
+      allow update: if isActiveMasterAdmin() && validAccessRequestTransition(userId);
       allow delete: if false;
+    }
+
+    match /access_decisions/{auditId} {
+      allow create: if isActiveMasterAdmin()
+        && request.resource.data.targetUid is string
+        && validAccessDecisionAuditCreate(request.resource.data.targetUid, auditId);
+      allow get, list: if isActiveMasterAdmin();
+      allow update, delete: if false;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow list: if false;
+      allow create: if validUserProfileCreate(userId);
+      allow update: if isActiveMasterAdmin() && validAccessProfileDecision(userId);
+      allow delete: if false;
+    }
+
+    match /system/{document=**} {
+      allow read, write: if false;
     }
 
     match /users/{userId}/fiscal_private/{document=**} {
@@ -1140,64 +1473,60 @@ service cloud.firestore {
 
     match /users/{userId}/clients/{clientId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, clientKeys()) && clientShape(userId));
-      allow update: if isAdmin() || (isActiveOwner(userId) && validOwnerUpdate(userId, clientKeys()) && clientShape(userId));
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, clientKeys()) && clientShape(userId);
+      allow update: if isActiveOwner(userId) && validOwnerUpdate(userId, clientKeys()) && clientShape(userId);
       allow delete: if false;
     }
 
     match /users/{userId}/maintenances/{maintenanceId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, maintenanceKeys()) && maintenanceShape(userId));
-      allow update: if isAdmin() || (isActiveOwner(userId) && validOwnerUpdate(userId, maintenanceKeys()) && maintenanceShape(userId));
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, maintenanceKeys()) && maintenanceShape(userId);
+      allow update: if isActiveOwner(userId) && validOwnerUpdate(userId, maintenanceKeys()) && maintenanceShape(userId);
       allow delete: if false;
     }
 
     match /users/{userId}/warranties/{warrantyId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, warrantyKeys()) && warrantyShape(userId));
-      allow update: if isAdmin() || (isActiveOwner(userId) && validOwnerUpdate(userId, warrantyKeys()) && warrantyShape(userId));
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, warrantyKeys()) && warrantyShape(userId);
+      allow update: if isActiveOwner(userId) && validOwnerUpdate(userId, warrantyKeys()) && warrantyShape(userId);
       allow delete: if false;
     }
 
     match /users/{userId}/appointments/{appointmentId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, appointmentKeys()) && appointmentShape(userId));
-      allow update: if isAdmin() || (isActiveOwner(userId) && validOwnerUpdate(userId, appointmentKeys()) && appointmentShape(userId));
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, appointmentKeys()) && appointmentShape(userId);
+      allow update: if isActiveOwner(userId) && validOwnerUpdate(userId, appointmentKeys()) && appointmentShape(userId);
       allow delete: if false;
     }
 
     match /users/{userId}/expenses/{expenseId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, expenseKeys()) && expenseShape(userId));
-      allow update: if isAdmin() || (isActiveOwner(userId) && validOwnerUpdate(userId, expenseKeys()) && expenseShape(userId));
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, expenseKeys()) && expenseShape(userId);
+      allow update: if isActiveOwner(userId) && validOwnerUpdate(userId, expenseKeys()) && expenseShape(userId);
       allow delete: if false;
     }
 
     match /users/{userId}/products/{productId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, productKeys()) && productShape(userId, productId));
-      allow update: if isAdmin() || (isActiveOwner(userId) && (validOwnerProductStockUpdate(userId) || (validOwnerUpdate(userId, productKeys()) && productShape(userId, productId))));
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, productKeys()) && productShape(userId, productId);
+      allow update: if isActiveOwner(userId) && (validOwnerProductStockUpdate(userId) || (validOwnerUpdate(userId, productKeys()) && productShape(userId, productId)));
       allow delete: if false;
     }
 
     match /users/{userId}/stock_movements/{movementId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerStockMovementCreate(userId));
+      allow create: if isActiveOwner(userId) && validOwnerStockMovementCreate(userId);
       allow update, delete: if false;
     }
 
     match /users/{userId}/cash_launches/{launchId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin()
-        || (
-          isActiveOwner(userId)
-          && request.resource.data.userId == userId
-          && request.resource.data.keys().hasOnly(cashLaunchKeys())
-          && !request.resource.data.keys().hasAny(cashFiscalFields())
-          && cashLaunchShape(userId)
-        );
-      allow update: if isAdmin()
-        || (isActiveOwner(userId) && (
+      allow create: if isActiveOwner(userId)
+        && request.resource.data.userId == userId
+        && request.resource.data.keys().hasOnly(cashLaunchKeys())
+        && !request.resource.data.keys().hasAny(cashFiscalFields())
+        && cashLaunchShape(userId);
+      allow update: if isActiveOwner(userId) && (
           validOwnerSoftDeleteUpdate(userId)
           || validOwnerCashLaunchFinalizedStockPaymentUpdate(userId)
           || validOwnerCashLaunchFinalizedStockUpdate(userId)
@@ -1210,27 +1539,27 @@ service cloud.firestore {
             && !request.resource.data.diff(resource.data).affectedKeys().hasAny(cashFiscalFields())
             && cashLaunchUpdateShape(userId)
           )
-        ));
+        );
       allow delete: if false;
     }
 
     match /users/{userId}/settings/{settingId} {
       allow read: if settingId == 'config' && canReadUserData(userId);
-      allow create: if settingId == 'config' && (isAdmin() || (isActiveOwner(userId) && validSettingsCreate(userId) && settingsShape(userId)));
-      allow update: if settingId == 'config' && (isAdmin() || (isActiveOwner(userId) && validSettingsUpdate(userId) && settingsShape(userId)));
+      allow create: if settingId == 'config' && isActiveOwner(userId) && validSettingsCreate(userId) && settingsShape(userId);
+      allow update: if settingId == 'config' && isActiveOwner(userId) && validSettingsUpdate(userId) && settingsShape(userId);
       allow delete: if false;
     }
 
     match /users/{userId}/message_logs/{messageLogId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, messageLogKeys()) && messageLogShape(userId));
-      allow update: if isAdmin() || (isActiveOwner(userId) && validOwnerUpdate(userId, messageLogKeys()) && messageLogShape(userId));
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, messageLogKeys()) && messageLogShape(userId);
+      allow update: if isActiveOwner(userId) && validOwnerUpdate(userId, messageLogKeys()) && messageLogShape(userId);
       allow delete: if false;
     }
 
     match /users/{userId}/operational_logs/{logId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, operationalLogKeys()) && operationalLogShape(userId));
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, operationalLogKeys()) && operationalLogShape(userId);
       allow update, delete: if false;
     }
 
@@ -1251,8 +1580,8 @@ service cloud.firestore {
 
     match /users/{userId}/whatsapp_automations/{automationId} {
       allow read: if canReadUserData(userId);
-      allow create: if isAdmin() || (isActiveOwner(userId) && validOwnerCreate(userId, whatsappAutomationKeys()) && whatsappAutomationShape(userId));
-      allow update: if isAdmin() || (isActiveOwner(userId) && validOwnerUpdate(userId, whatsappAutomationKeys()) && whatsappAutomationShape(userId));
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, whatsappAutomationKeys()) && whatsappAutomationShape(userId);
+      allow update: if isActiveOwner(userId) && validOwnerUpdate(userId, whatsappAutomationKeys()) && whatsappAutomationShape(userId);
       allow delete: if false;
     }
 

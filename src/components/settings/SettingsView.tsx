@@ -1,5 +1,5 @@
 import { type Dispatch, type KeyboardEvent, type SetStateAction, useEffect, useRef, useState } from 'react';
-import { format, isBefore, parseISO } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import {
   AlertTriangle,
   Building2,
@@ -24,13 +24,12 @@ import {
   Wrench,
   X,
 } from 'lucide-react';
-import { cancelSubscription, createCustomerPortalSession, getSubscriptionStatus, type BillingStatus } from '../../services/stripeService';
 import type { OfflineSyncStatus } from '../../hooks/useOfflineSyncStatus';
 import { APP_VERSION, DEFAULT_SERVICE_TYPES } from '../../constants/appDefaults';
 import { FailedWritesPanel } from './FailedWritesPanel';
 import { canonicalServiceType, getServiceTypeKey, normalizeServiceTypeOptions } from '../../lib/serviceTypes';
 import { cn } from '../../lib/utils';
-import type { ColorMode, OperationalLog, Settings, UserProfile } from '../../types';
+import { isAdminRole, type ColorMode, type OperationalLog, type Settings, type UserProfile } from '../../types';
 
 type SettingsViewProps = {
   userEmail?: string | null;
@@ -53,7 +52,6 @@ type SettingsViewProps = {
   isImportingProducts: boolean;
   onResetOperationalData: () => Promise<boolean> | boolean;
   isResettingOperationalData: boolean;
-  onOpenCheckout: () => void;
   offlineSyncStatus: OfflineSyncStatus;
   operationalLogs: OperationalLog[];
 };
@@ -79,7 +77,6 @@ export const SettingsView = ({
   isImportingProducts,
   onResetOperationalData,
   isResettingOperationalData,
-  onOpenCheckout,
   offlineSyncStatus,
   operationalLogs,
 }: SettingsViewProps) => {
@@ -89,48 +86,16 @@ export const SettingsView = ({
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetConfirmation, setResetConfirmation] = useState('');
   const [resetBackupReady, setResetBackupReady] = useState(false);
-  const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
-  const [isCancelingSubscription, setIsCancelingSubscription] = useState(false);
-  const [billingMessage, setBillingMessage] = useState<string | null>(null);
   const clientImportInputRef = useRef<HTMLInputElement | null>(null);
   const productImportInputRef = useRef<HTMLInputElement | null>(null);
   const fullBackupImportInputRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => {
-    void getSubscriptionStatus().then(setBillingStatus).catch(() => setBillingMessage('Nao foi possivel carregar a assinatura.'));
-  }, []);
-
-  const subscriptionEnd = billingStatus?.currentPeriodEnd || userProfile?.billing?.currentPeriodEnd || userProfile?.subscriptionExpiresAt || null;
-  const subscriptionStatus = billingStatus?.status || userProfile?.billing?.status || userProfile?.subscription?.status || 'inactive';
-  const subscriptionIsActive = subscriptionStatus === 'active' || subscriptionStatus === 'trialing';
-  const subscriptionPrice = typeof billingStatus?.amount === 'number'
-    ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: (billingStatus.currency || 'brl').toUpperCase() }).format(billingStatus.amount / 100)
-    : 'Nao informado';
-  const subscriptionInterval = billingStatus?.interval === 'year' ? 'Anual' : billingStatus?.interval === 'month' ? 'Mensal' : 'Nao informado';
-  const formattedSubscriptionEnd = subscriptionEnd ? format(parseISO(subscriptionEnd), 'dd/MM/yyyy') : 'Nao informado';
-  const remainingDays = subscriptionEnd ? Math.max(0, Math.ceil((parseISO(subscriptionEnd).getTime() - Date.now()) / 86_400_000)) : null;
-
-  const handleCancelSubscription = async () => {
-    if (!subscriptionIsActive || billingStatus?.cancelAtPeriodEnd || isCancelingSubscription) return;
-    const confirmed = window.confirm(`Tem certeza que deseja cancelar sua assinatura?\n\nA assinatura sera cancelada ao final do periodo atual. Seu acesso permanece ativo ate ${formattedSubscriptionEnd}.`);
-    if (!confirmed) return;
-    setIsCancelingSubscription(true);
-    setBillingMessage(null);
-    try {
-      const result = await cancelSubscription();
-      setBillingStatus((current) => ({ ...(current || {}), cancelAtPeriodEnd: result.cancelAtPeriodEnd, currentPeriodEnd: result.currentPeriodEnd, hasActiveSubscription: true }));
-      setBillingMessage(`Cancelamento agendado. Seu acesso permanece disponivel ate ${result.currentPeriodEnd ? format(parseISO(result.currentPeriodEnd), 'dd/MM/yyyy') : formattedSubscriptionEnd}.`);
-    } catch {
-      setBillingMessage('Nao foi possivel agendar o cancelamento.');
-    } finally {
-      setIsCancelingSubscription(false);
-    }
-  };
-
-  const handleOpenCustomerPortal = async () => {
-    const { url } = await createCustomerPortalSession();
-    window.location.assign(url);
-  };
+  const manualAccessExpiry = userProfile?.manualAccess?.expiresAt ?? null;
+  const manualAccessExpiryDate = manualAccessExpiry ? new Date(manualAccessExpiry) : null;
+  const manualAccessCurrent = userProfile?.manualAccess?.enabled === true
+    && !!manualAccessExpiryDate
+    && Number.isFinite(manualAccessExpiryDate.getTime())
+    && manualAccessExpiryDate.getTime() > Date.now();
 
   const updateSettings = (patch: Partial<Settings>) => {
     setSettings((current) => ({ ...current, ...patch }));
@@ -142,9 +107,7 @@ export const SettingsView = ({
   const disabledDefaultKeys = new Set(disabledDefaultServiceTypes.map(getServiceTypeKey));
   const activeDefaultServiceTypes = DEFAULT_SERVICE_TYPES.filter(type => !disabledDefaultKeys.has(getServiceTypeKey(type)));
   const warrantyCategories = settings.warrantyCategories || [];
-  const subscriptionExpiresAt = userProfile?.subscriptionExpiresAt;
-  const subscriptionExpired = subscriptionExpiresAt ? isBefore(parseISO(subscriptionExpiresAt), new Date()) : false;
-  const canResetOperationalData = userProfile?.role === 'admin';
+  const canResetOperationalData = isAdminRole(userProfile?.role);
   const syncStatus = offlineSyncStatus.lastError
     ? { label: 'Falha', icon: AlertTriangle, className: 'border-red-500/30 bg-red-500/10 text-red-200' }
     : !offlineSyncStatus.isOnline
@@ -267,7 +230,7 @@ export const SettingsView = ({
       <header className="flex flex-col gap-3 border-b border-slate-800 pb-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-xl font-bold tracking-tight text-white">Configuracoes</h2>
-          <p className="mt-1 text-xs text-slate-400">Dados da oficina, assinatura e preferencias do sistema.</p>
+          <p className="mt-1 text-xs text-slate-400">Dados da oficina, acesso e preferencias do sistema.</p>
         </div>
         <div className="flex items-center gap-2 self-start sm:self-auto">
           {saveMessage && <span className="text-xs font-medium text-emerald-400">{saveMessage}</span>}
@@ -284,38 +247,19 @@ export const SettingsView = ({
 
       <div className="settings-grid flex w-full flex-col gap-3">
         <section className="settings-subscription order-1 rounded-lg border border-slate-800 bg-slate-900/50 p-4">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div>
-              <div className="flex items-center gap-2">
-                <CreditCard className="h-4 w-4 text-primary" />
-                <p className="text-sm font-semibold text-white">Assinatura</p>
-              </div>
-              <h3 className="mt-2 text-lg font-bold text-white">{billingStatus?.planId === 'pro' ? 'MotoFix Pro' : 'MotoFix Premium'}</h3>
-              <p className="mt-1 text-xs text-slate-400">{billingStatus?.displayName || userProfile?.displayName || 'Usuario MotoFix'}</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={cn('inline-flex h-8 items-center rounded-md border px-3 text-xs font-semibold', subscriptionIsActive ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-200' : 'border-slate-700 bg-slate-950/40 text-slate-300')}>
-                {billingStatus?.cancelAtPeriodEnd ? 'Cancelamento agendado' : subscriptionIsActive ? 'Ativa' : 'Inativa'}
-              </span>
-              <button type="button" onClick={() => void handleOpenCustomerPortal()} className="inline-flex h-8 items-center rounded-md border border-slate-700 px-3 text-xs font-medium text-slate-200 transition hover:bg-slate-800">
-                Gerenciar assinatura
-              </button>
-            </div>
+          <div className="flex items-center gap-2">
+            <CreditCard className="h-4 w-4 text-primary" />
+            <p className="text-sm font-semibold text-white">Acesso MotoFix</p>
           </div>
-          <div className="mt-4 grid gap-3 border-t border-slate-800 pt-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
-            <div><span className="text-slate-500">E-mail</span><p className="mt-1 font-medium text-slate-200">{billingStatus?.email || userEmail || 'Nao informado'}</p></div>
-            <div><span className="text-slate-500">Valor e periodicidade</span><p className="mt-1 font-medium text-slate-200">{subscriptionPrice} / {subscriptionInterval}</p></div>
-            <div><span className="text-slate-500">Proxima cobranca</span><p className="mt-1 font-medium text-slate-200">{formattedSubscriptionEnd}</p></div>
-            <div><span className="text-slate-500">Tempo restante</span><p className="mt-1 font-medium text-slate-200">{remainingDays === null ? 'Nao informado' : `${remainingDays} dia(s)`}</p></div>
-          </div>
-          {billingMessage && <p className="mt-3 rounded-md border border-slate-700 bg-slate-950/35 p-3 text-xs text-slate-200">{billingMessage}</p>}
-          {subscriptionIsActive && !billingStatus?.cancelAtPeriodEnd && (
-            <div className="mt-3 border-t border-slate-800 pt-3">
-              <button type="button" onClick={() => void handleCancelSubscription()} disabled={isCancelingSubscription} className="text-xs font-medium text-slate-400 transition hover:text-red-300 disabled:opacity-50">
-                {isCancelingSubscription ? 'Agendando cancelamento...' : 'Cancelar assinatura'}
-              </button>
-            </div>
-          )}
+          <p className="mt-2 text-sm text-slate-300">
+            {manualAccessCurrent
+              ? `Acesso manual vigente até ${format(manualAccessExpiryDate as Date, 'dd/MM/yyyy')}.`
+              : 'A ativação e a renovação dependem da análise e confirmação manual de um Master Admin.'}
+          </p>
+          <p className="mt-2 text-xs text-slate-500">
+            Pagamentos não são processados pelo aplicativo. O status de billing legado não libera nem revoga o acesso.
+            Para combinar a forma de pagamento, entre em contato com o suporte.
+          </p>
         </section>
 
         <section className="settings-company order-2 rounded-lg border border-slate-800 bg-slate-900/50 p-4">

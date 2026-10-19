@@ -1,7 +1,7 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import type { Auth, DecodedIdToken } from "firebase-admin/auth";
 import type { Firestore } from "firebase-admin/firestore";
-import { getActiveUserProfile } from "../userAccess";
+import { getActiveUserProfile, hasActiveAdminAccess, hasApplicationAccess } from "../userAccess";
 import {
   extractFocusDocumentUrls,
   focusClient,
@@ -140,10 +140,11 @@ const isActiveFiscalUser = async (
   );
   if (!moduleEnabled) return false;
 
+  if (!(await hasApplicationAccess(options.db, decoded))) return false;
   const profile = await getActiveUserProfile(options.db, decoded.uid);
   if (!profile) return false;
 
-  const isAdmin = decoded.admin === true && profile.role === "admin";
+  const isAdmin = await hasActiveAdminAccess(options.db, decoded);
   const allowedEmails = new Set(
     String(process.env.FISCAL_BETA_EMAILS ?? process.env.VITE_FISCAL_BETA_EMAILS ?? "")
       .split(",")

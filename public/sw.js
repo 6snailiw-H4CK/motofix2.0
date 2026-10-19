@@ -132,7 +132,8 @@ self.addEventListener('fetch', (event) => {
   if (isViteDevelopmentRequest) return;
 
   if (request.mode === 'navigate') {
-    event.respondWith(networkFirst(request, '/index.html'));
+    const fallbackUrl = url.pathname === '/master-admin.html' ? '/master-admin.html' : '/index.html';
+    event.respondWith(networkFirst(request, fallbackUrl));
     return;
   }
 

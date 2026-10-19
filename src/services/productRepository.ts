@@ -50,9 +50,13 @@ const sanitizeProduct = (input: ProductCatalogFormInput): ProductCatalogFormInpu
         id: String(variation.id || makeVariationId(name, index)).trim(),
         name,
         salePrice: Number(variation.salePrice || 0),
+        ...(variation.stockQuantity === undefined
+          ? {}
+          : { stockQuantity: normalizeStockQuantity(variation.stockQuantity) }),
       };
     })
     .filter((variation): variation is NonNullable<typeof variation> => Boolean(variation));
+  const trackStock = Boolean(input.trackStock);
 
   return {
     sourceCode: String(input.sourceCode || '').trim(),
@@ -61,13 +65,70 @@ const sanitizeProduct = (input: ProductCatalogFormInput): ProductCatalogFormInpu
     variations,
     ncm: String(input.ncm || '').replace(/\D/g, '').trim(),
     salePrice: Number(input.salePrice || 0),
-    trackStock: Boolean(input.trackStock),
-    stockQuantity: normalizeStockQuantity(input.stockQuantity),
+    trackStock,
+    stockQuantity: trackStock && variations.length > 0 && variations.every((variation) => variation.stockQuantity !== undefined)
+      ? variations.reduce((total, variation) => total + variation.stockQuantity, 0)
+      : normalizeStockQuantity(input.stockQuantity),
     minStockQuantity: normalizeStockQuantity(input.minStockQuantity),
   };
 };
 
+export class ProductStockResetError extends Error {
+  constructor(
+    readonly completedCount: number,
+    readonly originalError: unknown
+  ) {
+    super(
+      completedCount > 0
+        ? `Ocorreu um erro depois de zerar ${completedCount} mercadoria(s).`
+        : 'Nao foi possivel zerar o estoque das mercadorias.'
+    );
+    this.name = 'ProductStockResetError';
+  }
+}
+
 export const productRepository = {
+  async zeroStockMany(userId: string, products: Array<Pick<ProductCatalogItem, 'id' | 'variations'>>) {
+    const uniqueProducts = Array.from(
+      new Map(products.filter((product) => product.id).map((product) => [product.id, product])).values()
+    );
+    let updated = 0;
+
+    for (let start = 0; start < uniqueProducts.length; start += 400) {
+      const batch = writeBatch(db);
+      const chunk = uniqueProducts.slice(start, start + 400);
+      const replayWrites: FirestoreReplayMutation[] = [];
+
+      chunk.forEach((product) => {
+        const data = {
+          stockQuantity: 0,
+          ...(product.variations?.length
+            ? { variations: product.variations.map((variation) => ({ ...variation, stockQuantity: 0 })) }
+            : {}),
+        };
+        batch.update(productDocPath(userId, product.id), data);
+        replayWrites.push({
+          operation: 'update',
+          path: productReplayPath(userId, product.id),
+          data,
+        });
+      });
+
+      try {
+        await queueFirestoreVoidWrite(
+          () => batch.commit(),
+          'Zerar estoque das mercadorias',
+          createFirestoreBatchReplayDescriptor(replayWrites)
+        );
+        updated += chunk.length;
+      } catch (error) {
+        throw new ProductStockResetError(updated, error);
+      }
+    }
+
+    return updated;
+  },
+
   async upsertMany(userId: string, products: ProductWriteData[]) {
     const importedAt = new Date().toISOString();
     let imported = 0;
@@ -87,6 +148,7 @@ export const productRepository = {
           importedAt,
           updatedAt: importedAt,
         };
+
         batch.set(ref, data, { merge: true });
         replayWrites.push({
           operation: 'set',

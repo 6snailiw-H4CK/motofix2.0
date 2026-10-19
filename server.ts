@@ -2,7 +2,6 @@ import "dotenv/config";
 import { createServer as createHttpServer } from "node:http";
 import express from "express";
 import path from "node:path";
-import Stripe from "stripe";
 import { registerBackupRoutes } from "./server/backupRoutes";
 import { registerDataResetRoutes } from "./server/dataResetRoutes";
 import { adminAuth, adminDb, firebaseAdminInitialized, firebaseAdminServiceAccountPath } from "./server/firebaseAdmin";
@@ -10,10 +9,8 @@ import { registerFiscalRoutes } from "./server/fiscal/fiscalRoutes";
 import { registerWhatsAppRoutes } from "./server/whatsapp/whatsappRoutes";
 import { startWhatsAppScheduler } from "./server/whatsappRemindersService";
 import { startAutomaticBackupScheduler } from "./server/automaticBackup";
-import { registerStripeBillingRoutes } from "./server/stripeBilling";
 import { apiNotFound, bodyParser, cors, errorHandler, rateLimit, requestId, securityHeaders, scopedRateLimit } from "./server/httpSecurity";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", { apiVersion: "2024-04-10" });
 const db = adminDb;
 const firebaseInitialized = firebaseAdminInitialized;
 if (!firebaseInitialized) {
@@ -47,11 +44,8 @@ async function startServer() {
   app.use("/api/fiscal/companies", scopedRateLimit({ name: "fiscal-company-write", windowMs: 10 * 60_000, maxRequests: intEnv("FISCAL_COMPANY_WRITE_RATE_LIMIT_PER_10_MINUTES", 20), skip: (req) => req.method === "GET" }));
   app.use("/api/fiscal/companies/:companyId/certificate", scopedRateLimit({ name: "fiscal-certificate", windowMs: 15 * 60_000, maxRequests: intEnv("FISCAL_CERTIFICATE_RATE_LIMIT_PER_15_MINUTES", 3) }));
   app.use("/api/fiscal/nfse", scopedRateLimit({ name: "fiscal-nfse", windowMs: 5 * 60_000, maxRequests: intEnv("FISCAL_NFSE_RATE_LIMIT_PER_5_MINUTES", 12) }));
-  app.use("/api/stripe/create-checkout-session", scopedRateLimit({ name: "stripe-checkout", windowMs: 15 * 60_000, maxRequests: intEnv("PAYMENTS_CHECKOUT_RATE_LIMIT_PER_15_MINUTES", 10) }));
   app.use("/api/data-reset/operational", scopedRateLimit({ name: "data-reset-operational", windowMs: 60 * 60_000, maxRequests: intEnv("DATA_RESET_RATE_LIMIT_PER_HOUR", 3) }));
   app.use("/api/backup/full", scopedRateLimit({ name: "backup-full", windowMs: 60 * 60_000, maxRequests: intEnv("BACKUP_FULL_RATE_LIMIT_PER_HOUR", 12) }));
-  // Register Stripe before JSON parsing so signature verification receives exact bytes.
-  registerStripeBillingRoutes(app, { stripe, db, auth: adminAuth, firebaseInitialized });
   app.use(bodyParser);
   app.use(express.urlencoded({ extended: false, limit: "64kb", parameterLimit: 100 }));
   app.get("/api/health", (_req, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));

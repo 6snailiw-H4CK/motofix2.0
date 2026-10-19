@@ -7,6 +7,7 @@ type ProductsViewProps = {
   products: ProductCatalogItem[];
   isSavingProduct: boolean;
   isDeletingProducts: boolean;
+  isZeroingStock: boolean;
   isRestoringBackup: boolean;
   deletingProductId?: string | null;
   deleteConfirmId?: string | null;
@@ -15,6 +16,7 @@ type ProductsViewProps = {
   onSaveProduct: (input: ProductCatalogFormInput, productId?: string) => Promise<boolean> | boolean;
   onDeleteProductClick: (product: ProductCatalogItem) => void;
   onDeleteAllProductsClick: (productIds: string[]) => Promise<boolean> | boolean;
+  onZeroStockClick: (products: Array<Pick<ProductCatalogItem, 'id' | 'variations'>>) => Promise<boolean> | boolean;
 };
 
 const currency = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -34,7 +36,7 @@ const emptyForm: ProductCatalogFormInput = {
   salePrice: 0,
   stockQuantity: 0,
   minStockQuantity: 0,
-  trackStock: false,
+  trackStock: true,
 };
 
 const parseMoney = (value: string) => {
@@ -95,6 +97,7 @@ export const ProductsView = ({
   products,
   isSavingProduct,
   isDeletingProducts,
+  isZeroingStock,
   isRestoringBackup,
   deletingProductId,
   deleteConfirmId,
@@ -103,6 +106,7 @@ export const ProductsView = ({
   onSaveProduct,
   onDeleteProductClick,
   onDeleteAllProductsClick,
+  onZeroStockClick,
 }: ProductsViewProps) => {
   const backupImportInputRef = useRef<HTMLInputElement>(null);
   const [isBackupMenuOpen, setIsBackupMenuOpen] = useState(false);
@@ -119,7 +123,10 @@ export const ProductsView = ({
   const [isVariationFormOpen, setIsVariationFormOpen] = useState(false);
   const [variationName, setVariationName] = useState('');
   const [variationPriceInput, setVariationPriceInput] = useState('');
+  const [variationStockInput, setVariationStockInput] = useState('');
+  const [variationPriceInputs, setVariationPriceInputs] = useState<Record<string, string>>({});
   const [isDeleteAllConfirming, setIsDeleteAllConfirming] = useState(false);
+  const [isZeroStockConfirming, setIsZeroStockConfirming] = useState(false);
   const [isNcmPickerOpen, setIsNcmPickerOpen] = useState(false);
   const [ncmQuery, setNcmQuery] = useState('');
   const [visibleLimit, setVisibleLimit] = useState(INITIAL_VISIBLE_PRODUCTS);
@@ -210,7 +217,14 @@ export const ProductsView = ({
       lowStockCount: lowStockProducts.length,
       outOfStockCount: lowStockProducts.filter((product) => Number(product.stockQuantity || 0) <= 0).length,
       estimatedSaleValue: controlledProducts.reduce(
-        (sum, product) => sum + Number(product.salePrice || 0) * Number(product.stockQuantity || 0),
+        (sum, product) => sum + (
+          product.variations?.length && product.variations.every((variation) => variation.stockQuantity !== undefined)
+            ? product.variations.reduce(
+              (variationSum, variation) => variationSum + Number(variation.salePrice || 0) * Number(variation.stockQuantity || 0),
+              0
+            )
+            : Number(product.salePrice || 0) * Number(product.stockQuantity || 0)
+        ),
         0
       ),
     };
@@ -277,6 +291,7 @@ export const ProductsView = ({
   const resetVariationDraft = () => {
     setVariationName('');
     setVariationPriceInput('');
+    setVariationStockInput('');
     setIsVariationFormOpen(false);
   };
 
@@ -286,6 +301,7 @@ export const ProductsView = ({
     setSalePriceInput('');
     setStockQuantityInput('');
     setMinStockQuantityInput('');
+    setVariationPriceInputs({});
     resetVariationDraft();
     setIsDeleteAllConfirming(false);
   };
@@ -315,8 +331,16 @@ export const ProductsView = ({
     const variations = product.variations?.length
       ? product.variations
       : product.variation
-        ? [{ id: makeVariationId(product.variation), name: product.variation, salePrice: Number(product.salePrice || 0) }]
+        ? [{
+          id: makeVariationId(product.variation),
+          name: product.variation,
+          salePrice: Number(product.salePrice || 0),
+          stockQuantity: Number(product.stockQuantity || 0),
+        }]
         : [];
+    const variationStockTotal = variations.every((variation) => variation.stockQuantity !== undefined)
+      ? variations.reduce((sum, variation) => sum + Number(variation.stockQuantity || 0), 0)
+      : Number(product.stockQuantity || 0);
 
     setEditingProductId(product.id);
     setForm({
@@ -326,16 +350,20 @@ export const ProductsView = ({
       variations,
       ncm: product.ncm || '',
       salePrice: Number(product.salePrice || 0),
-      trackStock: Boolean(product.trackStock),
-      stockQuantity: Number(product.stockQuantity || 0),
+      trackStock: true,
+      stockQuantity: variations.length ? variationStockTotal : Number(product.stockQuantity || 0),
       minStockQuantity: Number(product.minStockQuantity || 0),
     });
+    setVariationPriceInputs(Object.fromEntries(
+      variations.map((variation) => [variation.id, formatMoneyInput(Number(variation.salePrice || 0))])
+    ));
     setSalePriceInput(formatMoneyInput(Number(product.salePrice || 0)));
-    setStockQuantityInput(formatStockInput(product.stockQuantity));
+    setStockQuantityInput(formatStockInput(variations.length ? variationStockTotal : product.stockQuantity));
     setMinStockQuantityInput(formatStockInput(product.minStockQuantity));
     setIsVariationFormOpen(false);
     setVariationName('');
     setVariationPriceInput('');
+    setVariationStockInput('');
     setIsProductFormOpen(true);
   };
 
@@ -347,16 +375,49 @@ export const ProductsView = ({
       id: `${makeVariationId(name)}-${Date.now().toString(36)}`,
       name,
       salePrice: parseMoney(variationPriceInput),
+      stockQuantity: variationStockInput.trim()
+        ? parseStockInput(variationStockInput)
+        : (form.variations || []).length === 0
+          ? parseStockInput(stockQuantityInput)
+          : 0,
     };
 
-    updateForm({ variations: [...(form.variations || []), newVariation] });
+    const variations = [...(form.variations || []), newVariation];
+    const stockTotal = variations.reduce((sum, variation) => sum + Number(variation.stockQuantity || 0), 0);
+    updateForm({ variations, stockQuantity: stockTotal });
+    setStockQuantityInput(formatStockInput(stockTotal));
     setVariationName('');
     setVariationPriceInput('');
+    setVariationStockInput('');
     setIsVariationFormOpen(false);
   };
 
   const removeVariation = (variationId: string) => {
-    updateForm({ variations: (form.variations || []).filter((variation) => variation.id !== variationId) });
+    const variations = (form.variations || []).filter((variation) => variation.id !== variationId);
+    setVariationPriceInputs((current) => {
+      const next = { ...current };
+      delete next[variationId];
+      return next;
+    });
+    const stockQuantity = variations.every((variation) => variation.stockQuantity !== undefined)
+      ? variations.reduce((sum, variation) => sum + Number(variation.stockQuantity || 0), 0)
+      : parseStockInput(stockQuantityInput);
+    updateForm({
+      variations,
+      stockQuantity,
+    });
+    setStockQuantityInput(formatStockInput(stockQuantity));
+  };
+
+  const updateVariationStock = (variationId: string, stockQuantity: number) => {
+    const variations = (form.variations || []).map((variation) => (
+      { ...variation, stockQuantity: variation.id === variationId ? stockQuantity : Number(variation.stockQuantity || 0) }
+    ));
+    updateForm({
+      variations,
+      stockQuantity: variations.reduce((sum, variation) => sum + Number(variation.stockQuantity || 0), 0),
+    });
+    setStockQuantityInput(formatStockInput(variations.reduce((sum, variation) => sum + Number(variation.stockQuantity || 0), 0)));
   };
 
   const handleSave = async () => {
@@ -384,6 +445,20 @@ export const ProductsView = ({
     if (deleted) {
       closeProductForm();
       setSearch('');
+    }
+  };
+
+  const handleZeroStock = async () => {
+    if (products.length === 0 || isZeroingStock) return;
+    if (!isZeroStockConfirming) {
+      setIsZeroStockConfirming(true);
+      return;
+    }
+
+    const completed = await onZeroStockClick(products);
+    if (completed) {
+      setIsZeroStockConfirming(false);
+      setIsBackupMenuOpen(false);
     }
   };
 
@@ -467,6 +542,42 @@ export const ProductsView = ({
                   <Trash2 className="h-4 w-4" />
                   {isDeletingProducts ? 'Apagando...' : isDeleteAllConfirming ? 'Confirmar apagar' : 'Apagar importadas'}
                 </button>
+                {!isZeroStockConfirming ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => setIsZeroStockConfirming(true)}
+                    disabled={products.length === 0 || isZeroingStock}
+                    className="inline-flex items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-bold text-amber-300 transition hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Boxes className="h-4 w-4" />
+                    Zerar estoque
+                  </button>
+                ) : (
+                  <div className="grid gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                    <p className="text-xs leading-relaxed text-amber-100">
+                      Zerar o estoque de {products.length} mercadoria(s) ativa(s)? Os precos e os demais dados serao mantidos.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleZeroStock()}
+                        disabled={isZeroingStock || products.length === 0}
+                        className="flex-1 rounded-lg bg-amber-500 px-3 py-2 text-xs font-black text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isZeroingStock ? 'Zerando...' : 'Confirmar'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsZeroStockConfirming(false)}
+                        disabled={isZeroingStock}
+                        className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -495,14 +606,22 @@ export const ProductsView = ({
           role="dialog"
           aria-modal="true"
           aria-labelledby="product-form-title"
-          className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-4 shadow-2xl shadow-black sm:p-6"
+          className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black"
         >
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className={labelClass}>{editingProductId ? 'Editando mercadoria' : 'Nova mercadoria'}</p>
-              <h3 id="product-form-title" className="mt-1 text-xl font-black text-white">
-                {selectedProduct?.description || 'Cadastro rapido'}
-              </h3>
+          <header className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-700/70 px-4 py-4 sm:px-6">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl border border-primary/30 bg-primary/10 text-primary">
+                <Boxes className="h-6 w-6" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-[0.24em] text-primary">
+                  {editingProductId ? 'Editando mercadoria' : 'Nova mercadoria'}
+                </p>
+                <h3 id="product-form-title" className="truncate text-lg font-black text-white sm:text-xl">
+                  {form.description || 'Cadastro de mercadoria'}
+                </h3>
+                <p className="hidden text-xs text-slate-400 sm:block">Codigo, NCM, descricao e informacoes gerais do produto.</p>
+              </div>
             </div>
             <button
               type="button"
@@ -514,176 +633,293 @@ export const ProductsView = ({
             >
               <X className="h-4 w-4" />
             </button>
-          </div>
+          </header>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <label className="space-y-1">
-              <span className={labelClass}>Codigo</span>
-              <input
-                value={form.sourceCode}
-                onChange={(event) => updateForm({ sourceCode: event.target.value })}
-                className={inputClass}
-                placeholder="Ex: 163"
-              />
-            </label>
-            <div className="space-y-1">
-              <span className={labelClass}>NCM</span>
-              <div className="flex gap-2">
-                <input
-                  value={form.ncm}
-                  readOnly
-                  className={cn(inputClass, 'min-w-0')}
-                  placeholder="Nenhum NCM selecionado"
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setNcmQuery('');
-                    setIsNcmPickerOpen(true);
-                  }}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-primary/40 bg-primary/10 px-3 py-2.5 text-xs font-black text-primary transition hover:bg-primary hover:text-white"
-                >
-                  <Search className="h-4 w-4" />
-                  Pesquisar
-                </button>
-              </div>
-            </div>
-            <label className="space-y-1 sm:col-span-2">
-              <span className={labelClass}>Descricao</span>
-              <textarea
-                value={form.description}
-                onChange={(event) => updateForm({ description: event.target.value })}
-                className={cn(inputClass, 'min-h-24 resize-none')}
-                placeholder="Nome da mercadoria"
-              />
-            </label>
-            <label className="space-y-1">
-              <span className={labelClass}>Venda R$</span>
-              <input
-                value={salePriceInput}
-                onChange={(event) => setSalePriceInput(event.target.value)}
-                className={inputClass}
-                inputMode="decimal"
-                placeholder="0,00"
-              />
-            </label>
-            <label className="flex items-center gap-3 rounded-xl border border-slate-700/70 bg-slate-950/45 px-3 py-2.5">
-              <input
-                type="checkbox"
-                checked={Boolean(form.trackStock)}
-                onChange={(event) => updateForm({ trackStock: event.target.checked })}
-                className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-primary focus:ring-primary"
-              />
-              <span>
-                <span className="block text-sm font-black text-white">Controlar estoque</span>
-                <span className="text-[11px] font-bold text-slate-500">Baixa automatica ao finalizar O.S.</span>
-              </span>
-            </label>
-            <label className="space-y-1">
-              <span className={labelClass}>Estoque atual</span>
-              <input
-                value={stockQuantityInput}
-                onChange={(event) => setStockQuantityInput(event.target.value)}
-                disabled={!form.trackStock}
-                className={cn(inputClass, !form.trackStock && 'cursor-not-allowed opacity-50')}
-                inputMode="numeric"
-                placeholder="0"
-              />
-            </label>
-            <label className="space-y-1">
-              <span className={labelClass}>Estoque minimo</span>
-              <input
-                value={minStockQuantityInput}
-                onChange={(event) => setMinStockQuantityInput(event.target.value)}
-                disabled={!form.trackStock}
-                className={cn(inputClass, !form.trackStock && 'cursor-not-allowed opacity-50')}
-                inputMode="numeric"
-                placeholder="0"
-              />
-            </label>
-            <div className="space-y-2 sm:col-span-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className={labelClass}>Variacoes</span>
-                <button
-                  type="button"
-                  onClick={() => setIsVariationFormOpen((current) => !current)}
-                  className="inline-flex items-center gap-2 rounded-xl border border-primary/40 bg-primary/10 px-3 py-2 text-xs font-black text-primary transition hover:bg-primary hover:text-white"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Variacao
-                </button>
-              </div>
+          <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">
+            <div className="grid gap-3 lg:grid-cols-[1.15fr_1fr]">
+              <section className="space-y-5 rounded-xl border border-slate-700/70 bg-slate-950/20 p-4 sm:p-5">
+                <div>
+                  <h4 className="flex items-center gap-2 text-sm font-black text-white">
+                    <span className="h-4 w-1 rounded-full bg-primary" />
+                    Informacoes basicas
+                  </h4>
+                  <div className="mt-4 space-y-3">
+                    <label className="block space-y-1">
+                      <span className={labelClass}>Codigo</span>
+                      <input
+                        value={form.sourceCode}
+                        onChange={(event) => updateForm({ sourceCode: event.target.value })}
+                        className={inputClass}
+                        placeholder="Ex: 163"
+                      />
+                    </label>
+                    <div className="space-y-1">
+                      <span className={labelClass}>NCM</span>
+                      <div className="flex gap-2">
+                        <input
+                          value={form.ncm}
+                          readOnly
+                          className={cn(inputClass, 'min-w-0')}
+                          placeholder="Nenhum NCM selecionado"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNcmQuery('');
+                            setIsNcmPickerOpen(true);
+                          }}
+                          className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-primary/40 bg-primary/10 px-3 py-2.5 text-xs font-black text-primary transition hover:bg-primary hover:text-white"
+                        >
+                          <Search className="h-4 w-4" />
+                          Pesquisar
+                        </button>
+                      </div>
+                    </div>
+                    <label className="block space-y-1">
+                      <span className={labelClass}>Descricao</span>
+                      <textarea
+                        value={form.description}
+                        onChange={(event) => updateForm({ description: event.target.value })}
+                        className={cn(inputClass, 'min-h-28 resize-y')}
+                        placeholder="Nome da mercadoria"
+                      />
+                    </label>
+                    {!(form.variations || []).length && (
+                      <label className="block space-y-1">
+                        <span className={labelClass}>Venda padrao (R$)</span>
+                        <input
+                          value={salePriceInput}
+                          onChange={(event) => setSalePriceInput(event.target.value)}
+                          className={inputClass}
+                          inputMode="decimal"
+                          placeholder="0,00"
+                        />
+                      </label>
+                    )}
+                  </div>
+                </div>
 
-              {isVariationFormOpen && (
-                <div className="grid gap-2 rounded-2xl border border-primary/30 bg-primary/5 p-3 sm:grid-cols-[1fr_0.55fr_auto]">
-                  <input
-                    value={variationName}
-                    onChange={(event) => setVariationName(event.target.value)}
-                    className={inputClass}
-                    placeholder="Ex: SIMPLES"
-                  />
-                  <input
-                    value={variationPriceInput}
-                    onChange={(event) => setVariationPriceInput(event.target.value)}
-                    className={inputClass}
-                    inputMode="decimal"
-                    placeholder="Valor: 110,00"
-                  />
+                <div className="border-t border-slate-700/60 pt-4">
+                  <h4 className="flex items-center gap-2 text-sm font-black text-white">
+                    <span className="h-4 w-1 rounded-full bg-primary" />
+                    Estoque
+                  </h4>
+                  <div className="mt-3 grid grid-cols-2 gap-2.5">
+                    <label className="min-w-0 space-y-1.5 rounded-xl border border-sky-500/30 bg-sky-500/[0.05] p-3">
+                      <span className={labelClass}>
+                        {(form.variations || []).length ? 'Estoque total' : 'Quantidade em estoque'}
+                      </span>
+                      {(form.variations || []).length ? (
+                        <div className="flex h-[42px] items-center gap-2 rounded-xl border border-slate-700/70 bg-slate-950/50 px-3">
+                          <Boxes className="h-4 w-4 shrink-0 text-sky-400" />
+                          <span className="text-lg font-black tabular-nums text-white">
+                            {form.trackStock ? parseStockInput(stockQuantityInput) : 0}
+                          </span>
+                          <span className="truncate text-[10px] text-slate-500">unidades</span>
+                        </div>
+                      ) : (
+                        <input
+                          value={stockQuantityInput}
+                          onChange={(event) => setStockQuantityInput(event.target.value)}
+                          disabled={!form.trackStock}
+                          className={cn(inputClass, 'py-2', !form.trackStock && 'cursor-not-allowed opacity-50')}
+                          inputMode="numeric"
+                          placeholder="0"
+                        />
+                      )}
+                    </label>
+                    <label className="min-w-0 space-y-1.5 rounded-xl border border-primary/30 bg-primary/[0.05] p-3">
+                      <span className={labelClass}>Estoque minimo</span>
+                      <input
+                        value={minStockQuantityInput}
+                        onChange={(event) => setMinStockQuantityInput(event.target.value)}
+                        disabled={!form.trackStock}
+                        className={cn(inputClass, 'py-2', !form.trackStock && 'cursor-not-allowed opacity-50')}
+                        inputMode="numeric"
+                        placeholder="0"
+                      />
+                    </label>
+                  </div>
+                  <label className="mt-2.5 flex cursor-pointer items-center gap-2.5 rounded-xl border border-slate-700/70 bg-slate-950/45 px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(form.trackStock)}
+                      onChange={(event) => updateForm({ trackStock: event.target.checked })}
+                      className="h-4 w-4 rounded border-slate-600 bg-slate-950 text-primary focus:ring-primary"
+                    />
+                    <span>
+                      <span className="block text-sm font-black text-white">Controlar estoque</span>
+                    <span className="text-[11px] font-bold text-slate-500">Baixa automatica ao finalizar O.S.</span>
+                    </span>
+                  </label>
+                </div>
+              </section>
+
+              <section className="flex min-h-[22rem] flex-col rounded-xl border border-slate-700/70 bg-slate-950/20 p-4 sm:p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h4 className="flex items-center gap-2 text-sm font-black text-white">
+                      <span className="grid h-8 w-8 place-items-center rounded-lg border border-primary/30 bg-primary/10 text-primary">
+                        <Boxes className="h-4 w-4" />
+                      </span>
+                      Variacoes
+                    </h4>
+                    <p className="mt-1 text-[11px] text-slate-400">Adicione nomes, precos e quantidades por variacao.</p>
+                  </div>
                   <button
                     type="button"
-                    onClick={addVariation}
-                    disabled={!variationName.trim()}
-                    className="rounded-xl bg-primary px-4 py-2.5 text-xs font-black text-white shadow-lg shadow-primary/20 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => setIsVariationFormOpen((current) => !current)}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-black text-white transition hover:bg-primary/90"
                   >
-                    Adicionar
+                    <Plus className="h-3.5 w-3.5" />
+                    Nova variacao
                   </button>
                 </div>
-              )}
 
-              {(form.variations || []).length > 0 && (
-                <div className="space-y-2">
-                  {(form.variations || []).map((variation) => (
-                    <div
-                      key={variation.id}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-slate-700/60 bg-slate-950/50 px-3 py-2"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-black text-white">{variation.name}</p>
-                        <p className="text-xs font-bold text-primary">{currency.format(Number(variation.salePrice || 0))}</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => removeVariation(variation.id)}
-                        className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-red-500/10 text-red-300 transition hover:bg-red-500/20"
-                        title="Remover variacao"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                {isVariationFormOpen && (
+                  <div className="mt-4 rounded-xl border border-primary/40 bg-primary/[0.06] p-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="space-y-1 sm:col-span-2">
+                        <span className={labelClass}>Nome da variacao</span>
+                        <input
+                          value={variationName}
+                          onChange={(event) => setVariationName(event.target.value)}
+                          className={inputClass}
+                          placeholder="Ex: tamanho, cor ou modelo"
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className={labelClass}>Valor de venda (R$)</span>
+                        <input
+                          value={variationPriceInput}
+                          onChange={(event) => setVariationPriceInput(event.target.value)}
+                          className={inputClass}
+                          inputMode="decimal"
+                          placeholder="0,00"
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className={labelClass}>Quantidade</span>
+                        <input
+                          value={variationStockInput}
+                          onChange={(event) => setVariationStockInput(event.target.value)}
+                          disabled={!form.trackStock}
+                          className={cn(inputClass, !form.trackStock && 'cursor-not-allowed opacity-50')}
+                          inputMode="numeric"
+                          placeholder="0"
+                        />
+                      </label>
                     </div>
-                  ))}
-                </div>
-              )}
+                    <button
+                      type="button"
+                      onClick={addVariation}
+                      disabled={!variationName.trim()}
+                      className="mt-3 w-full rounded-xl bg-primary px-4 py-2.5 text-xs font-black text-white shadow-lg shadow-primary/20 transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Adicionar variacao
+                    </button>
+                  </div>
+                )}
+
+                {(form.variations || []).length > 0 ? (
+                  <div className="mt-4 space-y-3">
+                    {(form.variations || []).map((variation) => (
+                      <div key={variation.id} className="rounded-xl border border-primary/50 bg-slate-900/70 p-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <label className="min-w-0 flex-1 space-y-1">
+                            <span className={labelClass}>Nome / fornecedor</span>
+                            <input
+                              value={variation.name}
+                              onChange={(event) => updateForm({
+                                variations: (form.variations || []).map((item) => (
+                                  item.id === variation.id ? { ...item, name: event.target.value } : item
+                                )),
+                              })}
+                              className={inputClass}
+                              aria-label="Nome da variacao"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => removeVariation(variation.id)}
+                            className="mt-5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-red-500/10 text-red-300 transition hover:bg-red-500/20"
+                            title="Remover variacao"
+                            aria-label={`Remover variacao ${variation.name}`}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <label className="space-y-1">
+                            <span className={labelClass}>Valor de venda (R$)</span>
+                            <input
+                              value={variationPriceInputs[variation.id] ?? formatMoneyInput(Number(variation.salePrice || 0))}
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                setVariationPriceInputs((current) => ({ ...current, [variation.id]: value }));
+                                updateForm({
+                                  variations: (form.variations || []).map((item) => (
+                                    item.id === variation.id ? { ...item, salePrice: parseMoney(value) } : item
+                                  )),
+                                });
+                              }}
+                              className={inputClass}
+                              inputMode="decimal"
+                            />
+                          </label>
+                          <label className="space-y-1">
+                            <span className={labelClass}>Quantidade</span>
+                            <input
+                              value={formatStockInput(variation.stockQuantity)}
+                              onChange={(event) => updateVariationStock(variation.id, parseStockInput(event.target.value))}
+                              disabled={!form.trackStock}
+                              className={cn(inputClass, !form.trackStock && 'cursor-not-allowed opacity-50')}
+                              inputMode="numeric"
+                              placeholder="0"
+                            />
+                          </label>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-4 flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-slate-700 px-4 py-10 text-center">
+                    <Boxes className="h-8 w-8 text-slate-600" />
+                    <p className="mt-2 text-sm font-bold text-slate-300">Nenhuma variacao cadastrada</p>
+                    <p className="mt-1 text-xs text-slate-500">Use “Nova variacao” para adicionar opcoes ao produto.</p>
+                  </div>
+                )}
+              </section>
             </div>
           </div>
 
-          <div className="mt-5 flex flex-wrap gap-2">
+          <footer className="flex shrink-0 flex-col-reverse gap-3 border-t border-slate-700/70 bg-slate-900 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={closeProductForm}
+                disabled={isSavingProduct}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm font-bold text-slate-200 transition hover:bg-slate-700 disabled:opacity-50"
+              >
+                <X className="h-4 w-4" />
+                Cancelar
+              </button>
+              {selectedProduct && (
+                <span className="hidden text-[10px] text-slate-500 md:block">
+                  Atualizado: {safeFormat(selectedProduct.updatedAt, 'dd/MM/yyyy HH:mm') || '-'}
+                </span>
+              )}
+            </div>
             <button
               type="button"
               onClick={() => void handleSave()}
               disabled={isSavingProduct}
-              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-black text-white shadow-lg shadow-primary/20 disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-black text-white shadow-lg shadow-primary/20 transition hover:bg-primary/90 disabled:opacity-60 sm:min-w-52"
             >
               <Save className="h-4 w-4" />
-              {isSavingProduct ? 'Salvando...' : editingProductId ? 'Atualizar mercadoria' : 'Cadastrar mercadoria'}
+              {isSavingProduct ? 'Salvando...' : editingProductId ? 'Salvar alteracoes' : 'Cadastrar mercadoria'}
             </button>
-          </div>
-
-          {selectedProduct && (
-            <div className="mt-4 rounded-xl border border-slate-700/60 bg-slate-950/40 p-3 text-xs text-slate-400">
-              <p>Importado em: <span className="font-bold text-slate-200">{safeFormat(selectedProduct.importedAt, 'dd/MM/yyyy HH:mm') || '-'}</span></p>
-              <p>Atualizado em: <span className="font-bold text-slate-200">{safeFormat(selectedProduct.updatedAt, 'dd/MM/yyyy HH:mm') || '-'}</span></p>
-            </div>
-          )}
+          </footer>
         </section>
         </div>
       )}
@@ -870,7 +1106,11 @@ export const ProductsView = ({
                             <div className="space-y-1">
                               {product.variations.slice(0, 3).map((variation) => (
                                 <p key={variation.id} className="truncate text-[11px] font-bold text-slate-300">
-                                  {variation.name} - {currency.format(Number(variation.salePrice || 0))}
+                                  {variation.name} - {currency.format(Number(variation.salePrice || 0))} - {(
+                                    variation.stockQuantity === undefined
+                                      ? 'Estoque geral'
+                                      : `${Number(variation.stockQuantity || 0)} un.`
+                                  )}
                                 </p>
                               ))}
                               {product.variations.length > 3 && (

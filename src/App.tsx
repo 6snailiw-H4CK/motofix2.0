@@ -41,39 +41,17 @@ import { useProductActions } from './hooks/useProductActions';
 import { useOilTypeActions } from './hooks/useOilTypeActions';
 import { useSettingsActions } from './hooks/useSettingsActions';
 import { useSubscriptionStatus } from './hooks/useSubscriptionStatus';
-import { useSubscriptionExpiryGuard } from './hooks/useSubscriptionExpiryGuard';
 import { useUserCollections } from './hooks/useUserCollections';
 import { useWarrantyActions } from './hooks/useWarrantyActions';
 import { useWhatsAppReminderActions } from './hooks/useWhatsAppReminderActions';
 import { getMaintenanceStatus } from './lib/maintenanceStatus';
 import { canonicalServiceType, getServiceTypeKey } from './lib/serviceTypes';
+import { isAdminRole, isMasterAdminRole } from './types';
 
 // --- Main App ---
 
 export default function App() {
   const { user, userProfile, loading, authLoading, profileLoading, subscriptionResolved, isNewUser, authInitializationError } = useAuthProfile();
-  const {
-    allUsers,
-    clients,
-    maintenances,
-    warranties,
-    settings,
-    setSettings,
-    settingsLoaded,
-    appointments,
-    expenseEntries,
-    messageLogs,
-    productCatalog,
-    cashLaunches,
-    cashLaunchesLoaded,
-    fiscalCompanies,
-    fiscalInvoices,
-    fiscalLogs,
-    operationalLogs,
-    collectionListenerIssues
-  } = useUserCollections({ user, userProfile, isNewUser });
-  const offlineSyncStatus = useOfflineSyncStatus();
-  useOfflineDataPreload({ user, userProfile });
   const {
     colorMode,
     clientScheduleReturnView,
@@ -93,6 +71,28 @@ export default function App() {
     view,
   } = useAppShellState();
   const {
+    allUsers,
+    clients,
+    maintenances,
+    warranties,
+    settings,
+    setSettings,
+    settingsLoaded,
+    appointments,
+    expenseEntries,
+    messageLogs,
+    productCatalog,
+    cashLaunches,
+    cashLaunchesLoaded,
+    fiscalCompanies,
+    fiscalInvoices,
+    fiscalLogs,
+    operationalLogs,
+    collectionListenerIssues
+  } = useUserCollections({ user, userProfile, isNewUser, view });
+  const offlineSyncStatus = useOfflineSyncStatus();
+  useOfflineDataPreload({ user, userProfile });
+  const {
     clearDeleteConfirm,
     confirmOrRequestDelete,
     getDeleteConfirmId,
@@ -110,13 +110,18 @@ export default function App() {
       return;
     }
 
-    if (nextView === 'general-report' && userProfile?.role !== 'admin') {
+    if ((nextView === 'general-report' || nextView === 'financial-health') && !isAdminRole(userProfile?.role)) {
       setView('dashboard');
       return;
     }
 
     if (nextView === 'admin') {
-      if (userProfile?.role === 'admin') setView('admin');
+      if (isMasterAdminRole(userProfile?.role)) setView('admin');
+      return;
+    }
+
+    if (nextView === 'master-admin') {
+      if (isMasterAdminRole(userProfile?.role)) setView('master-admin');
       return;
     }
 
@@ -218,10 +223,6 @@ export default function App() {
     clients,
     getStatus,
   });
-  useSubscriptionExpiryGuard({
-    userProfile,
-  });
-
   const maintenanceStats = useMaintenanceStats({
     cashLaunches,
     clients,
@@ -231,23 +232,10 @@ export default function App() {
     serviceListFilter,
   });
 
-  const { isExpired, shouldBlock, subscriptionActive } = useSubscriptionStatus({ userProfile });
-
-  useEffect(() => {
-    if (!user || !userProfile || userProfile.role === 'admin') return;
-
-    const checkoutIntent = sessionStorage.getItem('motofix-checkout-intent');
-    if (!checkoutIntent) return;
-
-    sessionStorage.removeItem('motofix-checkout-intent');
-    if (shouldBlock || isExpired) setView('checkout');
-  }, [isExpired, setView, shouldBlock, user, userProfile]);
-
-  useEffect(() => {
-    if (isExpired && !shouldBlock && userProfile && userProfile.role !== 'admin') {
-      handleViewChange('checkout');
-    }
-  }, [handleViewChange, isExpired, shouldBlock, userProfile]);
+  const { isExpired, shouldBlock, subscriptionActive, loading: accessLoading, error: accessError, reason: accessReason, refresh: refreshAccess } = useSubscriptionStatus({
+    authenticatedUid: user?.uid,
+    userProfile,
+  });
 
   useEffect(() => {
     if (view === 'fiscal' && !fiscalModuleAvailable) {
@@ -255,45 +243,41 @@ export default function App() {
     }
   }, [fiscalModuleAvailable, setView, view]);
 
-  const billingLoading = !!user && (profileLoading || !subscriptionResolved);
+  const billingLoading = !!user && (profileLoading || !subscriptionResolved || accessLoading);
   const authenticated = !!user;
-  const shouldBlockUser = authenticated && !billingLoading && (
-    !userProfile
-    || userProfile.isActive !== true
-    || (!subscriptionActive && userProfile.role !== 'admin')
-  );
+  const shouldBlockUser = authenticated && !billingLoading && (!userProfile || !subscriptionActive);
   const diagnosticNow = new Date();
-  const diagnosticPeriodEnd = userProfile?.billing?.currentPeriodEnd || null;
-  const diagnosticPeriodEndDate = diagnosticPeriodEnd ? new Date(diagnosticPeriodEnd) : null;
-  const diagnosticPeriodFuture = !!diagnosticPeriodEndDate && !Number.isNaN(diagnosticPeriodEndDate.getTime()) && diagnosticPeriodEndDate > diagnosticNow;
-  const diagnosticReason = !authenticated
+  const diagnosticManualExpiry = userProfile?.manualAccess?.expiresAt || null;
+  const diagnosticReason = accessError
+    ? `serviço auxiliar indisponível: ${accessError}`
+    : accessReason
+      ? `acesso manual: ${accessReason}`
+      : !authenticated
     ? 'usuário não autenticado'
     : billingLoading
-      ? 'billing ainda carregando'
+      ? 'perfil ou autorização ainda carregando'
       : !userProfile
-        ? 'perfil não carregado'
-        : !userProfile.billing?.status
-          ? 'billing.status ausente'
-          : !['active', 'trialing'].includes(userProfile.billing.status)
-            ? `billing.status=${userProfile.billing.status}`
-            : !diagnosticPeriodFuture
-              ? 'currentPeriodEnd ausente, inválido ou passado'
-              : 'subscriptionActive=false apesar de status/período';
+        ? 'perfil ausente'
+        : userProfile.isActive !== true
+          ? 'conta não aprovada ou suspensa'
+          : !userProfile.manualAccess?.enabled
+            ? 'concessão manual ausente'
+            : 'vigência manual vencida ou inválida';
 
   useEffect(() => {
     if (import.meta.env.DEV && shouldBlockUser) console.info('[Subscription Gate Diagnostic]', {
       uid: user?.uid || null,
       profileLoaded: !!userProfile,
-      billingStatus: userProfile?.billing?.status || null,
-      cancelAtPeriodEnd: userProfile?.billing?.cancelAtPeriodEnd || false,
-      currentPeriodEnd: diagnosticPeriodEnd,
+      manualAccessEnabled: userProfile?.manualAccess?.enabled === true,
+      manualAccessExpiresAt: diagnosticManualExpiry,
       subscriptionResolved,
       subscriptionActive,
       isExpired,
       shouldBlock: shouldBlockUser,
       reason: diagnosticReason,
+      accessError,
     });
-  }, [diagnosticPeriodEnd, diagnosticReason, isExpired, shouldBlockUser, subscriptionActive, subscriptionResolved, user, userProfile]);
+  }, [accessError, diagnosticManualExpiry, diagnosticReason, isExpired, shouldBlockUser, subscriptionActive, subscriptionResolved, user, userProfile]);
 
   const {
     chartData,
@@ -318,22 +302,21 @@ export default function App() {
       userId={user.uid}
       onSignOut={() => signOut(auth)}
       onSubscribe={() => setView('checkout')}
+      onRetryAccess={refreshAccess}
+      accessLoading={accessLoading}
       subscriptionDiagnostic={{
         authenticated,
         profileLoaded: !!userProfile,
         profileUid: userProfile?.uid || null,
-        billingLoaded: !!userProfile?.billing,
-        billingStatus: userProfile?.billing?.status || null,
-        cancelAtPeriodEnd: userProfile?.billing?.cancelAtPeriodEnd || false,
-        currentPeriodEnd: diagnosticPeriodEnd,
-        formattedCurrentPeriodEnd: diagnosticPeriodEndDate && !Number.isNaN(diagnosticPeriodEndDate.getTime()) ? diagnosticPeriodEndDate.toLocaleString('pt-BR') : 'inválido/não informado',
+        manualAccessEnabled: userProfile?.manualAccess?.enabled === true,
+        manualAccessExpiresAt: diagnosticManualExpiry,
         now: diagnosticNow.toLocaleString('pt-BR'),
-        periodFuture: diagnosticPeriodFuture,
         subscriptionResolved,
         subscriptionActive,
         isExpired,
         shouldBlock: shouldBlockUser,
         reason: diagnosticReason,
+        accessError,
       }}
     />;
   }

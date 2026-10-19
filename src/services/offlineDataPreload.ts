@@ -235,10 +235,8 @@ export const shouldPreloadOfflineData = (
 
 export const preloadUserOfflineData = async ({
   userId,
-  includeAdminUsers = false,
 }: {
   userId: string;
-  includeAdminUsers?: boolean;
 }): Promise<OfflineDataPreloadResult> => {
   if (!isBrowserOnline()) {
     return {
@@ -287,13 +285,6 @@ export const preloadUserOfflineData = async ({
         collection(db, 'users', userId, collectionName)
       ),
     })),
-    ...(includeAdminUsers
-      ? [{
-        key: 'admin-users',
-        label: 'Usuarios administrativos',
-        load: () => preloadCollectionPages(userId, 'admin-users', collection(db, 'users')),
-      }]
-      : []),
   ];
 
   const failedTargets: string[] = [];
