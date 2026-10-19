@@ -756,11 +756,7 @@ test("Master Admin account detail returns persisted billing and entitlement read
         },
       }),
       where: () => ({
-        orderBy: () => ({
-          limit: () => ({
-            get: async () => ({ docs: [] }),
-          }),
-        }),
+        get: async () => ({ docs: [] }),
       }),
     }),
     runTransaction: async () => { writes += 1; throw new Error("read-only endpoint attempted transaction"); },

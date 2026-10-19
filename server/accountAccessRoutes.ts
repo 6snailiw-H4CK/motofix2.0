@@ -50,7 +50,7 @@ const parseAdminUserFilters = (request: Request): AdminUserFilters | null => {
   const role = request.query.role ?? "all";
   if (request.query.sort !== undefined && request.query.sort !== "uid") return null;
   if (request.query.entitlement !== undefined) return null;
-  if (!["all", "active", "blocked"].includes(String(status))) return null;
+  if (!["all", "active", "blocked", "expiring"].includes(String(status))) return null;
   if (!["all", "user", "admin", "master_admin"].includes(String(role))) return null;
   return {
     search,
@@ -59,13 +59,33 @@ const parseAdminUserFilters = (request: Request): AdminUserFilters | null => {
   };
 };
 
-const applyAdminUserFilters = (query: Query, filters: AdminUserFilters) => {
+const applyAdminUserFilters = (query: Query, filters: AdminUserFilters, now: Date) => {
   let filteredQuery = query;
-  if (filters.status !== "all") {
+  if (filters.status === "active" || filters.status === "blocked") {
     filteredQuery = filteredQuery.where("isActive", "==", filters.status === "active");
+  } else if (filters.status === "expiring") {
+    const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    filteredQuery = filteredQuery
+      .where("isActive", "==", true)
+      .where("accessProjection.allowed", "==", true)
+      .where("accessProjection.validUntil", ">=", Timestamp.fromDate(now))
+      .where("accessProjection.validUntil", "<=", Timestamp.fromDate(nextWeek));
   }
   if (filters.role !== "all") filteredQuery = filteredQuery.where("role", "==", filters.role);
   return filteredQuery;
+};
+
+const isAccountExpiringSoon = (data: Record<string, unknown>, now: Date) => {
+  if (data.isActive !== true) return false;
+  const projection = data.accessProjection && typeof data.accessProjection === "object"
+    ? data.accessProjection as Record<string, unknown>
+    : {};
+  if (projection.allowed !== true) return false;
+  const expiresAt = stringifyTimestamp(projection.validUntil);
+  const expiresAtMillis = expiresAt ? Date.parse(expiresAt) : Number.NaN;
+  return Number.isFinite(expiresAtMillis)
+    && expiresAtMillis >= now.getTime()
+    && expiresAtMillis <= now.getTime() + 7 * 24 * 60 * 60 * 1000;
 };
 
 const countQuery = async (query: Query) => (await query.count().get()).data().count;
@@ -257,17 +277,25 @@ export const registerAccountAccessRoutes = (
       const cursorUid = cursor ? decodeAdminUsersCursor(cursor, queryKey) : null;
       if (cursor && !cursorUid) return response.status(400).json({ error: "Cursor inválido para os filtros informados." });
       const usersCollection = options.db.collection("users");
+      const now = new Date();
       let baseQuery: Query;
-      if (filters.search.includes("@")) {
-        baseQuery = applyAdminUserFilters(usersCollection.where("email", "==", filters.search.toLocaleLowerCase()), filters);
-      } else if (filters.search) {
-        const exactUser = await usersCollection.doc(filters.search).get();
-        const data = exactUser.exists ? exactUser.data() as Record<string, unknown> : null;
+      if (filters.search) {
+        const exactProfile = filters.search.includes("@")
+          ? (await usersCollection.where("email", "==", filters.search.toLocaleLowerCase()).limit(1).get()).docs[0]
+          : await usersCollection.doc(filters.search).get();
+        const exactUid = exactProfile && "id" in exactProfile ? exactProfile.id : filters.search;
+        const data = exactProfile && "exists" in exactProfile
+          ? exactProfile.exists ? exactProfile.data() as Record<string, unknown> : null
+          : exactProfile ? exactProfile.data() as Record<string, unknown> : null;
+        const matchesStatus = filters.status === "all"
+          || (filters.status === "active" && data?.isActive === true)
+          || (filters.status === "blocked" && data?.isActive !== true)
+          || (filters.status === "expiring" && data !== null && isAccountExpiringSoon(data, now));
         const matchesFilters = data !== null
-          && (filters.status === "all" || data.isActive === (filters.status === "active"))
+          && matchesStatus
           && (filters.role === "all" || data.role === filters.role);
-        const account = matchesFilters && data ? mapAdminUser(exactUser.id, data) : null;
-        const metrics = await loadAdminUserMetrics(usersCollection, new Date());
+        const account = matchesFilters && data ? mapAdminUser(exactUid, data) : null;
+        const metrics = await loadAdminUserMetrics(usersCollection, now);
         return response.json({
           users: account ? [account] : [],
           total: account ? 1 : 0,
@@ -277,7 +305,7 @@ export const registerAccountAccessRoutes = (
           metrics,
         });
       } else {
-        baseQuery = applyAdminUserFilters(usersCollection, filters);
+        baseQuery = applyAdminUserFilters(usersCollection, filters, now);
       }
 
       let pageQuery = baseQuery.select(
@@ -303,7 +331,6 @@ export const registerAccountAccessRoutes = (
         .orderBy(FieldPath.documentId());
       if (cursorUid) pageQuery = pageQuery.startAfter(cursorUid);
       pageQuery = pageQuery.limit(rawPageSize + 1);
-      const now = new Date();
       const [snapshot, total, metrics] = await Promise.all([
         pageQuery.get(),
         countQuery(baseQuery),
@@ -356,8 +383,6 @@ export const registerAccountAccessRoutes = (
       const decision = canAccessApplication({ uid: targetUid, ...targetClaims }, profile);
       const auditSnapshot = await options.db.collection("audit_events")
         .where("target", "==", targetUid)
-        .orderBy("timestamp", "desc")
-        .limit(10)
         .get();
       const subscription = profile.subscription && typeof profile.subscription === "object"
         ? profile.subscription as Record<string, unknown>
@@ -399,7 +424,10 @@ export const registerAccountAccessRoutes = (
               : null,
           },
         },
-        auditEvents: auditSnapshot.docs.map((document) => safeAuditEvent(document.id, document.data())),
+        auditEvents: auditSnapshot.docs
+          .map((document) => safeAuditEvent(document.id, document.data()))
+          .sort((left, right) => Date.parse(right.timestamp ?? "") - Date.parse(left.timestamp ?? ""))
+          .slice(0, 10),
       });
     } catch (error) {
       if (error instanceof Error && (error.message === "missing_token" || error.message === "invalid_token")) {

@@ -2,7 +2,7 @@ import type { QueryDocumentSnapshot } from "firebase-admin/firestore";
 
 export type AdminUserFilters = {
   search: string;
-  status: "all" | "active" | "blocked";
+  status: "all" | "active" | "blocked" | "expiring";
   role: "all" | "user" | "admin" | "master_admin";
 };
 

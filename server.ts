@@ -3,6 +3,7 @@ import { createServer as createHttpServer } from "node:http";
 import express from "express";
 import path from "node:path";
 import { registerBackupRoutes } from "./server/backupRoutes";
+import { registerAccountAccessRoutes } from "./server/accountAccessRoutes";
 import { registerDataResetRoutes } from "./server/dataResetRoutes";
 import { adminAuth, adminDb, firebaseAdminInitialized, firebaseAdminServiceAccountPath } from "./server/firebaseAdmin";
 import { registerFiscalRoutes } from "./server/fiscal/fiscalRoutes";
@@ -50,6 +51,7 @@ async function startServer() {
   app.use(express.urlencoded({ extended: false, limit: "64kb", parameterLimit: 100 }));
   app.get("/api/health", (_req, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
   registerFiscalRoutes({ app, auth: adminAuth, db, firebaseInitialized });
+  registerAccountAccessRoutes(app, { auth: adminAuth, db, firebaseInitialized });
   if (!isProduction) {
     registerWhatsAppRoutes({ app, auth: adminAuth, db, firebaseInitialized });
   }

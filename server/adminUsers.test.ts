@@ -110,7 +110,10 @@ const createHarness = async () => {
     const query = {
       where: (field: string, operator: string, value: unknown) => makeQuery(collectionName, [...filters, [field, operator, value]], afterId, maxResults),
       select: (..._fields: string[]) => query,
-      orderBy: (_field: unknown) => query,
+      orderBy: (_field: unknown) => {
+        if (collectionName === "audit_events") throw new Error("Composite audit indexes are unavailable in this test.");
+        return query;
+      },
       startAfter: (id: string) => makeQuery(collectionName, filters, id, maxResults),
       limit: (limit: number) => makeQuery(collectionName, filters, afterId, limit),
       get: async () => {
@@ -174,6 +177,7 @@ const createHarness = async () => {
     baseUrl: `http://127.0.0.1:${address.port}`,
     close: () => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve())),
     pageReadSizes,
+    auditEvents,
   };
 };
 
@@ -215,6 +219,16 @@ test("account listing uses limited Firestore pages, exact search and aggregate m
     assert.deepEqual((await exactEmail.json() as { users: Array<{ uid: string }> }).users.map((user) => user.uid), ["u1"]);
     const noSubstring = await fetch(`${harness.baseUrl}/api/admin/users?search=Alpha`, { headers: authHeaders });
     assert.deepEqual((await noSubstring.json() as { users: unknown[] }).users, []);
+
+    const expiring = await fetch(`${harness.baseUrl}/api/admin/users?status=expiring`, { headers: authHeaders });
+    const expiringUsers = await expiring.json() as { users: Array<{ uid: string }> };
+    assert.equal(expiring.status, 200);
+    assert.deepEqual(expiringUsers.users.map((user) => user.uid), ["u1"]);
+    const expiringEmail = await fetch(
+      `${harness.baseUrl}/api/admin/users?status=expiring&search=one%40example.test`,
+      { headers: authHeaders },
+    );
+    assert.deepEqual((await expiringEmail.json() as { users: Array<{ uid: string }> }).users.map((user) => user.uid), ["u1"]);
 
     const mismatchedCursor = await fetch(
       `${harness.baseUrl}/api/admin/users?search=beta%40example.test&pageSize=2&cursor=${encodeURIComponent(firstPage.nextCursor!)}`,
@@ -277,6 +291,33 @@ test("account detail GET enforces Master Admin authorization and missing-target 
     assert.equal((await getDetail("unclaimed", "u1")).status, 403);
     assert.equal((await getDetail("master", "u1")).status, 200);
     assert.equal((await getDetail("master", "missing")).status, 404);
+  } finally {
+    await harness.close();
+  }
+});
+
+test("account detail lists the ten newest audit events without a composite index", async () => {
+  const harness = await createHarness();
+  const now = Date.now();
+  for (let index = 1; index <= 12; index += 1) {
+    harness.auditEvents.set(`history-${index}`, {
+      actor: "admin",
+      action: `change-${index}`,
+      target: "u1",
+      reason: `change ${index}`,
+      timestamp: new Date(now + index * 1000),
+    });
+  }
+
+  try {
+    const response = await fetch(`${harness.baseUrl}/api/admin/users/u1`, {
+      headers: { authorization: "Bearer master" },
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json() as { auditEvents: Array<{ action: string }> };
+    assert.equal(body.auditEvents.length, 10);
+    assert.equal(body.auditEvents[0].action, "change-12");
+    assert.equal(body.auditEvents[9].action, "change-3");
   } finally {
     await harness.close();
   }
