@@ -168,6 +168,23 @@ As regras atuais foram endurecidas para:
 
 Antes de producao, aplique as regras no Firebase e renove o token dos admins apos configurar a custom claim. As regras devem ser publicadas junto com Hosting quando houver mudanca de schema ou permissao.
 
+## Diagnostico local de leituras do Firestore
+
+O diagnóstico temporário registra no `localStorage` do navegador a criação de listeners, snapshots recebidos, documentos adicionados/alterados/removidos e leituras de consultas pontuais. Ele não envia telemetria nem grava dados no Firestore. Para ativá-lo na versão publicada, abra o Console do navegador no app e execute:
+
+```js
+window.__motofixFirestoreDebug.enable();
+location.reload();
+```
+
+Use o aplicativo normalmente. Para baixar o resumo diário, execute:
+
+```js
+window.__motofixFirestoreDebug.download();
+```
+
+Depois da coleta, desative com `window.__motofixFirestoreDebug.disable()`. O campo `estimatedServerReads` é uma estimativa baseada nos snapshots observados pelo cliente; cache persistente, reconexões e regras de cobrança de listeners podem fazer esse valor divergir das leituras faturadas. Compare-o com Usage Insights/Query Insights do Firestore. Os registros locais são limitados a 14 dias e não incluem UID ou conteúdo de documentos.
+
 ## Acesso e cobrança manual
 
 O acesso operacional é concedido pelo Master Admin por uma decisão manual, após verificar o pagamento fora do aplicativo. A data de vigência é gravada como entitlement manual e é aplicada tanto pelo gate da interface quanto pelas Firestore Rules. O status Stripe legado não concede, renova nem revoga acesso.
@@ -208,10 +225,13 @@ npm run build
 
 No Windows, esse comando aplica uma configuracao de memoria para reduzir falhas ocasionais do esbuild durante o build.
 
-O Firebase Hosting serve `dist`, encaminha `/api/**` ao servico `motofix-api` no Cloud Run
-(`southamerica-east1`) e reescreve as demais rotas para `index.html`. O backend e as Rules
-precisam ser publicados e validados separadamente; nao use `npm run deploy:prod` como deploy
-de rotina, pois esse comando publica Hosting e Firestore Rules juntos.
+O Firebase Hosting serve `dist` e reescreve as rotas para `index.html` (SPA). Nao ha rewrite
+`/api/**` ativo no Hosting; os endpoints de API precisam de uma URL publica configurada
+separadamente antes de serem usados em producao. O painel Master Admin nao depende dessa API:
+lista solicitacoes e grava decisoes diretamente no Firestore, sob autorizacao das Firestore
+Rules. A colecao de perfis nao e enumerada; a leitura de perfil e individual e restrita a um
+Master Admin ativo. Cada liberacao, renovacao ou suspensao grava o perfil, a solicitacao e o
+historico imutavel em um unico lote; liberacoes registram plano, valor e confirmacao de pagamento.
 
 ### Backend de producao no Cloud Run
 
@@ -222,22 +242,16 @@ scheduler nao pode ser usado como armazenamento de backup. Mantenha o fluxo de b
 persistentes configurado separadamente antes de depender dele em producao.
 
 O projeto Firebase usado atualmente e `appmotofix` e a regiao do Firestore e
-`southamerica-east1`. Antes do primeiro deploy, um administrador do Google Cloud precisa habilitar
-a API do Cloud Run e conceder as permissoes de deploy; a conta de deploy atual nao tem essas
-permissoes. Configure tambem uma conta de servico de runtime com somente os papeis necessarios
-para Firestore e Firebase Authentication.
+`southamerica-east1`. O backend Cloud Run e uma opcao separada e nao e ativado pelo deploy do
+Hosting descrito acima. Para usa-lo, um administrador do Google Cloud precisa habilitar a API
+do Cloud Run e configurar faturamento, permissoes e uma conta de servico de runtime com somente
+os papeis necessarios para Firestore e Firebase Authentication.
 
 Publique primeiro o backend no Cloud Run. Em seguida publique o rewrite de Hosting e confirme
 `https://appmotofix.web.app/api/health`. As variaveis sensiveis (incluindo `STRIPE_SECRET_KEY` e
 `STRIPE_WEBHOOK_SECRET`) devem vir do Secret Manager, nunca de argumentos com valores secretos
 ou de arquivos enviados no build. Configure `APP_URL` e `FRONTEND_URL` como
 `https://appmotofix.web.app`, e configure as URLs de retorno do Stripe para o dominio publicado.
-
-Depois que o backend estiver acessivel pela URL do Cloud Run, publique somente o Hosting:
-
-```bash
-npm run deploy:hosting
-```
 
 Nao publique `firestore.rules` ate que a migracao das projecoes de acesso esteja validada em
 todos os perfis e o cliente novo esteja atendendo producao. Para regras, use o comando separado

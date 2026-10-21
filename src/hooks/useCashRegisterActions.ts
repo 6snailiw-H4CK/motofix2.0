@@ -2,13 +2,17 @@ import { format } from 'date-fns';
 import type { User } from 'firebase/auth';
 import { useCallback, useState } from 'react';
 import { toast as sonnerToast } from 'sonner';
-import { cashRegisterRepository } from '../services/cashRegisterRepository';
+import {
+  cashRegisterRepository,
+  InsufficientCashLaunchStockError,
+} from '../services/cashRegisterRepository';
 import { getCashPaidAmount } from '../lib/cashPayments';
 import { parseProductsWorkbook } from '../services/productSpreadsheet';
 import { productRepository } from '../services/productRepository';
 import type { CashRegisterLaunch } from '../types';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
 import { recordOperationalLog } from '../services/operationalLogRepository';
+import { getFirestoreSaveResultMessage } from '../services/firestoreSaveStatus';
 import { isQuotaError } from '../lib/firebaseRetry';
 import { clearLocalDraft, loadLocalDraft } from '../services/localDrafts';
 
@@ -36,7 +40,7 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
       }
 
       const imported = await productRepository.upsertMany(user.uid, products);
-      sonnerToast.success(`${imported} mercadoria(s) importada(s) para o catalogo.`);
+      sonnerToast.success(getFirestoreSaveResultMessage(`${imported} mercadoria(s) importada(s) para o catálogo.`));
       return imported;
     } catch (error) {
       console.error('Erro ao importar mercadorias:', error);
@@ -48,10 +52,11 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
   }, [user]);
 
   const saveLaunch = useCallback(async (draft: CashRegisterDraft, launchId?: string, previousLaunch?: CashRegisterLaunch) => {
-    if (!user) return false;
+    if (!user) return { savedOffline: false, error: 'Sua sessao expirou. Entre novamente antes de finalizar a O.S.' };
     if (draft.status !== 'Cancelado' && draft.items.length === 0) {
-      sonnerToast.error('Inclua ao menos uma mercadoria antes de salvar.');
-      return false;
+      const message = 'Inclua ao menos uma mercadoria antes de salvar.';
+      sonnerToast.error(message);
+      return { savedOffline: false, error: message };
     }
 
     setIsSavingLaunch(true);
@@ -101,16 +106,68 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
       }
 
       const savedOffline = result.savedOffline === true;
-      sonnerToast.success(savedOffline
-        ? 'O.S. salva neste computador. Sincronizacao pendente.'
-        : launchId ? 'Lancamento Caixa atualizado com sucesso.' : 'Lancamento Caixa salvo com sucesso.');
+      const shortages = result.stockShortageItems || [];
+      if (!savedOffline && shortages.length > 0) {
+        const itemNames = shortages.map((item) => item.variation
+          ? `${item.productDescription} (${item.variation})`
+          : item.productDescription);
+        sonnerToast.warning('O.S. finalizada; itens sem saldo ficaram sem baixa de estoque.', {
+          description: itemNames.join(', '),
+          duration: 12000,
+        });
+      } else {
+        sonnerToast.success(getFirestoreSaveResultMessage(savedOffline
+          ? 'O.S. salva neste computador.'
+          : launchId ? 'Lançamento Caixa atualizado com sucesso.' : 'Lançamento Caixa salvo com sucesso.'));
+      }
       return result;
     } catch (error) {
-      sonnerToast.error(isQuotaError(error)
+      if (error instanceof InsufficientCashLaunchStockError) {
+        const { shortage } = error;
+        const quantityLabel = `${shortage.quantityToAdd} ${shortage.quantityToAdd === 1 ? 'unidade' : 'unidades'}`;
+        sonnerToast.error(error.message, {
+          duration: 15000,
+          action: {
+            label: `Adicionar ${quantityLabel} ao estoque`,
+            onClick: () => {
+              if (!user) {
+                sonnerToast.error('Entre novamente para ajustar o estoque.');
+                return;
+              }
+
+              void cashRegisterRepository.addStockForInsufficientLaunch(
+                user.uid,
+                shortage,
+                launchId || shortage.cashLaunchId,
+              )
+                .then((addedQuantity) => {
+                  sonnerToast.success(getFirestoreSaveResultMessage(addedQuantity > 0
+                    ? `${addedQuantity} ${addedQuantity === 1 ? 'unidade adicionada' : 'unidades adicionadas'} ao estoque. Clique em Finalizar O.S. novamente para dar baixa.`
+                    : 'O estoque ja foi atualizado por outra operacao. Clique em Finalizar O.S. novamente.'));
+                })
+                .catch((restockError) => {
+                  sonnerToast.error(restockError instanceof Error
+                    ? restockError.message
+                    : 'Nao foi possivel adicionar a mercadoria ao estoque.');
+                  handleFirestoreError(restockError, OperationType.UPDATE, 'products/stock_movements');
+                });
+            },
+          },
+        });
+        return { savedOffline: false, error: error.message };
+      }
+
+      const message = isQuotaError(error)
         ? 'O Firestore limitou as requisicoes. A O.S. nao foi faturada; tente novamente quando a sincronizacao normalizar.'
-        : error instanceof Error ? error.message : 'Nao foi possivel salvar o Lancamento Caixa.');
-      handleFirestoreError(error, OperationType.CREATE, 'cash_launches');
-      return false;
+        : error instanceof Error ? error.message : 'Nao foi possivel salvar o Lancamento Caixa.';
+      sonnerToast.error(message, { duration: 15000 });
+      const usesStockTransaction = draft.status === 'Finalizado'
+        || previousLaunch?.stockDeducted === true
+        || previousLaunch?.status === 'Finalizado';
+      handleFirestoreError(error, launchId ? OperationType.UPDATE : OperationType.CREATE, launchId
+        ? `cash_launches/${launchId}${usesStockTransaction ? ' + estoque' : ''}`
+        : `cash_launches${usesStockTransaction ? ' + estoque' : ''}`);
+      return { savedOffline: false, error: message };
     } finally {
       setIsSavingLaunch(false);
     }
@@ -129,12 +186,12 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
       if (cashRegisterDraft?.data.editingLaunchId === launchId) {
         clearLocalDraft(cashRegisterDraftKey);
       }
-      sonnerToast.success('O.S. movida para a lixeira.', {
+      sonnerToast.success(getFirestoreSaveResultMessage('O.S. movida para a lixeira.'), {
         action: {
           label: 'Desfazer',
           onClick: () => {
             void cashRegisterRepository.restore(user.uid, launchId)
-              .then(() => sonnerToast.success('O.S. restaurada com estoque sincronizado.'))
+              .then(() => sonnerToast.success(getFirestoreSaveResultMessage('O.S. restaurada.')))
               .catch((error) => sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel restaurar a O.S.'));
           },
         },

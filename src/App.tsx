@@ -4,10 +4,11 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { toast as sonnerToast } from 'sonner';
 import { 
   signOut
 } from 'firebase/auth';
-import { auth } from './firebase';
+import { auth, logAuthDiagnostic } from './firebase';
 import { Toast } from './components/feedback/Toast';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { BlockedAccessScreen } from './components/auth/BlockedAccessScreen';
@@ -18,7 +19,6 @@ import { AppViewRenderer } from './components/layout/AppViewRenderer';
 import { ProfileSetupModal } from './components/settings/ProfileSetupModal';
 import { DEFAULT_SERVICE_TYPES } from './constants/appDefaults';
 import { canAccessFiscalModule } from './config/fiscal';
-import { useAdminActions } from './hooks/useAdminActions';
 import { useAppDerivedData } from './hooks/useAppDerivedData';
 import { useAppShellState } from './hooks/useAppShellState';
 import { useAppointmentActions } from './hooks/useAppointmentActions';
@@ -35,13 +35,13 @@ import { useMaintenanceActions } from './hooks/useMaintenanceActions';
 import { useMaintenanceStats } from './hooks/useMaintenanceStats';
 import { useMessageLogActions } from './hooks/useMessageLogActions';
 import { useNotifications } from './hooks/useNotifications';
-import { useOfflineDataPreload } from './hooks/useOfflineDataPreload';
 import { useOfflineSyncStatus } from './hooks/useOfflineSyncStatus';
 import { useProductActions } from './hooks/useProductActions';
 import { useOilTypeActions } from './hooks/useOilTypeActions';
 import { useSettingsActions } from './hooks/useSettingsActions';
 import { useSubscriptionStatus } from './hooks/useSubscriptionStatus';
 import { useUserCollections } from './hooks/useUserCollections';
+import { viewUsesUserCollection } from './hooks/userCollectionScopes';
 import { useWarrantyActions } from './hooks/useWarrantyActions';
 import { useWhatsAppReminderActions } from './hooks/useWhatsAppReminderActions';
 import { getMaintenanceStatus } from './lib/maintenanceStatus';
@@ -52,6 +52,10 @@ import { isAdminRole, isMasterAdminRole } from './types';
 
 export default function App() {
   const { user, userProfile, loading, authLoading, profileLoading, subscriptionResolved, isNewUser, authInitializationError } = useAuthProfile();
+  const { isExpired, shouldBlock, subscriptionActive, loading: accessLoading, error: accessError, reason: accessReason, refresh: refreshAccess } = useSubscriptionStatus({
+    authenticatedUid: user?.uid,
+    userProfile,
+  });
   const {
     colorMode,
     clientScheduleReturnView,
@@ -71,7 +75,6 @@ export default function App() {
     view,
   } = useAppShellState();
   const {
-    allUsers,
     clients,
     maintenances,
     warranties,
@@ -88,10 +91,12 @@ export default function App() {
     fiscalInvoices,
     fiscalLogs,
     operationalLogs,
-    collectionListenerIssues
-  } = useUserCollections({ user, userProfile, isNewUser, view });
+    collectionListenerIssues,
+    refreshCurrentView,
+    isRefreshingCollections,
+    lastCollectionsSyncedAt,
+  } = useUserCollections({ user, userProfile, isNewUser, hasAccountAccess: subscriptionActive, view });
   const offlineSyncStatus = useOfflineSyncStatus();
-  useOfflineDataPreload({ user, userProfile });
   const {
     clearDeleteConfirm,
     confirmOrRequestDelete,
@@ -116,7 +121,7 @@ export default function App() {
     }
 
     if (nextView === 'admin') {
-      if (isMasterAdminRole(userProfile?.role)) setView('admin');
+      if (isMasterAdminRole(userProfile?.role)) setView('master-admin');
       return;
     }
 
@@ -127,6 +132,24 @@ export default function App() {
 
     setView(nextView);
   }, [fiscalModuleAvailable, setView, userProfile?.role]);
+  const handleManualDataSync = useCallback(async () => {
+    try {
+      const result = await refreshCurrentView();
+      if (result.failedCollections.length > 0) {
+        sonnerToast.error('A sincronização terminou com pendências.', {
+          description: `Verifique: ${result.failedCollections.join(', ')}. As falhas permanecem sinalizadas no app.`,
+        });
+        return;
+      }
+      sonnerToast.success('Sincronização concluída.', {
+        description: `${result.updatedDocuments} registro(s) atualizados. As alterações locais foram enviadas e o Firestore voltou ao modo local.`,
+      });
+    } catch (error) {
+      sonnerToast.error('Não foi possível sincronizar agora.', {
+        description: error instanceof Error ? error.message : 'Verifique a conexão e tente novamente.',
+      });
+    }
+  }, [refreshCurrentView]);
   const handleExpenseSaved = useCallback(() => setView('expenses'), [setView]);
   const openWarrantyForm = useCallback(() => setView('new-warranty'), [setView]);
   const handleWarrantySaved = useCallback(() => setView('warranties'), [setView]);
@@ -163,10 +186,6 @@ export default function App() {
   const appointmentActions = useAppointmentActions({
     user,
     onDeleted: handleDeleteConfirmed,
-  });
-  const adminActions = useAdminActions({
-    users: allUsers,
-    userProfile,
   });
   const expenseActions = useExpenseActions({
     user,
@@ -222,6 +241,7 @@ export default function App() {
     user,
     clients,
     getStatus,
+    enabled: viewUsesUserCollection(view, 'clients'),
   });
   const maintenanceStats = useMaintenanceStats({
     cashLaunches,
@@ -230,11 +250,6 @@ export default function App() {
     warranties,
     searchQuery,
     serviceListFilter,
-  });
-
-  const { isExpired, shouldBlock, subscriptionActive, loading: accessLoading, error: accessError, reason: accessReason, refresh: refreshAccess } = useSubscriptionStatus({
-    authenticatedUid: user?.uid,
-    userProfile,
   });
 
   useEffect(() => {
@@ -293,6 +308,24 @@ export default function App() {
     settings,
   });
 
+  const authDiagnosticScreen = authLoading || loading || (authenticated && billingLoading)
+    ? 'loading'
+    : !user
+      ? 'auth'
+      : shouldBlockUser && view !== 'checkout'
+        ? 'blocked-access'
+        : 'app';
+
+  useEffect(() => {
+    logAuthDiagnostic('main', 'app-screen-selected', {
+      screen: authDiagnosticScreen,
+      userPresent: Boolean(user),
+      authLoading,
+      loading,
+      authInitializationErrorPresent: Boolean(authInitializationError),
+    });
+  }, [authDiagnosticScreen, user, authLoading, loading, authInitializationError]);
+
   // Early returns AFTER all hooks
   if (authLoading || loading || (authenticated && billingLoading)) return <LoadingScreen />;
   if (!user) return <AuthScreen initialAuthError={authInitializationError} />;
@@ -329,15 +362,17 @@ export default function App() {
         collectionListenerIssues={collectionListenerIssues}
         fiscalModuleAvailable={fiscalModuleAvailable}
         offlineSyncStatus={offlineSyncStatus}
+        isRefreshingData={isRefreshingCollections}
+        lastDataSyncAt={lastCollectionsSyncedAt}
         userProfile={userProfile}
         view={view}
         onColorModeChange={setColorMode}
         onSignOut={() => signOut(auth)}
+        onManualDataSync={handleManualDataSync}
         onViewChange={handleViewChange}
       >
         <AppViewRenderer
           actions={{
-            admin: adminActions,
             appointment: appointmentActions,
             cashRegister: cashRegisterActions,
             client: clientActions,
@@ -353,7 +388,6 @@ export default function App() {
             warranty: warrantyActions,
           }}
           data={{
-            allUsers,
             appointments,
             cashLaunches,
             cashLaunchesLoaded,

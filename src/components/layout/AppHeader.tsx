@@ -1,4 +1,4 @@
-import { LogOut, Moon, Sun } from 'lucide-react';
+import { LoaderCircle, LogOut, Moon, RefreshCw, Sun } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import type { ColorMode } from '../../types';
 import type { OfflineSyncStatus } from '../../hooks/useOfflineSyncStatus';
@@ -7,14 +7,20 @@ import { OfflineSyncPill } from './OfflineSyncPill';
 type AppHeaderProps = {
   colorMode: ColorMode;
   offlineSyncStatus: OfflineSyncStatus;
+  isRefreshingData: boolean;
+  lastDataSyncAt: string | null;
   onColorModeChange: (mode: ColorMode) => void;
+  onManualDataSync: () => void;
   onSignOut: () => void;
 };
 
 export const AppHeader = ({
   colorMode,
   offlineSyncStatus,
+  isRefreshingData,
+  lastDataSyncAt,
   onColorModeChange,
+  onManualDataSync,
   onSignOut,
 }: AppHeaderProps) => (
   <header className="app-header sticky top-0 z-50 flex items-center justify-between border-b border-primary/10 bg-background-dark/80 px-4 py-3 backdrop-blur-md">
@@ -24,6 +30,20 @@ export const AppHeader = ({
     </div>
     <div className="flex items-center gap-2">
       <OfflineSyncPill compact status={offlineSyncStatus} />
+      <button
+        type="button"
+        onClick={onManualDataSync}
+         disabled={isRefreshingData || offlineSyncStatus.isSyncing || !offlineSyncStatus.isOnline}
+         aria-label="Enviar todas as alterações locais e atualizar a tela atual"
+        title={lastDataSyncAt
+          ? `Enviar as alterações locais e atualizar esta tela. Última sincronização completa: ${new Date(lastDataSyncAt).toLocaleString('pt-BR')}`
+          : 'Enviar as alterações locais e atualizar os dados desta tela'}
+        className="grid h-9 w-9 place-items-center rounded-lg border border-slate-800 bg-slate-950/60 text-slate-400 transition-colors hover:border-primary/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+      >
+          {isRefreshingData || offlineSyncStatus.isSyncing
+          ? <LoaderCircle className="h-4 w-4 animate-spin" />
+          : <RefreshCw className="h-4 w-4" />}
+      </button>
       <button
         type="button"
         onClick={() => onColorModeChange('dark')}

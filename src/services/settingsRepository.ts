@@ -2,6 +2,7 @@ import { arrayUnion, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { Settings } from '../types';
 import { createFirestoreReplayDescriptor, queueFirestoreVoidWrite } from './firestoreOfflineQueue';
+import { notifyFirestoreLocalCollectionsChanged } from './firestoreCollectionSync';
 
 export type SettingsWriteData = Partial<Settings> & Record<string, unknown>;
 
@@ -21,7 +22,10 @@ export const settingsRepository = {
       () => updateDoc(settingsConfigDocPath(userId), {
         serviceTypes: arrayUnion(serviceType),
       }),
-      'Adicionar tipo de servico'
+      'Adicionar tipo de servico',
+      undefined,
+      userId,
     );
+    notifyFirestoreLocalCollectionsChanged(userId, ['settings']);
   },
 };

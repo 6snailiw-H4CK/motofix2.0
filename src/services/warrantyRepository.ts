@@ -7,6 +7,8 @@ import {
   queueFirestoreWrite,
 } from './firestoreOfflineQueue';
 import { createRestoreMetadata, createSoftDeleteMetadata } from './softDelete';
+import { withFirestoreSyncTimestamp } from './firestoreSyncFields';
+import { isFirestoreNetworkEnabled } from './firestoreNetworkControl';
 
 export type WarrantyWriteData = Record<string, unknown>;
 
@@ -17,25 +19,29 @@ const warrantyReplayPath = (userId: string, warrantyId: string) => ['users', use
 export const warrantyRepository = {
   async create(userId: string, data: WarrantyWriteData) {
     const docRef = doc(warrantyCollectionPath(userId));
-    const replay = createFirestoreReplayDescriptor('set', warrantyReplayPath(userId, docRef.id), data);
+    const writeData = withFirestoreSyncTimestamp(data);
+    const replay = createFirestoreReplayDescriptor('set', warrantyReplayPath(userId, docRef.id), writeData);
     const queuedWrite = await queueFirestoreWrite(
-      () => setDoc(docRef, data),
+      () => setDoc(docRef, writeData),
       'Criar garantia',
       replay
     );
-    const remoteConfirmed = await confirmPendingWriteCheckpointRemotely(
-      [queuedWrite.writeId],
-      () => waitForPendingWrites(db)
-    );
+    const remoteConfirmed = isFirestoreNetworkEnabled()
+      ? await confirmPendingWriteCheckpointRemotely(
+        [queuedWrite.writeId],
+        () => waitForPendingWrites(db)
+      )
+      : false;
 
     return { id: docRef.id, remoteConfirmed };
   },
 
   async update(userId: string, warrantyId: string, data: WarrantyWriteData) {
+    const writeData = withFirestoreSyncTimestamp(data);
     await queueFirestoreVoidWrite(
-      () => updateDoc(warrantyDocPath(userId, warrantyId), data),
+      () => updateDoc(warrantyDocPath(userId, warrantyId), writeData),
       'Atualizar garantia',
-      createFirestoreReplayDescriptor('update', warrantyReplayPath(userId, warrantyId), data)
+      createFirestoreReplayDescriptor('update', warrantyReplayPath(userId, warrantyId), writeData)
     );
   },
 

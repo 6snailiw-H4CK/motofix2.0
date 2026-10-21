@@ -8,6 +8,7 @@ import {
   type FirestoreReplayMutation
 } from './firestoreOfflineQueue';
 import { createRestoreMetadata, createSoftDeleteMetadata, isSoftDeleted } from './softDelete';
+import { withFirestoreSyncTimestamp } from './firestoreSyncFields';
 
 export type ClientWriteData = Record<string, unknown>;
 export type LinkedMaintenanceWriteData = Record<string, unknown>;
@@ -37,27 +38,30 @@ const getClientMaintenances = (userId: string, clientId: string) => {
 export const clientRepository = {
   async create(userId: string, data: ClientWriteData) {
     const docRef = doc(clientCollectionPath(userId));
+    const writeData = withFirestoreSyncTimestamp(data);
     await queueFirestoreVoidWrite(
-      () => setDoc(docRef, data),
+      () => setDoc(docRef, writeData),
       'Criar cliente',
-      createFirestoreReplayDescriptor('set', clientReplayPath(userId, docRef.id), data)
+      createFirestoreReplayDescriptor('set', clientReplayPath(userId, docRef.id), writeData)
     );
     return docRef.id;
   },
 
   async update(userId: string, clientId: string, data: ClientWriteData) {
+    const writeData = withFirestoreSyncTimestamp(data);
     await queueFirestoreVoidWrite(
-      () => updateDoc(clientDocPath(userId, clientId), data),
+      () => updateDoc(clientDocPath(userId, clientId), writeData),
       'Atualizar cliente',
-      createFirestoreReplayDescriptor('update', clientReplayPath(userId, clientId), data)
+      createFirestoreReplayDescriptor('update', clientReplayPath(userId, clientId), writeData)
     );
   },
 
   async setWithId(userId: string, clientId: string, data: ClientWriteData) {
+    const writeData = withFirestoreSyncTimestamp(data);
     await queueFirestoreVoidWrite(
-      () => setDoc(clientDocPath(userId, clientId), data, { merge: true }),
+      () => setDoc(clientDocPath(userId, clientId), writeData, { merge: true }),
       'Salvar cliente com ID',
-      createFirestoreReplayDescriptor('set', clientReplayPath(userId, clientId), data, true)
+      createFirestoreReplayDescriptor('set', clientReplayPath(userId, clientId), writeData, true)
     );
   },
 
@@ -70,9 +74,12 @@ export const clientRepository = {
       ? clientDocPath(userId, clientWrite.id)
       : doc(clientCollectionPath(userId));
     const clientId = clientRef.id;
-    const maintenanceData = typeof maintenanceWrite.data === 'function'
+    const rawMaintenanceData = typeof maintenanceWrite.data === 'function'
       ? maintenanceWrite.data(clientId)
       : maintenanceWrite.data;
+    const syncTimestamp = new Date().toISOString();
+    const clientData = withFirestoreSyncTimestamp(clientWrite.data, syncTimestamp);
+    const maintenanceData = withFirestoreSyncTimestamp(rawMaintenanceData, syncTimestamp);
     const maintenanceRef = maintenanceWrite.id
       ? doc(db, 'users', userId, 'maintenances', maintenanceWrite.id)
       : doc(maintenanceCollectionPath(userId));
@@ -81,18 +88,18 @@ export const clientRepository = {
     const replayWrites: FirestoreReplayMutation[] = [];
 
     if (clientWrite.operation === 'create') {
-      batch.set(clientRef, clientWrite.data);
+      batch.set(clientRef, clientData);
       replayWrites.push({
         operation: 'set',
         path: clientReplayPath(userId, clientId),
-        data: clientWrite.data,
+        data: clientData,
       });
     } else {
-      batch.update(clientRef, clientWrite.data);
+      batch.update(clientRef, clientData);
       replayWrites.push({
         operation: 'update',
         path: clientReplayPath(userId, clientId),
-        data: clientWrite.data,
+        data: clientData,
       });
     }
 

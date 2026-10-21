@@ -2,6 +2,7 @@ import type { User } from 'firebase/auth';
 import { useCallback, useState } from 'react';
 import { toast as sonnerToast } from 'sonner';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
+import { getFirestoreSaveResultMessage } from '../services/firestoreSaveStatus';
 import { ProductStockResetError, productRepository } from '../services/productRepository';
 import { parseProductsWorkbook } from '../services/productSpreadsheet';
 import type { ProductCatalogFormInput, ProductCatalogItem } from '../types';
@@ -30,7 +31,7 @@ export const useProductActions = ({ user, onDeleted }: UseProductActionsParams) 
       }
 
       const imported = await productRepository.upsertMany(user.uid, products);
-      sonnerToast.success(`${imported} mercadoria(s) importada(s) para o catalogo.`);
+      sonnerToast.success(getFirestoreSaveResultMessage(`${imported} mercadoria(s) importada(s) para o catálogo.`));
       return imported;
     } catch (error) {
       console.error('Erro ao importar mercadorias:', error);
@@ -47,7 +48,7 @@ export const useProductActions = ({ user, onDeleted }: UseProductActionsParams) 
     setIsSavingProduct(true);
     try {
       await productRepository.save(user.uid, input, productId);
-      sonnerToast.success(productId ? 'Mercadoria atualizada com sucesso.' : 'Mercadoria cadastrada com sucesso.');
+      sonnerToast.success(getFirestoreSaveResultMessage(productId ? 'Mercadoria atualizada com sucesso.' : 'Mercadoria cadastrada com sucesso.'));
       return true;
     } catch (error) {
       sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel salvar a mercadoria.');
@@ -68,7 +69,7 @@ export const useProductActions = ({ user, onDeleted }: UseProductActionsParams) 
     setDeletingProductId(productId);
     try {
       await productRepository.delete(user.uid, productId);
-      sonnerToast.success('Mercadoria movida para a lixeira.', {
+      sonnerToast.success(getFirestoreSaveResultMessage('Mercadoria movida para a lixeira.'), {
         action: {
           label: 'Desfazer',
           onClick: () => void productRepository.restore(user.uid, productId),
@@ -106,7 +107,7 @@ export const useProductActions = ({ user, onDeleted }: UseProductActionsParams) 
         'Limpeza de mercadorias importadas solicitada pelo usuario'
       );
 
-      sonnerToast.success(`${deleted} mercadoria(s) movida(s) para a lixeira.`, {
+      sonnerToast.success(getFirestoreSaveResultMessage(`${deleted} mercadoria(s) movida(s) para a lixeira.`), {
         action: {
           label: 'Desfazer',
           onClick: () => void productRepository.restoreMany(user.uid, uniqueProductIds),
@@ -139,7 +140,7 @@ export const useProductActions = ({ user, onDeleted }: UseProductActionsParams) 
     setIsZeroingStock(true);
     try {
       const updated = await productRepository.zeroStockMany(user.uid, uniqueProducts);
-      sonnerToast.success(`Estoque zerado para ${updated} mercadoria(s). Os precos de venda foram mantidos.`);
+      sonnerToast.success(getFirestoreSaveResultMessage(`Estoque zerado para ${updated} mercadoria(s). Os preços de venda foram mantidos.`));
       return true;
     } catch (error) {
       console.error('Erro ao zerar estoque das mercadorias:', error);

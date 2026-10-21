@@ -504,6 +504,7 @@ service cloud.firestore {
         && optionalNumberInRange('lastServiceValue', 0, 10000000)
         && optionalText('lastServiceNotes', 5000)
         && isText('createdAt', 40)
+        && optionalText('updatedAt', 40)
         && optionalText('lastAlertDate', 40)
         && optionalNumberInRange('serviceValue', 0, 10000000)
         && paymentStatusValid()
@@ -511,6 +512,71 @@ service cloud.firestore {
         && optionalNumberInRange('saldoDevedor', 0, 10000000)
         && optionalMap('automation')
         && softDeleteMetadataValid();
+    }
+
+    function clientCreateShape(userId) {
+      return request.resource.data.keys().hasAll([
+          'userId',
+          'name',
+          'bikeModel',
+          'contact',
+          'lastMaintenanceDate',
+          'nextMaintenanceDate',
+          'recurrenceDays',
+          'status',
+          'createdAt'
+        ])
+        && request.resource.data.userId == userId
+        && isText('name', 120)
+        && isText('bikeModel', 120)
+        && isText('contact', 60)
+        && isText('lastMaintenanceDate', 40)
+        && isText('nextMaintenanceDate', 40)
+        && isNumberInRange('recurrenceDays', 0, 3650)
+        && maintenanceStatusValid()
+        && isText('createdAt', 40)
+        && optionalText('updatedAt', 40);
+    }
+
+    function validOwnerClientMaintenanceUpdate(userId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return isOwner(userId)
+        && changed.hasOnly([
+          'oilType',
+          'oilPrice',
+          'lastMaintenanceDate',
+          'nextMaintenanceDate',
+          'status',
+          'isRecurringRevenue',
+          'notificacao_enviada',
+          'notificacaoStatus',
+          'lastServiceType',
+          'lastServiceValue',
+          'lastServiceNotes',
+          'serviceValue',
+          'statusPagamento',
+          'valorPago',
+          'saldoDevedor',
+          'updatedAt'
+        ])
+        && optionalUserIdMatches(userId)
+        && storedUserIdMatches(userId)
+        && (!changed.hasAny(['oilType']) || isText('oilType', 80))
+        && (!changed.hasAny(['oilPrice']) || isNumberInRange('oilPrice', 0, 10000000))
+        && (!changed.hasAny(['lastMaintenanceDate']) || isText('lastMaintenanceDate', 40))
+        && (!changed.hasAny(['nextMaintenanceDate']) || isText('nextMaintenanceDate', 40))
+        && (!changed.hasAny(['status']) || maintenanceStatusValid())
+        && (!changed.hasAny(['isRecurringRevenue']) || request.resource.data.isRecurringRevenue is bool)
+        && (!changed.hasAny(['notificacao_enviada']) || request.resource.data.notificacao_enviada is bool)
+        && (!changed.hasAny(['notificacaoStatus']) || isText('notificacaoStatus', 40))
+        && (!changed.hasAny(['lastServiceType']) || isText('lastServiceType', 120))
+        && (!changed.hasAny(['lastServiceValue']) || isNumberInRange('lastServiceValue', 0, 10000000))
+        && (!changed.hasAny(['lastServiceNotes']) || isText('lastServiceNotes', 5000))
+        && (!changed.hasAny(['serviceValue']) || isNumberInRange('serviceValue', 0, 10000000))
+        && (!changed.hasAny(['statusPagamento']) || paymentStatusValid())
+        && (!changed.hasAny(['valorPago']) || isNumberInRange('valorPago', 0, 10000000))
+        && (!changed.hasAny(['saldoDevedor']) || isNumberInRange('saldoDevedor', 0, 10000000))
+        && (!changed.hasAny(['updatedAt']) || isText('updatedAt', 40));
     }
 
     function maintenanceShape(userId) {
@@ -539,6 +605,7 @@ service cloud.firestore {
         && paymentStatusValid()
         && optionalNumberInRange('valorPago', 0, 10000000)
         && optionalNumberInRange('saldoDevedor', 0, 10000000)
+        && optionalText('updatedAt', 40)
         && softDeleteMetadataValid();
     }
 
@@ -566,6 +633,7 @@ service cloud.firestore {
         && isText('clientPhone', 60)
         && isNumberInRange('warrantyNumber', 0, 1000000000)
         && isText('createdAt', 40)
+        && optionalText('updatedAt', 40)
         && softDeleteMetadataValid();
     }
 
@@ -587,6 +655,7 @@ service cloud.firestore {
         && optionalNumberInRange('value', 0, 10000000)
         && request.resource.data.completed is bool
         && isText('createdAt', 40)
+        && optionalText('updatedAt', 40)
         && softDeleteMetadataValid();
     }
 
@@ -606,6 +675,7 @@ service cloud.firestore {
         && isText('date', 40)
         && optionalText('note', 5000)
         && isText('createdAt', 40)
+        && optionalText('updatedAt', 40)
         && softDeleteMetadataValid();
     }
 
@@ -627,6 +697,7 @@ service cloud.firestore {
         && isText('ncm', 20)
         && isNumberInRange('salePrice', 0, 10000000)
         && optionalNumberInRange('stockQuantity', 0, 10000000)
+        && optionalText('stockMovementId', 200)
         && optionalNumberInRange('minStockQuantity', 0, 10000000)
         && optionalBool('trackStock')
         && optionalText('importedAt', 40)
@@ -701,6 +772,7 @@ service cloud.firestore {
         && optionalNumberInRange('valorPago', 0, 10000000)
         && optionalNumberInRange('saldoDevedor', 0, 10000000)
         && optionalNullableText('paidAt', 40)
+        && optionalList('stockShortageItems', 200)
         && isText('createdAt', 40)
         && isText('updatedAt', 40)
         && optionalText('request', 5000)
@@ -755,6 +827,7 @@ service cloud.firestore {
         && optionalBool('stockDeducted')
         && optionalNullableText('stockDeductedAt', 40)
         && optionalNullableText('stockMovementBatchId', 200)
+        && optionalList('stockShortageItems', 200)
         && isText('createdAt', 40)
         && isText('updatedAt', 40)
         && softDeleteMetadataValid();
@@ -781,6 +854,7 @@ service cloud.firestore {
         && request.resource.data.trigger in ['manual', 'scheduled', 'retry']
         && isText('message', 2000)
         && isText('createdAt', 40)
+        && optionalText('updatedAt', 40)
         && optionalText('sentAt', 40)
         && optionalText('error', 1000)
         && softDeleteMetadataValid();
@@ -898,38 +972,110 @@ service cloud.firestore {
     }
 
     function validOwnerProductStockUpdate(userId) {
-      return isOwner(userId)
-        && storedUserIdMatches(userId)
+      return storedUserIdMatches(userId)
         && optionalUserIdMatches(userId)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stockQuantity', 'updatedAt'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'stockQuantity',
+          'variations',
+          'stockMovementId',
+          'updatedAt'
+        ])
         && request.resource.data.stockQuantity is number
         && request.resource.data.stockQuantity >= 0
         && request.resource.data.stockQuantity <= 10000000
-        && optionalText('updatedAt', 40);
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'stockQuantity',
+            'variations',
+            'stockMovementId'
+          ])
+          || validStockOperationPair(userId, resource.data.id, request.resource.data, false)
+        );
     }
 
-    function validOwnerStockMovementCreate(userId) {
+    function validOwnerProductDataUpdate(userId) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(productKeys())
+        && optionalUserIdMatches(userId)
+        && storedUserIdMatches(userId)
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'stockQuantity',
+            'variations',
+            'stockMovementId'
+          ])
+          || validStockOperationPair(userId, resource.data.id, request.resource.data, false)
+        )
+        && productShape(userId, resource.data.id);
+    }
+
+    function validStockOperationPair(userId, productId, productData, isCreate) {
+      return productData.stockMovementId is string
+        && productData.stockMovementId.size() <= 200
+        && (
+          isCreate
+            || productData.stockMovementId != resource.data.get('stockMovementId', '')
+        )
+        && stockOperationDataPair(userId, productId, productData, isCreate);
+    }
+
+    function stockOperationDataPair(userId, productId, productData, isCreate) {
+      let operationPath = /databases/$(database)/documents/users/$(userId)/stock_movements/$(productData.stockMovementId);
+      let operation = getAfter(operationPath).data;
+      let change = operation.changes[productId];
+      return existsAfter(operationPath)
+        && operation.userId == userId
+        && operation.productIds is list
+        && operation.productIds.hasAny([productId])
+        && operation.changes is map
+        && operation.changes.keys().hasAny([productId])
+        && change.productId == productId
+        && change.nextQuantity == productData.stockQuantity
+        && change.nextVariations == productData.get('variations', [])
+        && (
+          isCreate
+            ? change.previousQuantity == 0 && change.previousVariations == []
+            : change.previousQuantity == resource.data.get('stockQuantity', 0)
+              && change.previousVariations == resource.data.get('variations', [])
+        );
+    }
+
+    function validOwnerStockMovementCreate(userId, movementId) {
+      let productPath = /databases/$(database)/documents/users/$(userId)/products/$(request.resource.data.productIds[0]);
+      let product = getAfter(productPath).data;
       return isOwner(userId)
-        && request.resource.data.keys().hasOnly(stockMovementKeys())
+        && request.resource.data.keys().hasOnly([
+          'userId',
+          'type',
+          'batchId',
+          'note',
+          'createdAt',
+          'productIds',
+          'changes',
+          'cashLaunchId',
+          'cashLaunchOrderNumber',
+          'itemIds'
+        ])
+        && request.resource.data.productIds is list
+        && request.resource.data.productIds.size() > 0
+        && request.resource.data.productIds.size() <= 200
+        && request.resource.data.changes is map
+        && request.resource.data.changes.keys().hasOnly(request.resource.data.productIds)
+        && request.resource.data.changes.keys().hasAll(request.resource.data.productIds)
         && request.resource.data.userId == userId
-        && request.resource.data.productId is string
-        && request.resource.data.productId.size() <= 160
-        && request.resource.data.productDescription is string
-        && request.resource.data.productDescription.size() <= 240
         && request.resource.data.type in ['saida_os', 'estorno_os', 'entrada_manual', 'ajuste_manual']
-        && request.resource.data.quantity is number
-        && request.resource.data.quantity >= 0
-        && request.resource.data.quantity <= 10000000
-        && request.resource.data.previousQuantity is number
-        && request.resource.data.previousQuantity >= 0
-        && request.resource.data.previousQuantity <= 10000000
-        && request.resource.data.nextQuantity is number
-        && request.resource.data.nextQuantity >= 0
-        && request.resource.data.nextQuantity <= 10000000
         && request.resource.data.batchId is string
         && request.resource.data.batchId.size() <= 200
         && request.resource.data.createdAt is string
-        && request.resource.data.createdAt.size() <= 40;
+        && request.resource.data.createdAt.size() <= 40
+        && optionalText('note', 1000)
+        && (!request.resource.data.keys().hasAny(['cashLaunchId'])
+          || request.resource.data.cashLaunchId is string)
+        && (!request.resource.data.keys().hasAny(['cashLaunchOrderNumber'])
+          || request.resource.data.cashLaunchOrderNumber is string)
+        && (!request.resource.data.keys().hasAny(['itemIds'])
+          || (request.resource.data.itemIds is list && request.resource.data.itemIds.size() <= 200))
+        && existsAfter(productPath)
+        && product.stockMovementId == movementId;
     }
 
     function validOwnerCashLaunchFinalizedStockPaymentUpdate(userId) {
@@ -962,12 +1108,13 @@ service cloud.firestore {
           'stockDeducted',
           'stockDeductedAt',
           'stockMovementBatchId',
+          'stockShortageItems',
           'updatedAt'
         ])
         && request.resource.data.status == 'Finalizado'
         && request.resource.data.invoiced == true
         && request.resource.data.paymentMethod in ['Debito', 'Credito', 'Pix', 'Dinheiro']
-        && request.resource.data.stockDeducted == true
+        && request.resource.data.stockDeducted is bool
         && request.resource.data.items is list
         && request.resource.data.items.size() > 0
         && request.resource.data.items.size() <= 200
@@ -978,10 +1125,15 @@ service cloud.firestore {
         && request.resource.data.total >= 0
         && request.resource.data.total <= 10000000
         && cashLaunchPaymentValid()
-        && request.resource.data.stockDeductedAt is string
-        && request.resource.data.stockDeductedAt.size() <= 40
-        && request.resource.data.stockMovementBatchId is string
-        && request.resource.data.stockMovementBatchId.size() <= 200
+        && (
+          request.resource.data.stockDeducted == true
+            ? request.resource.data.stockDeductedAt is string
+              && request.resource.data.stockDeductedAt.size() <= 40
+              && request.resource.data.stockMovementBatchId is string
+              && request.resource.data.stockMovementBatchId.size() <= 200
+            : request.resource.data.stockDeductedAt == null
+              && request.resource.data.stockMovementBatchId == null
+        )
         && request.resource.data.updatedAt is string
         && request.resource.data.updatedAt.size() <= 40;
     }
@@ -1002,6 +1154,7 @@ service cloud.firestore {
           'stockDeducted',
           'stockDeductedAt',
           'stockMovementBatchId',
+          'stockShortageItems',
           'updatedAt'
         ])
         && request.resource.data.status == 'Finalizado'
@@ -1020,6 +1173,7 @@ service cloud.firestore {
         && request.resource.data.stockDeductedAt.size() <= 40
         && request.resource.data.stockMovementBatchId is string
         && request.resource.data.stockMovementBatchId.size() <= 200
+        && optionalList('stockShortageItems', 200)
         && request.resource.data.updatedAt is string
         && request.resource.data.updatedAt.size() <= 40;
     }
@@ -1084,6 +1238,7 @@ service cloud.firestore {
         && request.resource.data.stockDeducted == false
         && request.resource.data.stockDeductedAt == null
         && request.resource.data.stockMovementBatchId == null
+        && optionalList('stockShortageItems', 200)
         && request.resource.data.updatedAt is string
         && request.resource.data.updatedAt.size() <= 40;
     }
@@ -1097,6 +1252,7 @@ service cloud.firestore {
           'stockDeducted',
           'stockDeductedAt',
           'stockMovementBatchId',
+          'stockShortageItems',
           'deletedAt',
           'deletedBy',
           'deletedReason'
@@ -1127,6 +1283,7 @@ service cloud.firestore {
           request.resource.data.stockMovementBatchId == null
           || (request.resource.data.stockMovementBatchId is string && request.resource.data.stockMovementBatchId.size() <= 200)
         )
+        && optionalList('stockShortageItems', 200)
         && isText('createdAt', 40)
         && isText('updatedAt', 40);
     }
@@ -1173,6 +1330,37 @@ service cloud.firestore {
         && optionalUserIdMatches(userId);
     }
 
+    function clientCreateKeys() {
+      return [
+        'name',
+        'bikeModel',
+        'oilType',
+        'oilPrice',
+        'contact',
+        'email',
+        'vehiclePlate',
+        'mileageKm',
+        'lastMaintenanceDate',
+        'nextMaintenanceDate',
+        'recurrenceDays',
+        'status',
+        'isRecurringRevenue',
+        'notificacao_enviada',
+        'notificacaoStatus',
+        'lastServiceType',
+        'lastServiceValue',
+        'lastServiceNotes',
+        'userId',
+        'createdAt',
+        'updatedAt',
+        'lastAlertDate',
+        'serviceValue',
+        'statusPagamento',
+        'valorPago',
+        'saldoDevedor'
+      ];
+    }
+
     function clientKeys() {
       return [
         'name',
@@ -1207,7 +1395,8 @@ service cloud.firestore {
         'deletedBy',
         'deletedReason',
         'resetAt',
-        'resetId'
+        'resetId',
+        'updatedAt'
       ];
     }
 
@@ -1231,7 +1420,8 @@ service cloud.firestore {
         'deletedBy',
         'deletedReason',
         'resetAt',
-        'resetId'
+        'resetId',
+        'updatedAt'
       ];
     }
 
@@ -1248,6 +1438,7 @@ service cloud.firestore {
         'warrantyNumber',
         'userId',
         'createdAt',
+        'updatedAt',
         'deletedAt',
         'deletedBy',
         'deletedReason',
@@ -1266,6 +1457,7 @@ service cloud.firestore {
         'value',
         'completed',
         'createdAt',
+        'updatedAt',
         'userId',
         'deletedAt',
         'deletedBy',
@@ -1285,6 +1477,7 @@ service cloud.firestore {
         'note',
         'userId',
         'createdAt',
+        'updatedAt',
         'deletedAt',
         'deletedBy',
         'deletedReason',
@@ -1303,6 +1496,7 @@ service cloud.firestore {
         'ncm',
         'salePrice',
         'stockQuantity',
+        'stockMovementId',
         'minStockQuantity',
         'trackStock',
         'importedAt',
@@ -1352,6 +1546,7 @@ service cloud.firestore {
         'stockDeducted',
         'stockDeductedAt',
         'stockMovementBatchId',
+        'stockShortageItems',
         'userId',
         'createdAt',
         'updatedAt',
@@ -1399,6 +1594,7 @@ service cloud.firestore {
         'trigger',
         'message',
         'createdAt',
+        'updatedAt',
         'sentAt',
         'error',
         'userId',
@@ -1452,7 +1648,7 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow get: if isOwner(userId);
+      allow get: if isOwner(userId) || isActiveMasterAdmin();
       allow list: if false;
       allow create: if validUserProfileCreate(userId);
       allow update: if isActiveMasterAdmin() && validAccessProfileDecision(userId);
@@ -1473,15 +1669,21 @@ service cloud.firestore {
 
     match /users/{userId}/clients/{clientId} {
       allow read: if canReadUserData(userId);
-      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, clientKeys()) && clientShape(userId);
-      allow update: if isActiveOwner(userId) && validOwnerUpdate(userId, clientKeys()) && clientShape(userId);
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, clientCreateKeys()) && clientCreateShape(userId);
+      allow update: if isActiveOwner(userId) && (
+        validOwnerClientMaintenanceUpdate(userId)
+        || (validOwnerUpdate(userId, clientKeys()) && clientShape(userId))
+      );
       allow delete: if false;
     }
 
     match /users/{userId}/maintenances/{maintenanceId} {
       allow read: if canReadUserData(userId);
       allow create: if isActiveOwner(userId) && validOwnerCreate(userId, maintenanceKeys()) && maintenanceShape(userId);
-      allow update: if isActiveOwner(userId) && validOwnerUpdate(userId, maintenanceKeys()) && maintenanceShape(userId);
+      allow update: if isActiveOwner(userId) && (
+        validOwnerSoftDeleteUpdate(userId)
+        || (validOwnerUpdate(userId, maintenanceKeys()) && maintenanceShape(userId))
+      );
       allow delete: if false;
     }
 
@@ -1508,14 +1710,18 @@ service cloud.firestore {
 
     match /users/{userId}/products/{productId} {
       allow read: if canReadUserData(userId);
-      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, productKeys()) && productShape(userId, productId);
-      allow update: if isActiveOwner(userId) && (validOwnerProductStockUpdate(userId) || (validOwnerUpdate(userId, productKeys()) && productShape(userId, productId)));
+      allow create: if isActiveOwner(userId)
+        && validOwnerCreate(userId, productKeys())
+        && productShape(userId, productId)
+        && validStockOperationPair(userId, productId, request.resource.data, true);
+      allow update: if isActiveOwner(userId)
+        && (validOwnerProductStockUpdate(userId) || validOwnerProductDataUpdate(userId));
       allow delete: if false;
     }
 
     match /users/{userId}/stock_movements/{movementId} {
       allow read: if canReadUserData(userId);
-      allow create: if isActiveOwner(userId) && validOwnerStockMovementCreate(userId);
+      allow create: if isActiveOwner(userId) && validOwnerStockMovementCreate(userId, movementId);
       allow update, delete: if false;
     }
 

@@ -14,11 +14,14 @@ type AppShellProps = {
   collectionListenerIssues: CollectionListenerIssue[];
   fiscalModuleAvailable: boolean;
   offlineSyncStatus: OfflineSyncStatus;
+  isRefreshingData: boolean;
+  lastDataSyncAt: string | null;
   settings: Settings;
   userProfile: UserProfile | null;
   view: AppView;
   onColorModeChange: (mode: ColorMode) => void;
   onSignOut: () => void;
+  onManualDataSync: () => void;
   onViewChange: (view: AppView) => void;
 };
 
@@ -28,11 +31,14 @@ export const AppShell = ({
   collectionListenerIssues,
   fiscalModuleAvailable,
   offlineSyncStatus,
+  isRefreshingData,
+  lastDataSyncAt,
   settings,
   userProfile,
   view,
   onColorModeChange,
   onSignOut,
+  onManualDataSync,
   onViewChange,
 }: AppShellProps) => {
   const isAdmin = isAdminRole(userProfile?.role);
@@ -58,7 +64,10 @@ export const AppShell = ({
             <AppHeader
               colorMode={colorMode}
               offlineSyncStatus={offlineSyncStatus}
+              isRefreshingData={isRefreshingData}
+              lastDataSyncAt={lastDataSyncAt}
               onColorModeChange={onColorModeChange}
+              onManualDataSync={onManualDataSync}
               onSignOut={onSignOut}
             />
           </div>
@@ -68,8 +77,11 @@ export const AppShell = ({
               businessName={businessName}
               colorMode={colorMode}
               offlineSyncStatus={offlineSyncStatus}
+              isRefreshingData={isRefreshingData}
+              lastDataSyncAt={lastDataSyncAt}
               view={view}
               onColorModeChange={onColorModeChange}
+              onManualDataSync={onManualDataSync}
               onSignOut={onSignOut}
             />
           </div>

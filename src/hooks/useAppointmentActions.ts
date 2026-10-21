@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast as sonnerToast } from 'sonner';
 import { parseBrazilianCurrency } from '../lib/money';
 import { appointmentRepository } from '../services/appointmentRepository';
+import { getFirestoreSaveResultMessage } from '../services/firestoreSaveStatus';
 import { clearLocalDraft, loadLocalDraft, saveLocalDraft } from '../services/localDrafts';
 import type { Appointment } from '../types';
 
@@ -131,9 +132,7 @@ export const useAppointmentActions = ({ user, onDeleted }: UseAppointmentActions
 
       clearLocalDraft(draftKey);
       resetForm();
-      const savedMessage = typeof navigator !== 'undefined' && navigator.onLine === false
-        ? 'Agendamento salvo neste computador. Sincronizacao pendente.'
-        : 'Agendamento salvo com sucesso!';
+      const savedMessage = getFirestoreSaveResultMessage('Agendamento salvo com sucesso!');
       setMessage(savedMessage);
       sonnerToast.success(savedMessage);
       window.setTimeout(() => setMessage(null), 2500);
@@ -152,7 +151,7 @@ export const useAppointmentActions = ({ user, onDeleted }: UseAppointmentActions
       await appointmentRepository.update(user.uid, appointment.id, {
         completed: true,
       });
-      sonnerToast.success('Agendamento marcado como concluido.');
+      sonnerToast.success(getFirestoreSaveResultMessage('Agendamento marcado como concluído.'));
     } catch (error) {
       console.error('Erro ao atualizar status de agendamento:', error);
       sonnerToast.error('Falha ao marcar o agendamento.');
@@ -165,7 +164,7 @@ export const useAppointmentActions = ({ user, onDeleted }: UseAppointmentActions
     try {
       await appointmentRepository.remove(user.uid, id);
       onDeleted();
-      sonnerToast.success('Agendamento movido para a lixeira.', {
+      sonnerToast.success(getFirestoreSaveResultMessage('Agendamento movido para a lixeira.'), {
         action: {
           label: 'Desfazer',
           onClick: () => void appointmentRepository.restore(user.uid, id),

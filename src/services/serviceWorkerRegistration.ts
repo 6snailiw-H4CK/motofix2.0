@@ -35,23 +35,6 @@ const cleanupDevelopmentServiceWorker = () => {
   }
 };
 
-const precacheOfflineAssets = (registration: ServiceWorkerRegistration) => {
-  const postPrecacheMessage = (activeRegistration: ServiceWorkerRegistration) => {
-    activeRegistration.active?.postMessage({ type: 'MOTOFIX_PRECACHE_ASSETS' });
-  };
-
-  if (registration.active) {
-    postPrecacheMessage(registration);
-    return;
-  }
-
-  navigator.serviceWorker.ready
-    .then(postPrecacheMessage)
-    .catch((error) => {
-      console.warn('Falha ao acionar cache offline do service worker:', error);
-    });
-};
-
 export const registerMotoFixServiceWorker = () => {
   if (!shouldRegisterServiceWorker()) {
     cleanupDevelopmentServiceWorker();
@@ -62,7 +45,6 @@ export const registerMotoFixServiceWorker = () => {
     navigator.serviceWorker.register('/sw.js')
       .then((registration) => {
         console.log('Service worker registrado em:', registration.scope);
-        precacheOfflineAssets(registration);
       })
       .catch((error) => {
         console.warn('Falha ao registrar service worker:', error);

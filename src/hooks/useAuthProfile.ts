@@ -1,8 +1,16 @@
 import { useEffect, useState } from 'react';
 import { addDays, format } from 'date-fns';
 import { getRedirectResult, onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc, onSnapshot, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { doc, getDocFromCache, getDocFromServer, onSnapshot, serverTimestamp, writeBatch } from 'firebase/firestore';
 import { auth, authPersistenceReady, db } from '../firebase';
+import { withFirestoreNetworkSession } from '../services/firestoreNetworkControl';
+import { firestoreOfflineQueueReady, getPendingWriteCheckpoint } from '../services/firestoreOfflineQueue';
+import {
+  getFirestoreSnapshotReadDetails,
+  recordFirestoreListenerCreate,
+  recordFirestoreReadResult,
+  recordFirestoreSnapshot,
+} from '../debug/firestoreDebug';
 import { createPendingAccessRequest, type AccessRequest } from '../types/accessRequest';
 import { UserProfile } from '../types';
 
@@ -19,17 +27,17 @@ const areUserProfilesEqual = (currentProfile: UserProfile | null, nextProfile: U
     currentProfile.isActive === nextProfile.isActive &&
     currentProfile.billing?.status === nextProfile.billing?.status &&
     currentProfile.billing?.currentPeriodEnd === nextProfile.billing?.currentPeriodEnd &&
-    currentProfile.subscription.status === nextProfile.subscription.status &&
-    currentProfile.subscription.plan === nextProfile.subscription.plan &&
-    currentProfile.subscription.startsAt === nextProfile.subscription.startsAt &&
-    currentProfile.subscription.expiresAt === nextProfile.subscription.expiresAt &&
-    currentProfile.subscription.currentPeriodEnd === nextProfile.subscription.currentPeriodEnd &&
-    currentProfile.subscription.autoRenew === nextProfile.subscription.autoRenew &&
-    currentProfile.subscription.stripeCustomerId === nextProfile.subscription.stripeCustomerId &&
-    currentProfile.subscription.stripeSubscriptionId === nextProfile.subscription.stripeSubscriptionId &&
-    currentProfile.subscription.canceledAt === nextProfile.subscription.canceledAt &&
-    currentProfile.subscription.cancelReason === nextProfile.subscription.cancelReason &&
-    currentProfile.subscription.paymentMethodId === nextProfile.subscription.paymentMethodId &&
+    currentProfile.subscription?.status === nextProfile.subscription?.status &&
+    currentProfile.subscription?.plan === nextProfile.subscription?.plan &&
+    currentProfile.subscription?.startsAt === nextProfile.subscription?.startsAt &&
+    currentProfile.subscription?.expiresAt === nextProfile.subscription?.expiresAt &&
+    currentProfile.subscription?.currentPeriodEnd === nextProfile.subscription?.currentPeriodEnd &&
+    currentProfile.subscription?.autoRenew === nextProfile.subscription?.autoRenew &&
+    currentProfile.subscription?.stripeCustomerId === nextProfile.subscription?.stripeCustomerId &&
+    currentProfile.subscription?.stripeSubscriptionId === nextProfile.subscription?.stripeSubscriptionId &&
+    currentProfile.subscription?.canceledAt === nextProfile.subscription?.canceledAt &&
+    currentProfile.subscription?.cancelReason === nextProfile.subscription?.cancelReason &&
+    currentProfile.subscription?.paymentMethodId === nextProfile.subscription?.paymentMethodId &&
     currentProfile.createdAt === nextProfile.createdAt &&
     currentProfile.ownerAccess?.enabled === nextProfile.ownerAccess?.enabled &&
     currentProfile.ownerAccess?.permanent === nextProfile.ownerAccess?.permanent &&
@@ -57,11 +65,39 @@ export function useAuthProfile() {
 
     const loadUserProfile = async (firebaseUser: User, generation: number) => {
       try {
+        // Custom admin claims may be added after a browser session was created.
+        // Refresh the ID token before Firestore rules evaluate the profile and
+        // operational listeners for this authenticated session.
+        try {
+          if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+            await firebaseUser.getIdToken();
+          } else {
+            await firebaseUser.getIdToken(true);
+          }
+        } catch (tokenRefreshError) {
+          // Keep an existing Auth session usable offline or during a transient
+          // outage; Firestore Rules still make the final authorization decision.
+          console.warn('Falha ao atualizar o token Firebase; usando o token local:', tokenRefreshError);
+          await firebaseUser.getIdToken();
+        }
+        if (!isMounted || generation !== authGeneration || auth.currentUser?.uid !== firebaseUser.uid) return;
         const userDoc = doc(db, 'users', firebaseUser.uid);
-        const userSnap = await Promise.race([
-          getDoc(userDoc),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout carregando perfil remoto')), 5000)),
-        ]);
+        let userSnap;
+        try {
+          userSnap = await getDocFromCache(userDoc);
+        } catch {
+          // A fresh browser has no cached profile yet. Open one short bootstrap
+          // session so Firebase can determine whether this account is allowed.
+          await firestoreOfflineQueueReady;
+          if (getPendingWriteCheckpoint().length > 0) {
+            throw new Error('Há alterações locais aguardando sincronização. Abra o app no aparelho que as criou e sincronize antes de validar esta conta neste navegador.');
+          }
+          userSnap = await withFirestoreNetworkSession(firebaseUser.uid, () => Promise.race([
+            getDocFromServer(userDoc),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout carregando perfil remoto')), 5000)),
+          ]));
+        }
+        recordFirestoreReadResult('profile:getDoc', userSnap);
 
         if (!isMounted || generation !== authGeneration || auth.currentUser?.uid !== firebaseUser.uid) return;
 
@@ -102,7 +138,9 @@ export function useAuthProfile() {
           const batch = writeBatch(db);
           batch.set(userDoc, newProfile);
           batch.set(doc(db, 'access_requests', firebaseUser.uid), accessRequest);
-          await batch.commit();
+          // First-time account provisioning is part of authentication setup;
+          // operational edits remain queued until an explicit/4-hour sync.
+          await withFirestoreNetworkSession(firebaseUser.uid, () => batch.commit());
           setUserProfile((currentProfile) => {
             if (areUserProfilesEqual(currentProfile, newProfile)) {
               return currentProfile;
@@ -111,8 +149,10 @@ export function useAuthProfile() {
           });
         }
         unsubscribeProfile();
+        const profileListenerId = recordFirestoreListenerCreate('profile');
         unsubscribeProfile = onSnapshot(userDoc, (snapshot) => {
           if (!isMounted || generation !== authGeneration || auth.currentUser?.uid !== firebaseUser.uid) return;
+          recordFirestoreSnapshot('profile', getFirestoreSnapshotReadDetails(snapshot), profileListenerId);
           if (!snapshot.exists()) {
             setUserProfile(null);
             setIsNewUser(true);

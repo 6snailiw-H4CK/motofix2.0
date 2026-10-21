@@ -7,6 +7,7 @@ import {
   readFirestoreWithCacheFallback,
   type FirestoreReplayMutation
 } from './firestoreOfflineQueue';
+import { withFirestoreSyncTimestamp } from './firestoreSyncFields';
 import { createRestoreMetadata, createSoftDeleteMetadata, isSoftDeleted } from './softDelete';
 
 export type MaintenanceWriteData = Record<string, unknown>;
@@ -18,19 +19,21 @@ const maintenanceReplayPath = (userId: string, maintenanceId: string) => ['users
 export const maintenanceRepository = {
   async create(userId: string, data: MaintenanceWriteData) {
     const docRef = doc(maintenanceCollectionPath(userId));
+    const writeData = withFirestoreSyncTimestamp(data);
     await queueFirestoreVoidWrite(
-      () => setDoc(docRef, data),
+      () => setDoc(docRef, writeData),
       'Criar manutencao',
-      createFirestoreReplayDescriptor('set', maintenanceReplayPath(userId, docRef.id), data)
+      createFirestoreReplayDescriptor('set', maintenanceReplayPath(userId, docRef.id), writeData)
     );
     return docRef.id;
   },
 
   async update(userId: string, maintenanceId: string, data: MaintenanceWriteData) {
+    const writeData = withFirestoreSyncTimestamp(data);
     await queueFirestoreVoidWrite(
-      () => updateDoc(maintenanceDocPath(userId, maintenanceId), data),
+      () => updateDoc(maintenanceDocPath(userId, maintenanceId), writeData),
       'Atualizar manutencao',
-      createFirestoreReplayDescriptor('update', maintenanceReplayPath(userId, maintenanceId), data)
+      createFirestoreReplayDescriptor('update', maintenanceReplayPath(userId, maintenanceId), writeData)
     );
   },
 

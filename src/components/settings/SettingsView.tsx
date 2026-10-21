@@ -108,13 +108,19 @@ export const SettingsView = ({
   const activeDefaultServiceTypes = DEFAULT_SERVICE_TYPES.filter(type => !disabledDefaultKeys.has(getServiceTypeKey(type)));
   const warrantyCategories = settings.warrantyCategories || [];
   const canResetOperationalData = isAdminRole(userProfile?.role);
-  const syncStatus = offlineSyncStatus.lastError
-    ? { label: 'Falha', icon: AlertTriangle, className: 'border-red-500/30 bg-red-500/10 text-red-200' }
-    : !offlineSyncStatus.isOnline
-      ? { label: 'Offline', icon: CloudOff, className: 'border-amber-500/30 bg-amber-500/10 text-amber-100' }
-      : offlineSyncStatus.pendingWrites > 0 || offlineSyncStatus.isSyncing
-        ? { label: 'Sincronizando', icon: CloudUpload, className: 'border-sky-500/30 bg-sky-500/10 text-sky-100' }
-        : { label: 'Online', icon: CloudCheck, className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100' };
+  const syncStatus = !offlineSyncStatus.isOnline
+    ? { label: 'Offline', icon: CloudOff, className: 'border-red-500/30 bg-red-500/10 text-red-100' }
+    : offlineSyncStatus.lastPersistenceError
+      ? { label: 'Falha local', icon: AlertTriangle, className: 'border-red-500/30 bg-red-500/10 text-red-200' }
+      : offlineSyncStatus.failedWrites > 0
+        ? { label: 'Falha sync', icon: AlertTriangle, className: 'border-red-500/30 bg-red-500/10 text-red-200' }
+        : offlineSyncStatus.isSyncing
+          ? { label: 'Sincronizando', icon: CloudUpload, className: 'border-sky-500/30 bg-sky-500/10 text-sky-100' }
+          : offlineSyncStatus.pendingWrites > 0 || offlineSyncStatus.localDraftCount > 0
+            ? { label: 'Pendente local', icon: CloudUpload, className: 'border-amber-500/30 bg-amber-500/10 text-amber-100' }
+            : !offlineSyncStatus.networkEnabled
+              ? { label: 'Modo local', icon: CloudOff, className: 'border-slate-500/30 bg-slate-500/10 text-slate-200' }
+              : { label: 'Sem pendências', icon: CloudCheck, className: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100' };
   const SyncIcon = syncStatus.icon;
   const formatSyncDate = (value: string | null) => {
     if (!value) return 'Nunca';
@@ -446,7 +452,7 @@ export const SettingsView = ({
               </div>
             )}
           </div>
-          <FailedWritesPanel />
+          <FailedWritesPanel currentUserId={userProfile?.uid ?? null} />
         </section>
 
       <input

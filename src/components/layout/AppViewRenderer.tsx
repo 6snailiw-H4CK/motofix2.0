@@ -21,7 +21,6 @@ import {
   type Warranty,
 } from '../../types';
 import type { OfflineSyncStatus } from '../../hooks/useOfflineSyncStatus';
-import type { useAdminActions } from '../../hooks/useAdminActions';
 import type { useAppointmentActions } from '../../hooks/useAppointmentActions';
 import type { useCashRegisterActions } from '../../hooks/useCashRegisterActions';
 import type { useClientActions } from '../../hooks/useClientActions';
@@ -41,7 +40,6 @@ import type { useWhatsAppReminderActions } from '../../hooks/useWhatsAppReminder
 import { downloadProductsWorkbook } from '../../services/productSpreadsheet';
 import { systemBackupApi } from '../../services/systemBackupApi';
 
-const AdminView = lazy(() => import('../admin/AdminView').then((module) => ({ default: module.AdminView })));
 const MasterAdminView = lazy(() => import('../admin/MasterAdminView').then((module) => ({ default: module.MasterAdminView })));
 const AppointmentsView = lazy(() => import('../appointments/AppointmentsView').then((module) => ({ default: module.AppointmentsView })));
 const CashRegisterView = lazy(() => import('../cash/CashRegisterView').then((module) => ({ default: module.CashRegisterView })));
@@ -80,7 +78,6 @@ type ChartDataPoint = {
   count: number;
 };
 
-type AdminActions = ReturnType<typeof useAdminActions>;
 type AppointmentActions = ReturnType<typeof useAppointmentActions>;
 type CashRegisterActions = ReturnType<typeof useCashRegisterActions>;
 type ClientActions = ReturnType<typeof useClientActions>;
@@ -98,7 +95,6 @@ type WarrantyActions = ReturnType<typeof useWarrantyActions>;
 type SendWhatsApp = ReturnType<typeof useWhatsAppReminderActions>['sendWhatsApp'];
 
 type AppViewRendererActions = {
-  admin: AdminActions;
   appointment: AppointmentActions;
   cashRegister: CashRegisterActions;
   client: ClientActions;
@@ -115,7 +111,6 @@ type AppViewRendererActions = {
 };
 
 type AppViewRendererData = {
-  allUsers: UserProfile[];
   appointments: Appointment[];
   cashLaunches: CashRegisterLaunch[];
   cashLaunchesLoaded: boolean;
@@ -180,7 +175,6 @@ export const AppViewRenderer = ({
   ui,
 }: AppViewRendererProps) => {
   const {
-    admin: adminActions,
     appointment: appointmentActions,
     cashRegister: cashRegisterActions,
     client: clientActions,
@@ -196,7 +190,6 @@ export const AppViewRenderer = ({
     warranty: warrantyActions,
   } = actions;
   const {
-    allUsers,
     appointments,
     cashLaunches,
     cashLaunchesLoaded,
@@ -396,6 +389,7 @@ export const AppViewRenderer = ({
         <ClientsView
           clients={filteredServiceClients}
           maintenances={dashboardMaintenances}
+          recurringMonthlySummary={maintenanceStats.recurringMonthlySummary}
           clientBalanceMap={clientBalanceMap}
           searchQuery={searchQuery}
           serviceListFilter={serviceListFilter}
@@ -424,6 +418,13 @@ export const AppViewRenderer = ({
           }}
           onDeleteMaintenanceClick={(record) => {
             confirmOrRequestDelete('maintenance', record.id, () => maintenanceActions.deleteMaintenance(record));
+          }}
+          onDeleteLegacyServiceClick={(client) => {
+            confirmOrRequestDelete(
+              'maintenance',
+              `legacy-service:${client.id}`,
+              () => maintenanceActions.deleteLegacyService(client)
+            );
           }}
         />
       );
@@ -753,19 +754,7 @@ export const AppViewRenderer = ({
       );
     }
 
-        if (view === 'admin' && isMasterAdminRole(userProfile?.role)) {
-      return (
-        <AdminView
-          users={allUsers}
-          currentUserId={currentUserId}
-          onToggleUserStatus={adminActions.toggleUserStatus}
-          onUpdateSubscription={adminActions.updateSubscription}
-          onSetSubscriptionDate={adminActions.setSubscriptionDate}
-        />
-      );
-    }
-
-    if (view === 'master-admin' && isMasterAdminRole(userProfile?.role)) {
+    if ((view === 'master-admin' || view === 'admin') && isMasterAdminRole(userProfile?.role)) {
       return <MasterAdminView currentUserId={currentUserId} />;
     }
 

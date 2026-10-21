@@ -5,6 +5,7 @@ import { saveClientWithMaintenance, type ClientSaveData } from '../services/clie
 import { clientRepository } from '../services/clientRepository';
 import { downloadClientsWorkbook, parseClientsWorkbook, type ClientBackupRow } from '../services/clientSpreadsheet';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
+import { getFirestoreSaveResultMessage } from '../services/firestoreSaveStatus';
 import { recordOperationalLog } from '../services/operationalLogRepository';
 import type { Client, MaintenanceRecord, MaintenanceStatus } from '../types';
 
@@ -158,7 +159,7 @@ export const useClientActions = ({
         targetId: id,
         details: { name, source: 'quick_create' },
       });
-      sonnerToast.success('Cliente cadastrado rapidamente.');
+      sonnerToast.success(getFirestoreSaveResultMessage('Cliente cadastrado rapidamente.'));
       return createdClient;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, 'clients');
@@ -216,11 +217,7 @@ export const useClientActions = ({
           details: { source: 'client_service', value: clientData.serviceValue || 0 },
         });
       }
-      sonnerToast.success(
-        typeof navigator !== 'undefined' && navigator.onLine === false
-          ? 'Dados salvos neste computador. Sincronizacao pendente.'
-          : result.message
-      );
+      sonnerToast.success(getFirestoreSaveResultMessage(result.message));
       onSaved();
       return true;
     } catch (error) {
@@ -245,7 +242,7 @@ export const useClientActions = ({
         targetId: id,
       });
       onDeleted();
-      sonnerToast.success('Cliente e historico movidos para a lixeira.', {
+      sonnerToast.success(getFirestoreSaveResultMessage('Cliente e histórico movidos para a lixeira.'), {
         action: {
           label: 'Desfazer',
           onClick: () => void clientRepository.restoreWithMaintenances(user.uid, id),
@@ -355,7 +352,7 @@ export const useClientActions = ({
         created += 1;
       }
 
-      sonnerToast.success(`Importacao concluida: ${created} novo(s), ${updated} atualizado(s), ${ignored} ignorado(s).`);
+      sonnerToast.success(getFirestoreSaveResultMessage(`Importação concluída: ${created} novo(s), ${updated} atualizado(s), ${ignored} ignorado(s).`));
     } catch (error) {
       console.error(error);
       sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel importar a planilha.');

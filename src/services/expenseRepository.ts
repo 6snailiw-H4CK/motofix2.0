@@ -1,6 +1,7 @@
 import { collection, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { createFirestoreReplayDescriptor, queueFirestoreVoidWrite } from './firestoreOfflineQueue';
+import { withFirestoreSyncTimestamp } from './firestoreSyncFields';
 import { createRestoreMetadata, createSoftDeleteMetadata } from './softDelete';
 
 export type ExpenseWriteData = Record<string, unknown>;
@@ -12,10 +13,11 @@ const expenseReplayPath = (userId: string, expenseId: string) => ['users', userI
 export const expenseRepository = {
   async create(userId: string, data: ExpenseWriteData) {
     const docRef = doc(expenseCollectionPath(userId));
+    const writeData = withFirestoreSyncTimestamp(data);
     await queueFirestoreVoidWrite(
-      () => setDoc(docRef, data),
+      () => setDoc(docRef, writeData),
       'Criar gasto',
-      createFirestoreReplayDescriptor('set', expenseReplayPath(userId, docRef.id), data)
+      createFirestoreReplayDescriptor('set', expenseReplayPath(userId, docRef.id), writeData)
     );
     return docRef.id;
   },

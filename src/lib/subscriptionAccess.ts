@@ -61,6 +61,20 @@ export const evaluateSessionAccountAccess = (
     };
   }
 
+  // Master Admin is an explicit administrative entitlement. Do not force this
+  // account through the time-limited manual-access path used by tenant users.
+  if (profile.role === "master_admin") {
+    return {
+      allowed: true,
+      status: "active",
+      reason: "master_admin_entitlement",
+      accountState: "active",
+      entitlementSource: "owner",
+      expiresAt: null,
+      evaluatedAt: new Date(now).toISOString(),
+    };
+  }
+
   const expiry = profile.manualAccess?.enabled === true
     ? accessTimestamp(profile.manualAccess.expiresAt)
     : null;

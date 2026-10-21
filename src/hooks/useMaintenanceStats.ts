@@ -108,6 +108,37 @@ export const useMaintenanceStats = ({
     return { revenue, recurringRevenue, servicesCount };
   }, [dashboardCashLaunches, dashboardMaintenances]);
 
+  const recurringMonthlySummary = useMemo(() => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    const expected = clients.reduce((total, client) => {
+      if (!client.isRecurringRevenue || !client.nextMaintenanceDate) return total;
+      const nextDate = parseSafeDate(client.nextMaintenanceDate);
+      if (!nextDate || !isSameMonth(nextDate, currentMonth, currentYear)) return total;
+
+      const amount = [client.lastServiceValue, client.serviceValue, client.oilPrice]
+        .map(parseMonetaryValue)
+        .find((value) => value > 0) || 0;
+      return total + amount;
+    }, 0);
+
+    const received = dashboardMaintenances.reduce((total, maintenance) => {
+      if (!maintenance.isRecurringRevenue || !maintenance.date) return total;
+      const maintenanceDate = parseSafeDate(maintenance.date);
+      if (!maintenanceDate || !isSameMonth(maintenanceDate, currentMonth, currentYear)) return total;
+
+      const status = normalizePaymentStatus(maintenance.statusPagamento).toLowerCase();
+      const paidAmount = status === 'pago'
+        ? parseMonetaryValue(maintenance.serviceValue)
+        : parseMonetaryValue(maintenance.valorPago);
+      return total + paidAmount;
+    }, 0);
+
+    return { expected, received };
+  }, [clients, dashboardMaintenances]);
+
   const clientStats = useMemo(() => {
     const today = new Date();
     const currentMonth = today.getMonth();
@@ -420,6 +451,7 @@ export const useMaintenanceStats = ({
     filteredServiceClients,
     getTopServiceSubRows,
     overdueClients,
+    recurringMonthlySummary,
     topServicesData,
   };
 };

@@ -2,7 +2,6 @@ import {
   collection,
   doc,
   documentId,
-  getDocFromServer,
   getDocsFromServer,
   limit,
   orderBy,
@@ -12,28 +11,18 @@ import {
   type DocumentData,
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import { recordFirestoreRead } from '../debug/firestoreDebug';
+import { recordFirestoreReadResult } from '../debug/firestoreDebug';
 
 export const OFFLINE_DATA_PRELOAD_STORAGE_KEY = 'motofix:offline-data-preload-state';
 export const OFFLINE_DATA_PRELOAD_STALE_MS = 24 * 60 * 60 * 1000;
 
-const FAILED_PRELOAD_RETRY_MS = 15 * 60 * 1000;
+const FAILED_PRELOAD_RETRY_MS = OFFLINE_DATA_PRELOAD_STALE_MS;
 const PRELOAD_PAGE_SIZE = 200;
 
+// Firestore's persistent cache is already warmed by the live listeners; only
+// stock movements lack one and need an explicit offline preload.
 const USER_COLLECTIONS_TO_PRELOAD = [
-  'clients',
-  'maintenances',
-  'warranties',
-  'appointments',
-  'expenses',
-  'products',
   'stock_movements',
-  'cash_launches',
-  'fiscal_companies',
-  'fiscal_invoices',
-  'fiscal_logs',
-  'operational_logs',
-  'message_logs',
 ] as const;
 
 type UserPreloadState = {
@@ -160,10 +149,6 @@ const updateCheckpoint = (userId: string, targetKey: string, documentId: string 
   });
 };
 
-const clearCompletedCheckpoints = (userId: string) => {
-  updateUserPreloadState(userId, { checkpoints: {} });
-};
-
 const getAgeMs = (value: string | null | undefined, now = Date.now()) => {
   if (!value) return Number.POSITIVE_INFINITY;
   const time = new Date(value).getTime();
@@ -174,42 +159,25 @@ const getErrorMessage = (error: unknown) => (
   error instanceof Error ? error.message : String(error)
 );
 
-const yieldToBrowser = () => new Promise((resolve) => {
-  setTimeout(resolve, 0);
-});
-
-const preloadCollectionPages = async (
+const preloadCollectionPage = async (
   userId: string,
   targetKey: string,
   collectionRef: CollectionReference<DocumentData>
 ) => {
-  let checkpoint = getUserPreloadState(userId)?.checkpoints?.[targetKey] || null;
-  let loadedDocuments = 0;
+  const checkpoint = getUserPreloadState(userId)?.checkpoints?.[targetKey] || null;
+  const pageQuery = checkpoint
+    ? query(collectionRef, orderBy(documentId()), startAfter(checkpoint), limit(PRELOAD_PAGE_SIZE))
+    : query(collectionRef, orderBy(documentId()), limit(PRELOAD_PAGE_SIZE));
+  const snapshot = await getDocsFromServer(pageQuery);
+  recordFirestoreReadResult(`preload:${targetKey}`, snapshot);
 
-  while (true) {
-    const pageQuery = checkpoint
-      ? query(collectionRef, orderBy(documentId()), startAfter(checkpoint), limit(PRELOAD_PAGE_SIZE))
-      : query(collectionRef, orderBy(documentId()), limit(PRELOAD_PAGE_SIZE));
-    const snapshot = await getDocsFromServer(pageQuery);
-    recordFirestoreRead(`preload:${targetKey}`, { userId, size: snapshot.size });
-
-    if (snapshot.empty) {
-      updateCheckpoint(userId, targetKey, null);
-      return loadedDocuments;
-    }
-
-    loadedDocuments += snapshot.size;
-    const lastDocumentId = snapshot.docs[snapshot.docs.length - 1].id;
-
-    if (snapshot.size < PRELOAD_PAGE_SIZE) {
-      updateCheckpoint(userId, targetKey, null);
-      return loadedDocuments;
-    }
-
-    checkpoint = lastDocumentId;
-    updateCheckpoint(userId, targetKey, checkpoint);
-    await yieldToBrowser();
-  }
+  const lastDocumentId = snapshot.docs.at(-1)?.id ?? null;
+  updateCheckpoint(
+    userId,
+    targetKey,
+    snapshot.size === PRELOAD_PAGE_SIZE ? lastDocumentId : null,
+  );
+  return snapshot.size;
 };
 
 export const shouldPreloadOfflineData = (
@@ -258,28 +226,10 @@ export const preloadUserOfflineData = async ({
   });
 
   const targets: PreloadTarget[] = [
-    {
-      key: 'profile',
-      label: 'Perfil do usuario',
-      load: async () => {
-        const snapshot = await getDocFromServer(doc(db, 'users', userId));
-        recordFirestoreRead('preload:profile', { userId });
-        return snapshot.exists() ? 1 : 0;
-      },
-    },
-    {
-      key: 'settings',
-      label: 'Configuracoes',
-      load: async () => {
-        const snapshot = await getDocFromServer(doc(db, 'users', userId, 'settings', 'config'));
-        recordFirestoreRead('preload:settings', { userId });
-        return snapshot.exists() ? 1 : 0;
-      },
-    },
     ...USER_COLLECTIONS_TO_PRELOAD.map((collectionName) => ({
       key: `collection:${collectionName}`,
       label: collectionName,
-      load: () => preloadCollectionPages(
+      load: () => preloadCollectionPage(
         userId,
         `collection:${collectionName}`,
         collection(db, 'users', userId, collectionName)
@@ -299,10 +249,6 @@ export const preloadUserOfflineData = async ({
   }
 
   const completedAt = new Date().toISOString();
-  if (failedTargets.length === 0) {
-    clearCompletedCheckpoints(userId);
-  }
-
   updateUserPreloadState(userId, {
     lastCompletedAt: completedAt,
     lastError: failedTargets[0] || null,

@@ -288,7 +288,7 @@ test("another active Master Admin cannot use permanent owner entitlement fields 
   await expectPermissionDenied(getDoc(doc(otherMasterDb, "users", otherMasterUid, "clients", "private-client")));
 });
 
-test("Master Admin can list minimal access requests but cannot list user profiles", async () => {
+test("Master Admin can list requests and read one profile but cannot list user profiles", async () => {
   await seed([
     ["access_requests", "pending-user", pendingRequest("pending-user")],
     ["users", "pending-user", profile("pending-user")],
@@ -302,8 +302,11 @@ test("Master Admin can list minimal access requests but cannot list user profile
   assert.equal(pending.size, 1);
   assert.equal(pending.docs[0].id, "pending-user");
   assert.equal((await getDocs(collection(db, "access_requests"))).size, 1);
+  const profileSnapshot = await getDoc(doc(db, "users", "pending-user"));
+  assert.equal(profileSnapshot.exists(), true);
+  assert.equal(profileSnapshot.data().role, "user");
   await expectPermissionDenied(getDocs(collection(db, "users")));
-  await expectPermissionDenied(getDoc(doc(db, "users", "pending-user")));
+  await expectPermissionDenied(getDoc(doc(signupAs("regular-reader"), "users", "pending-user")));
   await expectPermissionDenied(getDoc(doc(db, "users", "pending-user", "clients", "private")));
 });
 

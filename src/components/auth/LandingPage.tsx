@@ -1,94 +1,287 @@
-import { BarChart3, Calendar, Check, DollarSign, Users } from 'lucide-react';
+import { useEffect } from 'react';
+import { BarChart3, CalendarDays, Check, CircleDollarSign, Mail, MessageCircle, Moon, Sun, Users } from 'lucide-react';
 import './LandingPage.css';
+import type { ColorMode } from '../../types';
 
 type LandingPageProps = {
+  colorMode: ColorMode;
   onLogin: () => void;
-  onFounderPlan: () => void;
+  onColorModeChange: (mode: ColorMode) => void;
   onNavigate: (sectionId: string) => void;
   onOpenLegal: (kind: 'privacy' | 'terms') => void;
 };
 
 const whatsappUrl = 'https://wa.me/556999944024';
-const founderWhatsAppUrl = `${whatsappUrl}?text=Ol%C3%A1%2C%20quero%20conhecer%20o%20Plano%20Fundador%20MotoFix.`;
+const demoUrl = `${whatsappUrl}?text=${encodeURIComponent('Olá, quero conhecer o MotoFix e agendar uma demonstração.')}`;
 const emailUrl = 'mailto:boxmotorsoficial@gmail.com';
 
 const featureItems = [
-  { icon: Calendar, title: 'Agenda Inteligente', description: 'Agendamentos, confirmações e lembretes por WhatsApp para reduzir faltas.' },
-  { icon: DollarSign, title: 'Controle Financeiro', description: 'Receitas, despesas e fluxo de caixa em uma visão simples e atualizada.' },
-  { icon: Users, title: 'Gestão de Clientes', description: 'Histórico de serviços, retornos, preferências e relacionamento com cada cliente.' },
-  { icon: BarChart3, title: 'Relatórios Inteligentes', description: 'Informações objetivas para entender a operação e tomar decisões melhores.' },
+  { icon: CalendarDays, tone: 'blue', title: 'Agenda inteligente', description: 'Organize os horários, acompanhe os próximos atendimentos e reduza esquecimentos com lembretes.' },
+  { icon: CircleDollarSign, tone: 'green', title: 'Controle financeiro', description: 'Registre receitas e despesas e tenha uma visão mais clara do movimento da oficina.' },
+  { icon: Users, tone: 'purple', title: 'Clientes e motos', description: 'Consulte o histórico de serviços e saiba quais clientes precisam voltar à oficina.' },
+  { icon: BarChart3, tone: 'orange', title: 'Relatórios úteis', description: 'Acompanhe os números principais para tomar decisões com mais segurança.' },
 ];
 
 const steps = [
-  ['Cadastre sua oficina', 'Configure serviços, preços e equipe em poucos minutos.'],
-  ['Organize sua agenda', 'Agende clientes e acompanhe confirmações e retornos.'],
-  ['Controle o financeiro', 'Veja receitas, despesas e lucro sem depender de planilhas.'],
-  ['Decida com dados', 'Acompanhe relatórios e encontre oportunidades de crescimento.'],
+  ['Cadastre sua oficina', 'Configure sua oficina, serviços, preços e informações básicas.'],
+  ['Organize os atendimentos', 'Registre clientes, motos, agenda e ordens de serviço.'],
+  ['Acompanhe o financeiro', 'Registre entradas e saídas para entender o movimento.'],
+  ['Traga o cliente de volta', 'Acompanhe o histórico e organize os próximos retornos.'],
 ];
 
-export const LandingPage = ({ onLogin, onFounderPlan, onNavigate, onOpenLegal }: LandingPageProps) => (
-  <div className="landing-page">
-    <header className="landing-nav">
-      <div className="landing-container landing-nav-inner">
-        <button type="button" className="landing-brand" onClick={() => onNavigate('top')}>
-          <span className="landing-brand-mark">MF</span>
-          <span>MotoFix<small>GESTÃO AUTOMOTIVA</small></span>
-        </button>
-        <nav className="landing-links" aria-label="Navegação principal">
+const plans = [
+  {
+    name: 'Starter',
+    price: 'R$ 149',
+    description: 'Perfeito para iniciar sua transformação.',
+    summary: 'Para organizar a rotina da oficina.',
+    features: ['Agenda centralizada', 'Até 100 clientes', 'Controle financeiro básico', '1 usuário', 'Suporte por e-mail'],
+    message: 'Olá, quero saber mais sobre o plano Starter do MotoFix.',
+  },
+  {
+    name: 'Professional',
+    price: 'R$ 299',
+    description: 'Para oficinas que precisam de mais controle.',
+    summary: 'Mais recursos para acompanhar a operação.',
+    features: ['Tudo do Starter', 'Clientes ilimitados', 'Controle financeiro avançado', 'Até 5 usuários', 'Relatórios detalhados', 'Prioridade no suporte', 'Integração com WhatsApp Business'],
+    message: 'Olá, quero saber mais sobre o plano Professional do MotoFix.',
+    highlighted: true,
+  },
+];
+
+const testimonials = [
+  { initials: 'JS', name: 'João Silva', workshop: 'Centro Automotivo SP', result: 'Mais controle da rotina', detail: 'Agenda e histórico dos serviços organizados em um só lugar.' },
+  { initials: 'MC', name: 'Maria Costa', workshop: 'Oficina Premium Brasília', result: 'Atendimentos organizados', detail: 'Fica mais fácil acompanhar os próximos serviços e retornos.' },
+  { initials: 'CS', name: 'Carlos Santos', workshop: 'Auto Serviços RJ', result: 'Mais visão do negócio', detail: 'Os registros ajudam a entender melhor o movimento da oficina.' },
+];
+
+const DashboardPreview = () => (
+  <div className="lp-preview" aria-label="Prévia ilustrativa do painel MotoFix">
+    <div className="lp-browser">
+      <div className="lp-browser-bar"><i /><i /><i /><span>app.motofix.com.br / painel</span></div>
+      <div className="lp-app">
+        <aside>
+          <strong>MotoFix</strong>
+          <span className="lp-selected">Visão geral</span>
+          <span>Agenda</span>
+          <span>Ordens de serviço</span>
+          <span>Clientes e motos</span>
+          <span>Financeiro</span>
+          <span>Relatórios</span>
+        </aside>
+        <div className="lp-dashboard">
+          <div className="lp-dashboard-heading"><strong>Visão geral</strong><span>Resumo da oficina</span></div>
+          <div className="lp-stats">
+            <div><small>OS em andamento</small><strong>08</strong><em>Serviços em execução</em></div>
+            <div><small>Receita do mês</small><strong>R$ 12,6 mil</strong><em>Resumo financeiro</em></div>
+            <div><small>Agendamentos</small><strong>14</strong><em>Próximos atendimentos</em></div>
+            <div><small>Retornos pendentes</small><strong>06</strong><em>Clientes para contatar</em></div>
+          </div>
+          <div className="lp-panel">
+            <b>Próximos atendimentos</b>
+            <div className="lp-data-row"><strong>João Silva</strong><span>Revisão</span><span>14:30</span></div>
+            <div className="lp-data-row"><strong>Maria Costa</strong><span>Alinhamento</span><span>15:45</span></div>
+            <div className="lp-data-row"><strong>Carlos Lima</strong><span>Troca de óleo</span><span>16:30</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
+export const LandingPage = ({ colorMode, onLogin, onColorModeChange, onNavigate, onOpenLegal }: LandingPageProps) => (
+  <div className={`landing-page${colorMode === 'light' ? ' lp-light-theme' : ''}`} id="inicio">
+    <ScrollReveal />
+    <header className="lp-header">
+      <nav className="lp-container lp-nav" aria-label="Navegação principal">
+        <a className="lp-brand" href="#inicio" onClick={(event) => { event.preventDefault(); onNavigate('inicio'); }}>
+          <span className="lp-logo">MF</span>
+          <span>MotoFix<small>GESTÃO PARA OFICINAS</small></span>
+        </a>
+        <div className="lp-nav-links">
           <button type="button" onClick={() => onNavigate('recursos')}>Recursos</button>
           <button type="button" onClick={() => onNavigate('como')}>Como funciona</button>
           <button type="button" onClick={() => onNavigate('planos')}>Planos</button>
           <button type="button" onClick={() => onNavigate('contato')}>Contato</button>
-        </nav>
-        <div className="landing-nav-actions">
-          <button type="button" className="landing-login" onClick={onLogin}>Login</button>
-          <button type="button" className="landing-primary" onClick={onFounderPlan}>Conheça o MotoFix</button>
         </div>
-      </div>
+        <div className="lp-nav-actions">
+          <button
+            type="button"
+            className="lp-theme-toggle"
+            aria-label={colorMode === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
+            title={colorMode === 'dark' ? 'Ativar modo claro' : 'Ativar modo escuro'}
+            onClick={() => onColorModeChange(colorMode === 'dark' ? 'light' : 'dark')}
+          >
+            {colorMode === 'dark' ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
+          </button>
+          <button type="button" className="lp-login" onClick={onLogin}>Entrar</button>
+          <a className="lp-button lp-dark-button" href="#planos" onClick={(event) => { event.preventDefault(); onNavigate('planos'); }}>Conheça o MotoFix</a>
+        </div>
+      </nav>
     </header>
 
-    <main id="top">
-      <section className="landing-hero landing-container">
-        <div className="landing-hero-grid">
-          <div className="landing-fade">
-            <p className="landing-label">Gestão para oficinas de motos</p>
+    <main>
+      <section className="lp-hero lp-container">
+        <div className="lp-hero-grid">
+          <div className="lp-hero-copy lp-reveal">
+            <span className="lp-eyebrow"><i />Gestão feita para oficina de motos</span>
             <h1>Sua oficina merece <em>mais</em> que planilhas.</h1>
-            <p className="landing-lead">O MotoFix coloca agenda, clientes, serviços e financeiro no mesmo lugar — com uma rotina simples para você cuidar da oficina, não da papelada.</p>
-            <div className="landing-actions">
-              <button type="button" className="landing-primary landing-red" onClick={onFounderPlan}>Quero o Plano Fundador</button>
-              <button type="button" className="landing-outline" onClick={onLogin}>Entrar no sistema</button>
+            <p className="lp-lead">Organize agenda, clientes, serviços e financeiro em um só lugar. O MotoFix ajuda você a acompanhar a rotina da oficina e manter o relacionamento com seus clientes — sem complicar o trabalho.</p>
+            <div className="lp-actions">
+              <a className="lp-button lp-red-button" href={demoUrl} target="_blank" rel="noreferrer">Agendar uma demonstração ↗</a>
+              <a className="lp-button lp-outline-button" href="#recursos" onClick={(event) => { event.preventDefault(); onNavigate('recursos'); }}>Conhecer recursos</a>
             </div>
-            <div className="landing-proof"><span><Check /> Dados seguros</span><span><Check /> Tudo em um só lugar</span><span><Check /> Mais tempo para você</span></div>
+            <div className="lp-proof">
+              <div><b>Mais organização</b><span>na rotina da oficina</span></div>
+              <div><b>Mais controle</b><span>dos serviços e do caixa</span></div>
+              <div><b>Mais retornos</b><span>de clientes</span></div>
+            </div>
           </div>
-          <DashboardPreview />
+          <div className="lp-reveal"><DashboardPreview /></div>
         </div>
       </section>
 
-      <section className="landing-section landing-light" id="recursos">
-        <div className="landing-container">
-          <div className="landing-section-intro landing-fade"><p className="landing-label">O essencial, bem feito</p><h2>Tudo que sua oficina precisa para crescer.</h2><p>Sem dezenas de telas desnecessárias. O MotoFix concentra o que realmente importa para a operação diária.</p></div>
-          <div className="landing-feature-grid">{featureItems.map(({ icon: Icon, title, description }, index) => <article className="landing-feature landing-fade" key={title}><span className="landing-number">0{index + 1}</span><Icon className="landing-feature-icon" /><h3>{title}</h3><p>{description}</p></article>)}</div>
+      <section className="lp-section lp-light" id="recursos">
+        <div className="lp-container">
+          <div className="lp-heading lp-reveal">
+            <p className="lp-kicker">Feito para o dia a dia</p>
+            <h2>O que sua oficina precisa, sem complicação.</h2>
+            <p>Menos tempo procurando informação. Mais clareza para cuidar dos serviços, dos clientes e do caixa.</p>
+          </div>
+          <div className="lp-features">
+            {featureItems.map(({ icon: Icon, tone, title, description }) => (
+              <article className="lp-feature lp-reveal" key={title}>
+                <div className={`lp-feature-icon ${tone}`}><Icon aria-hidden="true" /></div>
+                <h3>{title}</h3>
+                <p>{description}</p>
+              </article>
+            ))}
+          </div>
         </div>
       </section>
 
-      <section className="landing-section landing-dark" id="como">
-        <div className="landing-container"><div className="landing-section-intro landing-fade"><p className="landing-label">Uma rotina mais simples</p><h2>Como o MotoFix funciona.</h2><p>Quatro etapas para colocar sua oficina em ordem sem complicar o trabalho da equipe.</p></div><div className="landing-steps">{steps.map(([title, description], index) => <article className="landing-step landing-fade" key={title}><span>0{index + 1}</span><h3>{title}</h3><p>{description}</p></article>)}</div></div>
+      <section className="lp-section lp-workflow" id="como">
+        <div className="lp-container">
+          <div className="lp-heading lp-reveal">
+            <p className="lp-kicker">Comece com o essencial</p>
+            <h2>Uma rotina mais organizada, passo a passo.</h2>
+            <p>O MotoFix reúne as tarefas do dia a dia em um fluxo simples.</p>
+          </div>
+          <div className="lp-steps">
+            {steps.map(([title, description], index) => (
+              <article className="lp-step lp-reveal" key={title}>
+                <span>{index + 1}</span><h3>{title}</h3><p>{description}</p>
+              </article>
+            ))}
+          </div>
+        </div>
       </section>
 
-      <section className="landing-section landing-light" id="planos"><div className="landing-container landing-pricing"><div className="landing-price-intro landing-fade"><p className="landing-price-note">Condição de lançamento</p><h2>Plano Fundador MotoFix.</h2><p>Entre como cliente fundador por <strong>R$ 49,90/mês</strong>, com implantação guiada, suporte pelo WhatsApp e acompanhamento nos primeiros 7 dias.</p><p>É a forma mais simples de começar a profissionalizar a gestão da sua oficina.</p></div><div className="landing-price-card landing-fade"><div className="landing-card-top"><span>PLANO FUNDADOR</span><b>LANÇAMENTO</b></div><div className="landing-price">R$ 49,90<small>/mês</small></div><p className="landing-price-desc">Tudo que você precisa para começar com o pé direito.</p><ul>{['Implantação guiada para sua oficina', 'Suporte pelo WhatsApp', 'Acompanhamento nos primeiros 7 dias', 'Controle de clientes, serviços, retornos e financeiro', 'Registro de garantias e histórico de motos'].map(item => <li key={item}><Check />{item}</li>)}</ul><button type="button" className="landing-primary landing-red landing-full" onClick={onFounderPlan}>Quero o Plano Fundador</button></div></div></section>
+      <section className="lp-section lp-light" id="planos">
+        <div className="lp-container">
+          <div className="lp-heading lp-reveal">
+            <p className="lp-kicker">Planos</p>
+            <h2>Escolha o plano ideal para sua oficina.</h2>
+            <p>Comece com o essencial e evolua conforme a necessidade da sua operação.</p>
+          </div>
+          <div className="lp-plans">
+            {plans.map((plan) => (
+              <article className={`lp-plan lp-reveal${plan.highlighted ? ' lp-plan-featured' : ''}`} key={plan.name}>
+                {plan.highlighted && <span className="lp-plan-tag">MAIS COMPLETO</span>}
+                <h3>{plan.name}</h3>
+                <p className="lp-plan-description">{plan.description}</p>
+                <div className="lp-price">{plan.price}<small>/mês</small></div>
+                <p className="lp-plan-summary">{plan.summary}</p>
+                <ul>{plan.features.map((feature) => <li key={feature}><Check aria-hidden="true" />{feature}</li>)}</ul>
+                <a className={`lp-button lp-full-button${plan.highlighted ? ' lp-red-button' : ' lp-outline-button'}`} href={`${whatsappUrl}?text=${encodeURIComponent(plan.message)}`} target="_blank" rel="noreferrer">Tenho interesse</a>
+              </article>
+            ))}
+          </div>
+          <p className="lp-plan-help">Dúvidas sobre os planos? <a href={`${whatsappUrl}?text=${encodeURIComponent('Olá, tenho dúvidas sobre os planos do MotoFix.')}`} target="_blank" rel="noreferrer">Fale com nossa equipe</a></p>
+        </div>
+      </section>
 
-      <section className="landing-section"><div className="landing-container"><div className="landing-section-intro landing-fade"><p className="landing-label">Acompanhamento humano</p><h2>Você recebe o sistema. E ajuda para usar.</h2><p>O objetivo é fazer a plataforma se encaixar na rotina real da sua oficina.</p></div><div className="landing-support"><article className="landing-fade"><small>01 / Implantação</small><h3>Implantação guiada</h3><p>Configuramos o MotoFix com seus serviços, preços e primeiro fluxo de trabalho.</p></article><article className="landing-fade"><small>02 / Suporte</small><h3>Suporte pelo WhatsApp</h3><p>Fale com nossa equipe para tirar dúvidas e ajustar o sistema à rotina da oficina.</p></article></div></div></section>
+      <section className="lp-section">
+        <div className="lp-container">
+          <div className="lp-heading lp-reveal">
+            <p className="lp-kicker">Mais clareza na gestão</p>
+            <h2>Feito para acompanhar a evolução da sua oficina.</h2>
+            <p>Tenha uma visão mais clara dos atendimentos, do financeiro e dos clientes que podem voltar.</p>
+          </div>
+          <div className="lp-testimonials">
+            {testimonials.map((testimonial) => (
+              <article className="lp-testimonial lp-reveal" key={testimonial.initials}>
+                <div className="lp-person">
+                  <span className="lp-avatar">{testimonial.initials}</span>
+                  <span><b>{testimonial.name}</b><small>{testimonial.workshop}</small></span>
+                </div>
+                <strong>{testimonial.result}</strong>
+                <p>{testimonial.detail}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
 
-      <section className="landing-cta" id="contato"><div className="landing-container"><div className="landing-cta-box landing-fade"><div><h2>Pronto para transformar sua oficina?</h2><p>Comece com uma consultoria gratuita. Nosso time está pronto para entender sua operação e mostrar como o MotoFix pode ajudar.</p></div><div className="landing-cta-actions"><button type="button" className="landing-primary landing-red" onClick={onFounderPlan}>Quero o Plano Fundador</button><button type="button" className="landing-outline" onClick={onLogin}>Já tenho conta - Entrar</button></div></div><div className="landing-contacts"><a className="landing-contact landing-fade" href={whatsappUrl}><small>WhatsApp</small><strong>+55 69 9994-4024</strong><span>Fale conosco em tempo real</span></a><a className="landing-contact landing-fade" href={emailUrl}><small>E-mail</small><strong>boxmotorsoficial@gmail.com</strong><span>Envie sua mensagem</span></a></div></div></section>
+      <section className="lp-contact-section" id="contato">
+        <div className="lp-container">
+          <div className="lp-cta lp-reveal">
+            <div><h2>Vamos organizar sua oficina?</h2><p>Converse com a equipe MotoFix, tire suas dúvidas e veja qual plano combina com a rotina do seu negócio.</p></div>
+            <div className="lp-cta-actions">
+              <a className="lp-button lp-red-button" href={demoUrl} target="_blank" rel="noreferrer">Falar com a equipe ↗</a>
+              <button type="button" className="lp-button lp-outline-button" onClick={onLogin}>Já tenho conta</button>
+            </div>
+          </div>
+          <div className="lp-contacts">
+            <a className="lp-contact lp-reveal" href={`${whatsappUrl}?text=${encodeURIComponent('Olá, vim pela página do MotoFix.')}`} target="_blank" rel="noreferrer">
+              <span className="lp-contact-icon"><MessageCircle aria-hidden="true" /></span>
+              <span><small>WhatsApp</small><strong>+55 69 9994-4024</strong><span>Fale diretamente com nossa equipe</span></span>
+            </a>
+            <a className="lp-contact lp-reveal" href={emailUrl}>
+              <span className="lp-contact-icon"><Mail aria-hidden="true" /></span>
+              <span><small>E-mail</small><strong>boxmotorsoficial@gmail.com</strong><span>Envie sua dúvida por e-mail</span></span>
+            </a>
+          </div>
+        </div>
+      </section>
     </main>
 
-    <footer className="landing-footer"><div className="landing-container"><span>MotoFix - GESTÃO AUTOMOTIVA</span><span>© 2026 MotoFix. Todos os direitos reservados.</span><span><button type="button" onClick={() => onOpenLegal('privacy')}>Privacidade</button> · <button type="button" onClick={() => onOpenLegal('terms')}>Termos de uso</button></span></div></footer>
-    <a className="landing-whatsapp" href={founderWhatsAppUrl} aria-label="Falar com o MotoFix pelo WhatsApp">WhatsApp</a>
+    <footer className="lp-footer">
+      <div className="lp-container lp-footer-inner">
+        <a className="lp-brand" href="#inicio" onClick={(event) => { event.preventDefault(); onNavigate('inicio'); }}>
+          <span className="lp-logo">MF</span><span>MotoFix<small>GESTÃO PARA OFICINAS</small></span>
+        </a>
+        <span>© 2026 MotoFix. Todos os direitos reservados.</span>
+        <span className="lp-legal-links">
+          <button type="button" onClick={() => onOpenLegal('privacy')}>Privacidade</button>
+          <button type="button" onClick={() => onOpenLegal('terms')}>Termos de uso</button>
+        </span>
+      </div>
+    </footer>
   </div>
 );
 
-const DashboardPreview = () => (
-  <div className="landing-preview landing-fade"><div className="landing-browser"><div className="landing-browserbar"><i /><i /><i /><span>app.motofix.com.br / dashboard</span></div><div className="landing-app"><aside><strong>MotoFix</strong><span className="active">Visão geral</span><span>Agenda</span><span>Clientes</span><span>Serviços</span><span>Financeiro</span><span>Relatórios</span></aside><div className="landing-mainapp"><div className="landing-app-title"><h3>Visão geral</h3><span>quinta, 27 ago</span></div><div className="landing-stats"><div><small>Atendimentos hoje</small><strong>18</strong><em>+12%</em></div><div><small>Faturamento</small><strong>R$ 3.840</strong></div><div><small>Clientes ativos</small><strong>246</strong></div></div><div className="landing-panel"><b>Serviços da semana</b>{['Revisão', 'Óleo', 'Freios', 'Elétrica'].map((label, index) => <span key={label}><small>{label}</small><i><em style={{ width: `${82 - index * 16}%` }} /></i></span>)}</div><div className="landing-panel"><b>Próximos atendimentos</b>{['João Silva - Revisão 14:30', 'Maria Costa - Alinhamento 15:45', 'Carlos Lima - Troca de óleo 16:30'].map(item => <span className="landing-appointment" key={item}>{item}</span>)}</div></div></div></div></div>
-);
+const ScrollReveal = () => {
+  useEffect(() => {
+    const elements = document.querySelectorAll<HTMLElement>('.landing-page .lp-reveal');
+    if (!('IntersectionObserver' in window)) {
+      elements.forEach((element) => element.classList.add('lp-revealed'));
+      return;
+    }
+
+    const observer = new IntersectionObserver((entries, activeObserver) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add('lp-revealed');
+        activeObserver.unobserve(entry.target);
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+
+    elements.forEach((element) => observer.observe(element));
+    return () => observer.disconnect();
+  }, []);
+
+  return null;
+};
 
 export { whatsappUrl, emailUrl };

@@ -37,15 +37,21 @@ const createOfflineManifestPlugin = (): Plugin => ({
       }
     });
 
+    // Include the service worker source in the cache version, but keep it out
+    // of the precache asset list. This prevents failed SW-only updates from
+    // sharing and deleting the active build's app-shell cache.
+    const swPath = path.join(outDir, 'sw.js');
+    const swSource = fs.existsSync(swPath) ? fs.readFileSync(swPath, 'utf8') : '';
+    hash.update('service-worker:');
+    hash.update(swSource);
+
     const version = hash.digest('hex').slice(0, 16);
     fs.writeFileSync(
       path.join(outDir, 'offline-assets.json'),
       `${JSON.stringify({ version, assets }, null, 2)}\n`
     );
 
-    const swPath = path.join(outDir, 'sw.js');
     if (fs.existsSync(swPath)) {
-      const swSource = fs.readFileSync(swPath, 'utf8');
       fs.writeFileSync(swPath, swSource.replaceAll('__MOTOFIX_BUILD_VERSION__', version));
     }
   },

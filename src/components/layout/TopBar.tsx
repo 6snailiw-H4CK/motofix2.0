@@ -1,4 +1,4 @@
-import { LogOut, Moon, Search, Sun } from 'lucide-react';
+import { LoaderCircle, LogOut, Moon, RefreshCw, Search, Sun } from 'lucide-react';
 import type { AppView, ColorMode } from '../../types';
 import type { OfflineSyncStatus } from '../../hooks/useOfflineSyncStatus';
 import { OfflineSyncPill } from './OfflineSyncPill';
@@ -78,8 +78,11 @@ type TopBarProps = {
   businessName?: string;
   colorMode: ColorMode;
   offlineSyncStatus: OfflineSyncStatus;
+  isRefreshingData: boolean;
+  lastDataSyncAt: string | null;
   view: AppView;
   onColorModeChange: (mode: ColorMode) => void;
+  onManualDataSync: () => void;
   onSignOut: () => void;
 };
 
@@ -87,8 +90,11 @@ export const TopBar = ({
   businessName,
   colorMode,
   offlineSyncStatus,
+  isRefreshingData,
+  lastDataSyncAt,
   view,
   onColorModeChange,
+  onManualDataSync,
   onSignOut,
 }: TopBarProps) => {
   const meta = viewTitles[view] || viewTitles.dashboard;
@@ -109,6 +115,22 @@ export const TopBar = ({
           </div>
 
           <OfflineSyncPill status={offlineSyncStatus} />
+
+          <button
+            type="button"
+            onClick={onManualDataSync}
+            disabled={isRefreshingData || !offlineSyncStatus.isOnline}
+            aria-label="Sincronizar dados desta tela agora"
+            title={lastDataSyncAt
+              ? `Atualizar os dados desta tela agora. Ultima sincronizacao: ${new Date(lastDataSyncAt).toLocaleString('pt-BR')}`
+              : 'Atualizar os dados desta tela agora'}
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-3 text-xs font-bold text-slate-300 transition-colors hover:border-primary/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isRefreshingData
+              ? <LoaderCircle className="h-4 w-4 animate-spin" />
+              : <RefreshCw className="h-4 w-4" />}
+            <span>Sincronizar</span>
+          </button>
 
           <button
             type="button"

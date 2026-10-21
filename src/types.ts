@@ -100,6 +100,7 @@ export interface MessageLog extends SoftDeletable {
   trigger: 'manual' | 'scheduled' | 'retry';
   message: string;
   createdAt: string;
+  updatedAt?: string;
   sentAt?: string;
   error?: string | null;
   userId: string;
@@ -169,6 +170,7 @@ export interface ProductCatalogItem extends SoftDeletable {
   stockQuantity?: number;
   minStockQuantity?: number;
   trackStock?: boolean;
+  stockMovementId?: string;
   importedAt: string;
   userId: string;
   createdAt?: string;
@@ -264,6 +266,15 @@ export interface CashRegisterLaunch extends SoftDeletable {
   stockDeducted?: boolean;
   stockDeductedAt?: string | null;
   stockMovementBatchId?: string | null;
+  stockShortageItems?: Array<{
+    productId: string;
+    productDescription: string;
+    sourceCode?: string;
+    variationId?: string;
+    variation?: string;
+    availableQuantity: number;
+    requestedQuantity: number;
+  }>;
   userId: string;
   createdAt: string;
   updatedAt: string;
@@ -289,6 +300,29 @@ export interface StockMovement {
   batchId: string;
   note?: string;
   createdAt: string;
+}
+
+export interface StockMovementOperationChange {
+  productId: string;
+  productDescription: string;
+  previousQuantity: number;
+  nextQuantity: number;
+  quantity: number;
+  previousVariations: ProductCatalogVariation[];
+  nextVariations: ProductCatalogVariation[];
+}
+
+export interface StockMovementOperation {
+  userId: string;
+  type: StockMovementType;
+  batchId: string;
+  note?: string;
+  createdAt: string;
+  productIds: string[];
+  changes: Record<string, StockMovementOperationChange>;
+  cashLaunchId?: string;
+  cashLaunchOrderNumber?: string;
+  itemIds?: string[];
 }
 
 export type FiscalEnvironment = 'homologation' | 'production';

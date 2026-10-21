@@ -3,6 +3,7 @@ import { useCallback } from 'react';
 import { toast as sonnerToast } from 'sonner';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
 import { messageLogRepository } from '../services/messageLogRepository';
+import { getFirestoreSaveResultMessage } from '../services/firestoreSaveStatus';
 
 type UseMessageLogActionsParams = {
   onDeleted: () => void;
@@ -15,7 +16,7 @@ export const useMessageLogActions = ({ onDeleted, user }: UseMessageLogActionsPa
 
     try {
       await messageLogRepository.remove(user.uid, messageLogId);
-      sonnerToast.success('Log de aviso movido para a lixeira.', {
+      sonnerToast.success(getFirestoreSaveResultMessage('Log de aviso movido para a lixeira.'), {
         action: {
           label: 'Desfazer',
           onClick: () => void messageLogRepository.restore(user.uid, messageLogId),

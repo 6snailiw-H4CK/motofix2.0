@@ -17,13 +17,18 @@ const TEST_USER_INACTIVE_ADMIN = 'inactive-admin-user-123';
 const TEST_USER_STALE_BILLING = 'stale-billing-user-123';
 const TEST_USER_OTHER = 'other-user-999';
 const CASH_LAUNCH_ID = 'cash-launch-001';
+const LEGACY_MAINTENANCE_ID = 'legacy-maintenance-001';
+const LEGACY_CLIENT_ID = 'legacy-client-001';
+const LEGACY_CLIENT_MAINTENANCE_ID = 'legacy-client-maintenance-001';
 const INACTIVE_CASH_LAUNCH_ID = 'inactive-cash-launch-001';
 const INACTIVE_EXPENSE_ID = 'inactive-expense-001';
 const ADMIN_EXPENSE_ID = 'admin-expense-001';
 const STALE_BILLING_EXPENSE_ID = 'stale-billing-expense-001';
 const CASH_LAUNCH_PAYMENT_ID = 'cash-launch-payment-stock';
+const CASH_LAUNCH_NO_STOCK_PAYMENT_ID = 'cash-launch-payment-no-stock';
 const PRODUCT_ID = 'produto-estoque-001';
 const PRODUCT_PAYMENT_ID = 'produto-010101';
+const PRODUCT_NO_TRACK_ID = 'produto-sem-controle-estoque';
 const MASTER_ADMIN_DENY_COLLECTIONS = [
   'clients',
   'maintenances',
@@ -256,6 +261,7 @@ const stockMovementData = {
 };
 
 const ownerPaymentProductData = {
+  id: PRODUCT_PAYMENT_ID,
   userId: TEST_USER_OWNER,
   sourceCode: '010101',
   description: '(mercadoria teste)',
@@ -323,6 +329,54 @@ const fail = (message) => {
   process.exitCode = 1;
 };
 
+const writeStockOperation = (transaction, firestore, {
+  productRef,
+  productId,
+  product,
+  nextQuantity,
+  type,
+  batchId,
+  note,
+  timestamp,
+  cashLaunchId,
+  cashLaunchOrderNumber,
+  itemIds,
+  otherFields = {},
+}) => {
+  const movementId = `stock-op-${randomUUID()}`;
+  const previousVariations = product.variations || [];
+  const nextVariations = previousVariations;
+  transaction.update(productRef, {
+    ...otherFields,
+    stockQuantity: nextQuantity,
+    variations: nextVariations,
+    stockMovementId: movementId,
+    updatedAt: timestamp,
+  });
+  transaction.set(doc(firestore, 'users', TEST_USER_OWNER, 'stock_movements', movementId), {
+    userId: TEST_USER_OWNER,
+    type,
+    batchId,
+    note,
+    createdAt: timestamp,
+    productIds: [productId],
+    changes: {
+      [productId]: {
+        productId,
+        productDescription: product.description,
+        previousQuantity: product.stockQuantity || 0,
+        nextQuantity,
+        quantity: Math.abs(nextQuantity - (product.stockQuantity || 0)),
+        previousVariations,
+        nextVariations,
+      },
+    },
+    ...(cashLaunchId ? { cashLaunchId } : {}),
+    ...(cashLaunchOrderNumber ? { cashLaunchOrderNumber } : {}),
+    ...(itemIds ? { itemIds } : {}),
+  });
+};
+
 async function setupTestData(testEnv) {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const firestore = context.firestore();
@@ -352,6 +406,18 @@ async function setupTestData(testEnv) {
     });
 
     await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID), ownerCashLaunchData);
+    await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'maintenances', LEGACY_MAINTENANCE_ID), {
+      userId: TEST_USER_OWNER,
+      clientName: 'Cadastro recorrente legado',
+      legacyField: 'Campo anterior ao formato atual',
+    });
+    await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'clients', LEGACY_CLIENT_ID), {
+      userId: TEST_USER_OWNER,
+      name: 'Cliente legado',
+      bikeModel: 'Moto antiga',
+      contact: '000000000',
+      legacyField: 'Cadastro sem os campos atuais obrigatórios',
+    });
     await setDoc(doc(firestore, 'users', TEST_USER_INACTIVE, 'cash_launches', INACTIVE_CASH_LAUNCH_ID), {
       ...ownerCashLaunchData,
       userId: TEST_USER_INACTIVE,
@@ -383,7 +449,24 @@ async function setupTestData(testEnv) {
     });
     await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'products', PRODUCT_ID), ownerProductData);
     await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_PAYMENT_ID), ownerPaymentCashLaunchData);
+    await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_NO_STOCK_PAYMENT_ID), {
+      ...ownerPaymentCashLaunchData,
+      orderNumber: 'LC-20260712-NOSTOCK',
+      items: ownerPaymentCashLaunchData.items.map((item) => ({
+        ...item,
+        productId: PRODUCT_NO_TRACK_ID,
+        sourceCode: 'SEM-ESTOQUE',
+        description: 'Produto sem controle de estoque',
+      })),
+    });
     await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'products', PRODUCT_PAYMENT_ID), ownerPaymentProductData);
+    await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'products', PRODUCT_NO_TRACK_ID), {
+      ...ownerPaymentProductData,
+      id: PRODUCT_NO_TRACK_ID,
+      sourceCode: 'SEM-ESTOQUE',
+      description: 'Produto sem controle de estoque',
+      trackStock: false,
+    });
     await setDoc(doc(firestore, 'users', TEST_USER_REGULAR, 'cash_launches', CASH_LAUNCH_ID), {
       ...ownerCashLaunchData,
       userId: TEST_USER_REGULAR,
@@ -716,6 +799,87 @@ async function runTests() {
       }
     }
 
+    console.log('1b) Owner pode arquivar manutenção legada sem validar novamente seu formato antigo');
+    const legacyMaintenanceRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'maintenances', LEGACY_MAINTENANCE_ID);
+    await updateDoc(legacyMaintenanceRef, {
+      deletedAt: now(),
+      deletedBy: TEST_USER_OWNER,
+      deletedReason: 'Teste de arquivamento legado',
+    });
+    const archivedLegacyMaintenance = await getDoc(legacyMaintenanceRef);
+    if (!archivedLegacyMaintenance.exists() || !archivedLegacyMaintenance.data().deletedAt) {
+      fail('Owner não conseguiu arquivar manutenção legada');
+    } else {
+      console.log('   ✅ Manutenção legada arquivada sem alterar seus dados de domínio');
+    }
+    try {
+      await updateDoc(legacyMaintenanceRef, { clientName: 'Alteração não autorizada no teste' });
+      fail('Arquivamento legado permitiu alteração de dados de domínio sem formato válido');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') {
+        fail(`Alteração de domínio legado falhou com erro inesperado: ${error?.code || error}`);
+      }
+      console.log('   ✅ A exceção de arquivamento não libera edição de dados legados');
+    }
+
+    console.log('1c) Concluir serviço salva manutenção e projeção do cliente legado em lote atômico');
+    const legacyClientRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'clients', LEGACY_CLIENT_ID);
+    const legacyClientMaintenanceRef = doc(
+      ownerDb,
+      'users',
+      TEST_USER_OWNER,
+      'maintenances',
+      LEGACY_CLIENT_MAINTENANCE_ID,
+    );
+    const completionBatch = writeBatch(ownerDb);
+    completionBatch.update(legacyClientRef, {
+      lastMaintenanceDate: now(),
+      nextMaintenanceDate: now(),
+      status: 'OK',
+      notificacao_enviada: false,
+      notificacaoStatus: 'pendente',
+      lastServiceType: 'Troca de óleo',
+      lastServiceValue: 0,
+      serviceValue: 0,
+      statusPagamento: 'Pago',
+      valorPago: 0,
+      saldoDevedor: 0,
+      lastServiceNotes: 'Manutenção recorrente',
+    });
+    completionBatch.set(legacyClientMaintenanceRef, {
+      userId: TEST_USER_OWNER,
+      clientId: LEGACY_CLIENT_ID,
+      clientName: 'Cliente legado',
+      bikeModel: 'Moto antiga',
+      date: now(),
+      serviceType: 'Troca de óleo',
+      serviceValue: 0,
+      isRecurringRevenue: false,
+      statusPagamento: 'Pago',
+      valorPago: 0,
+      saldoDevedor: 0,
+      notes: 'Manutenção recorrente',
+    });
+    await completionBatch.commit();
+    const [legacyClientAfterCompletion, createdLegacyMaintenance] = await Promise.all([
+      getDoc(legacyClientRef),
+      getDoc(legacyClientMaintenanceRef),
+    ]);
+    if (!legacyClientAfterCompletion.exists() || !createdLegacyMaintenance.exists()) {
+      fail('Conclusão atômica não salvou cliente e manutenção legados');
+    } else {
+      console.log('   ✅ Cliente legado e manutenção foram atualizados juntos');
+    }
+    try {
+      await updateDoc(legacyClientRef, { name: 'Nome alterado sem validação completa' });
+      fail('A exceção de manutenção permitiu alterar dados de cadastro legado');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') {
+        fail(`Alteração do cadastro legado falhou com erro inesperado: ${error?.code || error}`);
+      }
+      console.log('   ✅ A exceção não libera alteração geral do cadastro legado');
+    }
+
     console.log('2) Owner pode restaurar seu cash_launch');
     await updateDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID), {
       deletedAt: null,
@@ -824,12 +988,11 @@ async function runTests() {
         }
       }
     }
-    try {
-      await getDoc(doc(adminClaimDb, 'users', TEST_USER_OWNER));
-      fail('Master Admin conseguiu ler perfil de outra conta via Rules');
-    } catch (error) {
-      if (error?.code !== 'permission-denied') fail(`Leitura de perfil cross-account falhou inesperadamente: ${error?.code || error}`);
+    const crossAccountProfile = await getDoc(doc(adminClaimDb, 'users', TEST_USER_OWNER));
+    if (!crossAccountProfile.exists() || crossAccountProfile.id !== TEST_USER_OWNER) {
+      fail('Master Admin ativo não conseguiu consultar o perfil individual usado pelos detalhes de conta');
     }
+    console.log('   Master Admin pode consultar perfil individual para detalhes de conta');
     try {
       await getDocs(query(collection(adminClaimDb, 'users')));
       fail('Master Admin conseguiu enumerar users diretamente via Rules');
@@ -897,22 +1060,52 @@ async function runTests() {
       if (error?.code !== 'permission-denied') fail(`Leitura de operational_logs falhou inesperadamente: ${error?.code || error}`);
     }
 
-    console.log('9) Owner pode atualizar estoque de produto');
-    await updateDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'products', PRODUCT_ID), {
-      stockQuantity: 4,
-      updatedAt: now(),
-    });
-    const productDoc = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'products', PRODUCT_ID));
-    if (!productDoc.exists() || productDoc.data().stockQuantity !== 4) {
-      fail('Owner nao conseguiu atualizar stockQuantity do produto');
-    } else {
-      console.log('   ✅ Produto aceitou atualizacao de estoque');
+    console.log('9) Alteracao isolada de estoque deve ser negada');
+    try {
+      await updateDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'products', PRODUCT_ID), {
+        stockQuantity: 4,
+        updatedAt: now(),
+      });
+      fail('Owner conseguiu atualizar estoque sem movimento atomico');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') fail(`Atualizacao isolada falhou inesperadamente: ${error?.code || error}`);
+      console.log('   ✅ Estoque isolado corretamente negado');
     }
 
-    console.log('10) Owner pode criar stock_movement');
+    console.log('10) Atualizacao de estoque e movimento vinculados na mesma transacao');
     const stockMovementId = `stock-move-${randomUUID()}`;
-    await setDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'stock_movements', stockMovementId), stockMovementData);
-    const stockMovementDoc = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'stock_movements', stockMovementId));
+    await runTransaction(ownerDb, async (transaction) => {
+      const productRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'products', PRODUCT_ID);
+      const productSnapshot = await transaction.get(productRef);
+      const product = productSnapshot.data();
+      const timestamp = now();
+      writeStockOperation(transaction, ownerDb, {
+        productRef,
+        productId: PRODUCT_ID,
+        product,
+        nextQuantity: 4,
+        type: 'ajuste_manual',
+        batchId: 'stock-batch-001',
+        note: 'Teste de movimento de estoque',
+        timestamp,
+        otherFields: { salePrice: 26 },
+      });
+    });
+    const productDoc = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'products', PRODUCT_ID));
+    if (!productDoc.exists() || productDoc.data().stockQuantity !== 4 || productDoc.data().salePrice !== 26) {
+      fail('Owner nao conseguiu atualizar estoque e outros dados com movimento atomico');
+    } else {
+      console.log('   ✅ Produto aceitou atualizacao atomica de estoque');
+    }
+
+    console.log('10b) Movimento de estoque isolado deve ser negado');
+    await setDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'stock_movements', stockMovementId), stockMovementData)
+      .then(() => fail('Owner conseguiu criar movimento sem alterar estoque'))
+      .catch((error) => {
+        if (error?.code !== 'permission-denied') fail(`Criacao isolada de movimento falhou inesperadamente: ${error?.code || error}`);
+      });
+    const linkedMovementId = productDoc.data().stockMovementId;
+    const stockMovementDoc = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'stock_movements', linkedMovementId));
     if (!stockMovementDoc.exists()) {
       fail('Owner nao conseguiu criar stock_movement');
     } else {
@@ -981,7 +1174,7 @@ async function runTests() {
       fail('Master Admin conseguiu listar /users diretamente');
     } catch (error) {
       if (error?.code !== 'permission-denied') fail(`Listagem Firestore falhou inesperadamente: ${error?.code || error}`);
-      else console.log('   ✅ Listagem direta bloqueada; painel usa a API administrativa');
+      else console.log('   ✅ Listagem direta de perfis bloqueada; painel consulta access_requests autorizadas pelas Rules');
     }
 
     console.log('15) Owner pode finalizar cash_launch faturada com pagamento e baixa de estoque na mesma transacao');
@@ -989,26 +1182,19 @@ async function runTests() {
       const timestamp = now();
       const productRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'products', PRODUCT_PAYMENT_ID);
       const launchRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_PAYMENT_ID);
-      const movementRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'stock_movements', `stock-move-payment-${randomUUID()}`);
-      transaction.update(productRef, {
-        stockQuantity: 4,
-        updatedAt: timestamp,
-      });
-      transaction.set(movementRef, {
-        userId: TEST_USER_OWNER,
+      const productSnapshot = await transaction.get(productRef);
+      writeStockOperation(transaction, ownerDb, {
+        productRef,
         productId: PRODUCT_PAYMENT_ID,
-        productDescription: '(mercadoria teste)',
-        type: 'saida_os',
-        quantity: 1,
-        previousQuantity: 5,
+        product: productSnapshot.data(),
         nextQuantity: 4,
+        type: 'saida_os',
+        batchId: 'stock-payment-batch-001',
+        note: 'Baixa automatica ao finalizar O.S.',
+        timestamp,
         cashLaunchId: CASH_LAUNCH_PAYMENT_ID,
         cashLaunchOrderNumber: 'LC-20260712-135719',
         itemIds: ['item-pagamento-001'],
-        batchId: 'stock-payment-batch-001',
-        note: 'Baixa automatica ao finalizar O.S.',
-        createdAt: timestamp,
-        sourceCode: '010101',
       });
       transaction.update(launchRef, {
         status: 'Finalizado',
@@ -1025,6 +1211,29 @@ async function runTests() {
       fail('Owner nao conseguiu finalizar cash_launch faturada com pagamento e baixa de estoque');
     } else {
       console.log('   cash_launch faturada aceitou pagamento e baixa de estoque na mesma transacao');
+    }
+
+    console.log('16) Owner pode faturar O.S. com produtos sem controle de estoque');
+    await updateDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_NO_STOCK_PAYMENT_ID), {
+      status: 'Finalizado',
+      invoiced: true,
+      paymentMethod: 'Pix',
+      statusPagamento: 'Pago',
+      valorPago: 100,
+      saldoDevedor: 0,
+      paidAt: now(),
+      stockDeducted: false,
+      stockDeductedAt: null,
+      stockMovementBatchId: null,
+      updatedAt: now(),
+    });
+    const finalizedNoStockLaunch = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_NO_STOCK_PAYMENT_ID));
+    if (!finalizedNoStockLaunch.exists()
+      || finalizedNoStockLaunch.data().invoiced !== true
+      || finalizedNoStockLaunch.data().stockDeducted !== false) {
+      fail('Owner nao conseguiu faturar O.S. sem baixa de estoque');
+    } else {
+      console.log('   O.S. faturada sem estoque controlado foi aceita, mantendo metadados vazios');
     }
 
     console.log('\n🎯 Validação completa finalizada com sucesso.\n');

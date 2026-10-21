@@ -1,0 +1,1808 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null && request.auth.token != null;
+    }
+
+    function validDecisionMetadata(data) {
+      return data is map
+        && data.keys().hasOnly(['plan', 'amount', 'paymentMethod', 'paymentConfirmed', 'reason'])
+        && data.keys().hasAll(['plan', 'amount', 'paymentMethod', 'paymentConfirmed', 'reason'])
+        && data.plan is string
+        && data.plan.size() > 0
+        && data.plan.size() <= 80
+        && data.amount is number
+        && data.amount >= 0
+        && data.amount <= 1000000
+        && data.paymentMethod in ['pix', 'manual', 'none']
+        && data.paymentConfirmed is bool
+        && data.reason is string
+        && data.reason.size() > 0
+        && data.reason.size() <= 500;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function hasAdminClaim() {
+      return signedIn()
+        && request.auth.token.keys().hasAny(['admin'])
+        && request.auth.token.admin == true;
+    }
+
+    function hasMasterAdminClaim() {
+      return signedIn()
+        && request.auth.token.keys().hasAny(['master_admin'])
+        && request.auth.token.master_admin == true;
+    }
+
+    function isDesignatedOwner(userId) {
+      return signedIn()
+        && request.auth.uid == userId
+        && userId == 'o5XNtNFwKMQzZj28WfTEiGSFN0A3';
+    }
+
+    function hasPermanentOwnerEntitlement(userId) {
+      let profilePath = /databases/$(database)/documents/users/$(userId);
+      return isDesignatedOwner(userId)
+        && exists(profilePath)
+        && get(profilePath).data.isActive == true
+        && get(profilePath).data.role == 'master_admin'
+        && get(profilePath).data.ownerAccess is map
+        && get(profilePath).data.ownerAccess.enabled == true
+        && get(profilePath).data.ownerAccess.permanent == true;
+    }
+
+    function userProfileIsActive(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data.isActive == true;
+    }
+
+    function accessProjectionValid(userId) {
+      let profile = get(/databases/$(database)/documents/users/$(userId)).data;
+      return profile.keys().hasAny(['accessProjection'])
+        && profile.accessProjection is map
+        && profile.isActive == true
+        && profile.accessProjection.allowed == true
+        && (
+          (
+            profile.accessProjection.source == 'owner'
+            && hasPermanentOwnerEntitlement(userId)
+            && profile.accessProjection.validUntil == null
+          )
+          || (
+            profile.accessProjection.source == 'manual'
+            && manualAccessEnabled(profile)
+            && manualAccessExpiry(profile) == profile.accessProjection.validUntil
+            && profile.accessProjection.validUntil is timestamp
+            && request.time < profile.accessProjection.validUntil
+          )
+        );
+    }
+
+    function userProfileHasAllowedBillingStatus(userId) {
+      return hasPermanentOwnerEntitlement(userId)
+        || accessProjectionValid(userId);
+    }
+
+    function isWorkshopAdmin() {
+      return hasAdminClaim()
+        && userProfileIsActive(request.auth.uid)
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isActiveMasterAdmin() {
+      let profilePath = /databases/$(database)/documents/users/$(request.auth.uid);
+      return hasMasterAdminClaim()
+        && exists(profilePath)
+        && get(profilePath).data.isActive == true
+        && get(profilePath).data.role == 'master_admin';
+    }
+
+    function manualAccessExpiry(profile) {
+      return profile.keys().hasAny(['manualAccess'])
+        && profile.manualAccess is map
+        && profile.manualAccess.keys().hasAny(['expiresAt'])
+        ? profile.manualAccess.expiresAt
+        : null;
+    }
+
+    function manualAccessEnabled(profile) {
+      return profile.keys().hasAny(['manualAccess'])
+        && profile.manualAccess is map
+        && profile.manualAccess.enabled == true;
+    }
+
+    function isValidAccessRequestCreate(userId) {
+      let profileAfter = getAfter(/databases/$(database)/documents/users/$(userId)).data;
+      return request.resource.data.keys().hasOnly([
+          'uid',
+          'email',
+          'displayName',
+          'status',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'uid',
+          'email',
+          'displayName',
+          'status',
+          'createdAt'
+        ])
+        && request.resource.data.uid == userId
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.email is string
+        && request.resource.data.email.size() <= 320
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 120
+        && request.resource.data.status == 'pending'
+        && request.resource.data.createdAt == request.time
+        && profileAfter.uid == userId
+        && profileAfter.email == request.resource.data.email
+        && profileAfter.displayName == request.resource.data.displayName
+        && profileAfter.role == 'user'
+        && profileAfter.isActive == false;
+    }
+
+    function hasValidAccessRequestForProfileCreate(userId) {
+      let requestAfter = getAfter(/databases/$(database)/documents/access_requests/$(userId)).data;
+      return requestAfter.uid == userId
+        && requestAfter.email == request.resource.data.email
+        && requestAfter.displayName == request.resource.data.displayName
+        && requestAfter.status == 'pending';
+    }
+
+    function isValidAccessDecisionTransition(fromStatus, toStatus, beforeExpiry, afterExpiry) {
+      return (fromStatus == 'pending' && toStatus in ['approved', 'blocked'])
+        || (fromStatus == 'approved' && toStatus == 'blocked')
+        || (fromStatus == 'blocked' && toStatus == 'approved')
+        || (fromStatus == 'approved'
+          && toStatus == 'approved'
+          && beforeExpiry is timestamp
+          && afterExpiry is timestamp
+          && beforeExpiry != afterExpiry);
+    }
+
+    function expectedAccessDecisionAction(fromStatus, toStatus) {
+      return fromStatus == 'pending' && toStatus == 'approved'
+        ? 'approved'
+        : fromStatus == 'blocked' && toStatus == 'approved'
+          ? 'released'
+          : fromStatus == 'approved' && toStatus == 'approved'
+            ? 'renewed'
+            : 'blocked';
+    }
+
+    function approvedAccessProfile(profile) {
+      let expiry = manualAccessExpiry(profile);
+      return profile.isActive == true
+        && manualAccessEnabled(profile)
+        && profile.manualAccess.keys().hasOnly(['enabled', 'expiresAt'])
+        && profile.manualAccess.keys().hasAll(['enabled', 'expiresAt'])
+        && expiry is timestamp
+        && request.time < expiry
+        && profile.accessProjection is map
+        && profile.accessProjection.keys().hasOnly([
+          'allowed',
+          'source',
+          'validUntil',
+          'evaluatedAt',
+          'policyVersion',
+          'reason'
+        ])
+        && profile.accessProjection.keys().hasAll([
+          'allowed',
+          'source',
+          'validUntil',
+          'evaluatedAt',
+          'policyVersion',
+          'reason'
+        ])
+        && profile.accessProjection.allowed == true
+        && profile.accessProjection.source == 'manual'
+        && profile.accessProjection.validUntil == expiry
+        && profile.accessProjection.evaluatedAt == request.time
+        && profile.accessProjection.policyVersion == 'access-v1'
+        && profile.accessProjection.reason == 'manual_entitlement';
+    }
+
+    function blockedAccessProfile(profile) {
+      return profile.isActive == false
+        && profile.manualAccess is map
+        && profile.manualAccess.keys().hasOnly(['enabled', 'expiresAt'])
+        && profile.manualAccess.keys().hasAll(['enabled', 'expiresAt'])
+        && profile.manualAccess.enabled == false
+        && profile.manualAccess.expiresAt == null
+        && profile.accessProjection is map
+        && profile.accessProjection.keys().hasOnly([
+          'allowed',
+          'source',
+          'validUntil',
+          'evaluatedAt',
+          'policyVersion',
+          'reason'
+        ])
+        && profile.accessProjection.keys().hasAll([
+          'allowed',
+          'source',
+          'validUntil',
+          'evaluatedAt',
+          'policyVersion',
+          'reason'
+        ])
+        && profile.accessProjection.allowed == false
+        && profile.accessProjection.source == 'none'
+        && profile.accessProjection.validUntil == null
+        && profile.accessProjection.evaluatedAt == request.time
+        && profile.accessProjection.policyVersion == 'access-v1'
+        && profile.accessProjection.reason == 'account_inactive';
+    }
+
+    function validAccessDecisionBundle(userId, auditId) {
+      let requestPath = /databases/$(database)/documents/access_requests/$(userId);
+      let profilePath = /databases/$(database)/documents/users/$(userId);
+      let auditPath = /databases/$(database)/documents/access_decisions/$(auditId);
+      let requestBefore = get(requestPath).data;
+      let requestAfter = getAfter(requestPath).data;
+      let profileBefore = get(profilePath).data;
+      let profileAfter = getAfter(profilePath).data;
+      let auditAfter = getAfter(auditPath).data;
+      let beforeExpiry = manualAccessExpiry(profileBefore);
+      let afterExpiry = manualAccessExpiry(profileAfter);
+      return request.auth.uid != userId
+        && profileBefore.role == 'user'
+        && profileAfter.role == 'user'
+        && requestAfter.uid == userId
+        && requestAfter.email == requestBefore.email
+        && requestAfter.displayName == requestBefore.displayName
+        && requestAfter.createdAt == requestBefore.createdAt
+        && requestAfter.lastAuditId == auditId
+        && validDecisionMetadata(requestAfter.accessDetails)
+        && requestAfter.manualAccessExpiresAt == afterExpiry
+        && (requestAfter.status != 'approved'
+          || (requestAfter.accessDetails.amount > 0
+            && requestAfter.accessDetails.paymentMethod in ['pix', 'manual']
+            && requestAfter.accessDetails.paymentConfirmed == true))
+        && isActiveMasterAdmin()
+        && isValidAccessDecisionTransition(requestBefore.status, requestAfter.status, beforeExpiry, afterExpiry)
+        && (requestAfter.status == 'approved'
+          ? approvedAccessProfile(profileAfter)
+          : blockedAccessProfile(profileAfter))
+        && auditAfter.keys().hasOnly([
+          'actor',
+          'targetUid',
+          'action',
+          'fromStatus',
+          'toStatus',
+          'before',
+          'after',
+          'details',
+          'manualAccessExpiresAt',
+          'createdAt'
+        ])
+        && auditAfter.keys().hasAll([
+          'actor',
+          'targetUid',
+          'action',
+          'fromStatus',
+          'toStatus',
+          'before',
+          'after',
+          'details',
+          'manualAccessExpiresAt',
+          'createdAt'
+        ])
+        && auditAfter.actor == request.auth.uid
+        && auditAfter.targetUid == userId
+        && auditAfter.action == expectedAccessDecisionAction(requestBefore.status, requestAfter.status)
+        && auditAfter.fromStatus == requestBefore.status
+        && auditAfter.toStatus == requestAfter.status
+        && auditAfter.before is map
+        && auditAfter.before.keys().hasOnly(['isActive', 'manualAccessEnabled', 'manualAccessExpiresAt'])
+        && auditAfter.before.keys().hasAll(['isActive', 'manualAccessEnabled', 'manualAccessExpiresAt'])
+        && auditAfter.before.isActive == profileBefore.isActive
+        && auditAfter.before.manualAccessEnabled == manualAccessEnabled(profileBefore)
+        && auditAfter.before.manualAccessExpiresAt == beforeExpiry
+        && auditAfter.after is map
+        && auditAfter.after.keys().hasOnly(['isActive', 'manualAccessEnabled', 'manualAccessExpiresAt'])
+        && auditAfter.after.keys().hasAll(['isActive', 'manualAccessEnabled', 'manualAccessExpiresAt'])
+        && auditAfter.after.isActive == profileAfter.isActive
+        && auditAfter.after.manualAccessEnabled == manualAccessEnabled(profileAfter)
+        && auditAfter.after.manualAccessExpiresAt == afterExpiry
+        && auditAfter.details == requestAfter.accessDetails
+        && auditAfter.manualAccessExpiresAt == requestAfter.manualAccessExpiresAt
+        && auditAfter.createdAt == request.time;
+    }
+
+    function validAccessRequestTransition(userId) {
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'lastAuditId', 'manualAccessExpiresAt', 'accessDetails'])
+        && request.resource.data.keys().hasAll(['lastAuditId'])
+        && request.resource.data.lastAuditId is string
+        && request.resource.data.lastAuditId.size() > 0
+        && request.resource.data.lastAuditId.size() <= 128
+        && request.resource.data.lastAuditId.matches('^[A-Za-z0-9_-]+$')
+        && validAccessDecisionBundle(userId, request.resource.data.lastAuditId);
+    }
+
+    function validAccessProfileDecision(userId) {
+      let requestAfter = getAfter(/databases/$(database)/documents/access_requests/$(userId)).data;
+      return request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['isActive', 'manualAccess', 'accessProjection', 'updatedAt'])
+        && request.resource.data.updatedAt == request.time
+        && requestAfter.lastAuditId is string
+        && validAccessDecisionBundle(userId, requestAfter.lastAuditId);
+    }
+
+    function validAccessDecisionAuditCreate(userId, auditId) {
+      let requestAfter = getAfter(/databases/$(database)/documents/access_requests/$(userId)).data;
+      return requestAfter.lastAuditId == auditId
+        && validAccessDecisionBundle(userId, auditId);
+    }
+
+    function isActiveOwner(userId) {
+      return isOwner(userId)
+        && userProfileIsActive(userId)
+        && (
+          userProfileHasAllowedBillingStatus(userId)
+          // The owner's server-managed profile role is authoritative for their
+          // own data; this also avoids denying writes when a session's custom
+          // claims have not refreshed yet.
+          || get(/databases/$(database)/documents/users/$(userId)).data.role == 'master_admin'
+        );
+    }
+
+    function validUserProfileCreate(userId) {
+      return isOwner(userId)
+        && request.resource.data.keys().hasOnly([
+          'uid',
+          'email',
+          'displayName',
+          'role',
+          'isActive',
+          'subscription',
+          'subscriptionExpiresAt',
+          'createdAt',
+          'updatedAt'
+        ])
+        && !request.resource.data.keys().hasAny(['accessProjection', 'manualAccess', 'ownerAccess'])
+        && request.resource.data.uid == userId
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.role == 'user'
+        && request.resource.data.isActive == false
+        && request.resource.data.subscription.status == 'inactive'
+        && request.resource.data.subscription.plan == 'free'
+        && request.resource.data.subscription.autoRenew == false
+        && hasValidAccessRequestForProfileCreate(userId)
+        && !request.resource.data.subscription.keys().hasAny([
+          'stripeCustomerId',
+          'stripeSubscriptionId',
+          'paymentMethodId'
+        ])
+        && !request.resource.data.keys().hasAny(['billing'])
+    }
+
+    function canReadUserData(userId) {
+      return isActiveOwner(userId);
+    }
+
+    function optionalUserIdMatches(userId) {
+      return !request.resource.data.keys().hasAny(['userId'])
+        || request.resource.data.userId == userId;
+    }
+
+    function storedUserIdMatches(userId) {
+      return !resource.data.keys().hasAny(['userId'])
+        || resource.data.userId == userId;
+    }
+
+    function isText(field, maxLength) {
+      return request.resource.data[field] is string
+        && request.resource.data[field].size() <= maxLength;
+    }
+
+    function optionalText(field, maxLength) {
+      return !request.resource.data.keys().hasAny([field])
+        || isText(field, maxLength);
+    }
+
+    function optionalNullableText(field, maxLength) {
+      return !request.resource.data.keys().hasAny([field])
+        || request.resource.data[field] == null
+        || isText(field, maxLength);
+    }
+
+    function softDeleteMetadataValid() {
+      return optionalNullableText('deletedAt', 40)
+        && optionalNullableText('deletedBy', 160)
+        && optionalNullableText('deletedReason', 500)
+        && optionalNullableText('resetAt', 40)
+        && optionalNullableText('resetId', 160);
+    }
+
+    function isNumberInRange(field, minValue, maxValue) {
+      return request.resource.data[field] is number
+        && request.resource.data[field] >= minValue
+        && request.resource.data[field] <= maxValue;
+    }
+
+    function optionalNumberInRange(field, minValue, maxValue) {
+      return !request.resource.data.keys().hasAny([field])
+        || isNumberInRange(field, minValue, maxValue);
+    }
+
+    function optionalBool(field) {
+      return !request.resource.data.keys().hasAny([field])
+        || request.resource.data[field] is bool;
+    }
+
+    function optionalList(field, maxLength) {
+      return !request.resource.data.keys().hasAny([field])
+        || (request.resource.data[field] is list && request.resource.data[field].size() <= maxLength);
+    }
+
+    function optionalMap(field) {
+      return !request.resource.data.keys().hasAny([field])
+        || request.resource.data[field] is map;
+    }
+
+    function paymentStatusValid() {
+      return !request.resource.data.keys().hasAny(['statusPagamento'])
+        || request.resource.data.statusPagamento in ['Pago', 'Pendente', 'Parcial'];
+    }
+
+    function maintenanceStatusValid() {
+      return request.resource.data.status in ['OK', 'WARNING', 'OVERDUE'];
+    }
+
+    function cashLaunchStatusValid() {
+      return request.resource.data.status in ['Em Lancamento', 'Finalizado', 'Pendente', 'Cancelado'];
+    }
+
+    function cashLaunchPaymentValid() {
+      return (
+        !request.resource.data.keys().hasAny(['statusPagamento'])
+        || request.resource.data.statusPagamento in ['Pago', 'Pendente', 'Parcial']
+      )
+        && optionalNumberInRange('valorPago', 0, 10000000)
+        && optionalNumberInRange('saldoDevedor', 0, 10000000);
+    }
+
+    function requiredBaseFields(userId, requiredKeys, allowedKeys) {
+      return request.resource.data.keys().hasOnly(allowedKeys)
+        && request.resource.data.keys().hasAll(requiredKeys)
+        && request.resource.data.userId == userId;
+    }
+
+    function clientShape(userId) {
+      return request.resource.data.keys().hasAll([
+          'userId',
+          'name',
+          'bikeModel',
+          'contact',
+          'lastMaintenanceDate',
+          'nextMaintenanceDate',
+          'recurrenceDays',
+          'status',
+          'createdAt'
+        ])
+        && request.resource.data.userId == userId
+        && isText('name', 120)
+        && optionalText('fullName', 160)
+        && optionalText('document', 32)
+        && isText('bikeModel', 120)
+        && isText('contact', 60)
+        && optionalText('email', 160)
+        && optionalText('vehiclePlate', 20)
+        && optionalText('oilType', 80)
+        && optionalNumberInRange('oilPrice', 0, 10000000)
+        && optionalNumberInRange('mileageKm', 0, 2000000)
+        && isText('lastMaintenanceDate', 40)
+        && isText('nextMaintenanceDate', 40)
+        && isNumberInRange('recurrenceDays', 0, 3650)
+        && maintenanceStatusValid()
+        && optionalBool('isRecurringRevenue')
+        && optionalBool('notificacao_enviada')
+        && optionalText('notificacaoStatus', 40)
+        && optionalText('lastServiceType', 120)
+        && optionalNumberInRange('lastServiceValue', 0, 10000000)
+        && optionalText('lastServiceNotes', 5000)
+        && isText('createdAt', 40)
+        && optionalText('lastAlertDate', 40)
+        && optionalNumberInRange('serviceValue', 0, 10000000)
+        && paymentStatusValid()
+        && optionalNumberInRange('valorPago', 0, 10000000)
+        && optionalNumberInRange('saldoDevedor', 0, 10000000)
+        && optionalMap('automation')
+        && softDeleteMetadataValid();
+    }
+
+    function clientCreateShape(userId) {
+      return request.resource.data.keys().hasAll([
+          'userId',
+          'name',
+          'bikeModel',
+          'contact',
+          'lastMaintenanceDate',
+          'nextMaintenanceDate',
+          'recurrenceDays',
+          'status',
+          'createdAt'
+        ])
+        && request.resource.data.userId == userId
+        && isText('name', 120)
+        && isText('bikeModel', 120)
+        && isText('contact', 60)
+        && isText('lastMaintenanceDate', 40)
+        && isText('nextMaintenanceDate', 40)
+        && isNumberInRange('recurrenceDays', 0, 3650)
+        && maintenanceStatusValid()
+        && isText('createdAt', 40);
+    }
+
+    function validOwnerClientMaintenanceUpdate(userId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return isOwner(userId)
+        && changed.hasOnly([
+          'oilType',
+          'oilPrice',
+          'lastMaintenanceDate',
+          'nextMaintenanceDate',
+          'status',
+          'isRecurringRevenue',
+          'notificacao_enviada',
+          'notificacaoStatus',
+          'lastServiceType',
+          'lastServiceValue',
+          'lastServiceNotes',
+          'serviceValue',
+          'statusPagamento',
+          'valorPago',
+          'saldoDevedor'
+        ])
+        && optionalUserIdMatches(userId)
+        && storedUserIdMatches(userId)
+        && (!changed.hasAny(['oilType']) || isText('oilType', 80))
+        && (!changed.hasAny(['oilPrice']) || isNumberInRange('oilPrice', 0, 10000000))
+        && (!changed.hasAny(['lastMaintenanceDate']) || isText('lastMaintenanceDate', 40))
+        && (!changed.hasAny(['nextMaintenanceDate']) || isText('nextMaintenanceDate', 40))
+        && (!changed.hasAny(['status']) || maintenanceStatusValid())
+        && (!changed.hasAny(['isRecurringRevenue']) || request.resource.data.isRecurringRevenue is bool)
+        && (!changed.hasAny(['notificacao_enviada']) || request.resource.data.notificacao_enviada is bool)
+        && (!changed.hasAny(['notificacaoStatus']) || isText('notificacaoStatus', 40))
+        && (!changed.hasAny(['lastServiceType']) || isText('lastServiceType', 120))
+        && (!changed.hasAny(['lastServiceValue']) || isNumberInRange('lastServiceValue', 0, 10000000))
+        && (!changed.hasAny(['lastServiceNotes']) || isText('lastServiceNotes', 5000))
+        && (!changed.hasAny(['serviceValue']) || isNumberInRange('serviceValue', 0, 10000000))
+        && (!changed.hasAny(['statusPagamento']) || paymentStatusValid())
+        && (!changed.hasAny(['valorPago']) || isNumberInRange('valorPago', 0, 10000000))
+        && (!changed.hasAny(['saldoDevedor']) || isNumberInRange('saldoDevedor', 0, 10000000));
+    }
+
+    function maintenanceShape(userId) {
+      return request.resource.data.keys().hasAll([
+          'userId',
+          'clientId',
+          'clientName',
+          'bikeModel',
+          'date',
+          'serviceType',
+          'serviceValue',
+          'isRecurringRevenue',
+          'notes'
+        ])
+        && request.resource.data.userId == userId
+        && isText('clientId', 160)
+        && isText('clientName', 120)
+        && isText('bikeModel', 120)
+        && isText('date', 40)
+        && optionalText('oilType', 80)
+        && optionalNumberInRange('oilPrice', 0, 10000000)
+        && isText('serviceType', 120)
+        && isNumberInRange('serviceValue', 0, 10000000)
+        && request.resource.data.isRecurringRevenue is bool
+        && isText('notes', 5000)
+        && paymentStatusValid()
+        && optionalNumberInRange('valorPago', 0, 10000000)
+        && optionalNumberInRange('saldoDevedor', 0, 10000000)
+        && softDeleteMetadataValid();
+    }
+
+    function warrantyShape(userId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'clientName',
+          'serviceType',
+          'serviceDescription',
+          'serviceValue',
+          'serviceDate',
+          'durationMonths',
+          'expiryDate',
+          'clientPhone',
+          'warrantyNumber',
+          'createdAt'
+        ], warrantyKeys())
+        && isText('clientName', 120)
+        && isText('serviceType', 120)
+        && isText('serviceDescription', 5000)
+        && isNumberInRange('serviceValue', 0, 10000000)
+        && isText('serviceDate', 40)
+        && isNumberInRange('durationMonths', 0, 240)
+        && isText('expiryDate', 40)
+        && isText('clientPhone', 60)
+        && isNumberInRange('warrantyNumber', 0, 1000000000)
+        && isText('createdAt', 40)
+        && softDeleteMetadataValid();
+    }
+
+    function appointmentShape(userId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'clientName',
+          'bikeModel',
+          'scheduledDate',
+          'serviceRequested',
+          'completed',
+          'createdAt'
+        ], appointmentKeys())
+        && isText('clientName', 120)
+        && isText('bikeModel', 120)
+        && isText('scheduledDate', 40)
+        && optionalText('address', 240)
+        && isText('serviceRequested', 5000)
+        && optionalNumberInRange('value', 0, 10000000)
+        && request.resource.data.completed is bool
+        && isText('createdAt', 40)
+        && softDeleteMetadataValid();
+    }
+
+    function expenseShape(userId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'description',
+          'amount',
+          'paymentMethod',
+          'date',
+          'createdAt'
+        ], expenseKeys())
+        && isText('description', 240)
+        && optionalText('supplier', 160)
+        && isNumberInRange('amount', 0, 10000000)
+        && isText('paymentMethod', 80)
+        && isText('date', 40)
+        && optionalText('note', 5000)
+        && isText('createdAt', 40)
+        && softDeleteMetadataValid();
+    }
+
+    function productShape(userId, productId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'id',
+          'sourceCode',
+          'description',
+          'ncm',
+          'salePrice'
+        ], productKeys())
+        && isText('id', 160)
+        && request.resource.data.id == productId
+        && isText('sourceCode', 80)
+        && isText('description', 240)
+        && optionalText('variation', 160)
+        && optionalList('variations', 80)
+        && isText('ncm', 20)
+        && isNumberInRange('salePrice', 0, 10000000)
+        && optionalNumberInRange('stockQuantity', 0, 10000000)
+        && optionalText('stockMovementId', 200)
+        && optionalNumberInRange('minStockQuantity', 0, 10000000)
+        && optionalBool('trackStock')
+        && optionalText('importedAt', 40)
+        && optionalText('createdAt', 40)
+        && optionalText('updatedAt', 40)
+        && softDeleteMetadataValid();
+    }
+
+    function stockMovementShape(userId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'productId',
+          'productDescription',
+          'type',
+          'quantity',
+          'previousQuantity',
+          'nextQuantity',
+          'batchId',
+          'createdAt'
+        ], stockMovementKeys())
+        && isText('productId', 160)
+        && isText('productDescription', 240)
+        && optionalText('sourceCode', 80)
+        && optionalText('variationId', 160)
+        && optionalText('variation', 160)
+        && request.resource.data.type in ['saida_os', 'estorno_os', 'entrada_manual', 'ajuste_manual']
+        && isNumberInRange('quantity', 0, 10000000)
+        && isNumberInRange('previousQuantity', 0, 10000000)
+        && isNumberInRange('nextQuantity', 0, 10000000)
+        && optionalText('cashLaunchId', 160)
+        && optionalText('cashLaunchOrderNumber', 80)
+        && optionalList('itemIds', 200)
+        && isText('batchId', 200)
+        && optionalText('note', 500)
+        && isText('createdAt', 40);
+    }
+
+    function cashLaunchShape(userId) {
+      return request.resource.data.keys().hasAll([
+          'userId',
+          'orderNumber',
+          'clientName',
+          'status',
+          'openingDate',
+          'expectedDate',
+          'items',
+          'merchandiseTotal',
+          'servicesTotal',
+          'discountTotal',
+          'total',
+          'createdAt',
+          'updatedAt'
+        ])
+        && request.resource.data.userId == userId
+        && isText('orderNumber', 80)
+        && isText('clientName', 120)
+        && cashLaunchStatusValid()
+        && isText('openingDate', 40)
+        && isText('expectedDate', 40)
+        && request.resource.data.items is list
+        && request.resource.data.items.size() <= 200
+        && isNumberInRange('merchandiseTotal', 0, 10000000)
+        // Prevent saving active payable O.S. without merchandise.
+        && (
+          request.resource.data.status in ['Em Lancamento', 'Cancelado']
+          || (request.resource.data.items.size() > 0 && request.resource.data.merchandiseTotal > 0)
+        )
+        && isNumberInRange('servicesTotal', 0, 10000000)
+        && isNumberInRange('discountTotal', 0, 10000000)
+        && isNumberInRange('total', 0, 10000000)
+        && paymentStatusValid()
+        && optionalNumberInRange('valorPago', 0, 10000000)
+        && optionalNumberInRange('saldoDevedor', 0, 10000000)
+        && optionalNullableText('paidAt', 40)
+        && optionalList('stockShortageItems', 200)
+        && isText('createdAt', 40)
+        && isText('updatedAt', 40)
+        && optionalText('request', 5000)
+        && optionalText('servicesExecuted', 5000)
+        && optionalText('observation', 5000);
+    }
+
+    function cashLaunchUpdateShape(userId) {
+      return request.resource.data.userId == userId
+        && storedUserIdMatches(userId)
+        && isText('orderNumber', 80)
+        && optionalText('clientId', 160)
+        && isText('clientName', 120)
+        && optionalText('clientDocument', 32)
+        && optionalText('clientEmail', 160)
+        && optionalText('clientPhone', 60)
+        && optionalText('bikeModel', 120)
+        && cashLaunchStatusValid()
+        && isText('openingDate', 40)
+        && isText('expectedDate', 40)
+        && optionalText('request', 5000)
+        && optionalText('servicesExecuted', 5000)
+        && optionalText('observation', 5000)
+        && request.resource.data.items is list
+        && request.resource.data.items.size() <= 200
+        && isNumberInRange('merchandiseTotal', 0, 10000000)
+        && (
+          request.resource.data.status in ['Em Lancamento', 'Cancelado']
+          || (request.resource.data.items.size() > 0 && request.resource.data.merchandiseTotal > 0)
+        )
+        && isNumberInRange('servicesTotal', 0, 10000000)
+        && isNumberInRange('discountTotal', 0, 10000000)
+        && optionalNumberInRange('orderDiscountValue', 0, 10000000)
+        && optionalNumberInRange('orderDiscountPercent', 0, 100)
+        && isNumberInRange('total', 0, 10000000)
+        && cashLaunchPaymentValid()
+        && optionalNullableText('paidAt', 40)
+        && optionalBool('invoiced')
+        && optionalText('paymentMethod', 40)
+        && (
+          !request.resource.data.keys().hasAny(['invoiced'])
+          || request.resource.data.invoiced != true
+          || (
+            request.resource.data.keys().hasAny(['paymentMethod'])
+            && request.resource.data.paymentMethod in ['Debito', 'Credito', 'Pix', 'Dinheiro']
+          )
+        )
+        && optionalText('fiscalInvoiceId', 160)
+        && optionalText('fiscalReference', 160)
+        && optionalText('fiscalIssuedAt', 40)
+        && optionalMap('manualFiscal')
+        && optionalBool('stockDeducted')
+        && optionalNullableText('stockDeductedAt', 40)
+        && optionalNullableText('stockMovementBatchId', 200)
+        && optionalList('stockShortageItems', 200)
+        && isText('createdAt', 40)
+        && isText('updatedAt', 40)
+        && softDeleteMetadataValid();
+    }
+
+    function messageLogShape(userId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'clientId',
+          'clientName',
+          'phone',
+          'channel',
+          'status',
+          'trigger',
+          'message',
+          'createdAt'
+        ], messageLogKeys())
+        && isText('clientId', 160)
+        && isText('clientName', 120)
+        && optionalText('bikeModel', 120)
+        && isText('phone', 60)
+        && request.resource.data.channel in ['whatsapp', 'email', 'manual']
+        && request.resource.data.status in ['pending', 'opened_whatsapp', 'sent', 'failed']
+        && request.resource.data.trigger in ['manual', 'scheduled', 'retry']
+        && isText('message', 2000)
+        && isText('createdAt', 40)
+        && optionalText('sentAt', 40)
+        && optionalText('error', 1000)
+        && softDeleteMetadataValid();
+    }
+
+    function operationalLogShape(userId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'timestamp',
+          'usuario',
+          'oficina',
+          'acao',
+          'resultado'
+        ], operationalLogKeys())
+        && isText('timestamp', 40)
+        && isText('usuario', 160)
+        && isText('oficina', 160)
+        && request.resource.data.acao in [
+          'cliente_criado',
+          'cliente_editado',
+          'cliente_removido',
+          'os_criada',
+          'garantia_criada',
+          'despesa_criada',
+          'receita_criada'
+        ]
+        && request.resource.data.resultado in ['sucesso', 'salvo_offline', 'erro']
+        && optionalText('targetId', 160)
+        && optionalMap('details');
+    }
+
+    function whatsappAutomationShape(userId) {
+      return requiredBaseFields(userId, [
+          'userId',
+          'enabled',
+          'aiEnabled',
+          'autoReplyEnabled',
+          'appointmentEnabled',
+          'createdAt',
+          'updatedAt'
+        ], whatsappAutomationKeys())
+        && request.resource.data.enabled is bool
+        && request.resource.data.aiEnabled is bool
+        && request.resource.data.autoReplyEnabled is bool
+        && request.resource.data.appointmentEnabled is bool
+        && isText('createdAt', 40)
+        && isText('updatedAt', 40);
+    }
+
+    function settingsShape(userId) {
+      return request.resource.data.keys().hasOnly([
+          'userId',
+          'whatsappTemplate',
+          'oilTypes',
+          'serviceTypes',
+          'disabledDefaultServiceTypes',
+          'businessEmail',
+          'warrantyCategories',
+          'businessName',
+          'businessPhone',
+          'businessWhatsapp',
+          'businessInstagram',
+          'businessAddress',
+          'isProfileComplete',
+          'expenses'
+        ])
+        && optionalUserIdMatches(userId)
+        && optionalText('whatsappTemplate', 2000)
+        && optionalList('oilTypes', 80)
+        && optionalList('serviceTypes', 120)
+        && optionalList('disabledDefaultServiceTypes', 120)
+        && optionalText('businessEmail', 160)
+        && optionalList('warrantyCategories', 80)
+        && optionalText('businessName', 160)
+        && optionalText('businessPhone', 60)
+        && optionalText('businessWhatsapp', 60)
+        && optionalText('businessInstagram', 80)
+        && optionalText('businessAddress', 240)
+        && optionalBool('isProfileComplete')
+        && optionalList('expenses', 80);
+    }
+
+    function validOwnerCreate(userId, allowedKeys) {
+      return isOwner(userId)
+        && request.resource.data.keys().hasOnly(allowedKeys)
+        && request.resource.data.keys().hasAny(['userId'])
+        && request.resource.data.userId == userId;
+    }
+
+    function validOwnerUpdate(userId, allowedKeys) {
+      return isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowedKeys)
+        && optionalUserIdMatches(userId)
+        && storedUserIdMatches(userId);
+    }
+
+    function softDeleteUpdateKeys() {
+      return [
+        'deletedAt',
+        'deletedBy',
+        'deletedReason',
+        'resetAt',
+        'resetId',
+        'updatedAt'
+      ];
+    }
+
+    function validOwnerSoftDeleteUpdate(userId) {
+      return isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(softDeleteUpdateKeys())
+        && optionalUserIdMatches(userId)
+        && storedUserIdMatches(userId)
+        && softDeleteMetadataValid()
+        && optionalText('updatedAt', 40);
+    }
+
+    function validOwnerProductStockUpdate(userId) {
+      return storedUserIdMatches(userId)
+        && optionalUserIdMatches(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'stockQuantity',
+          'variations',
+          'stockMovementId',
+          'updatedAt'
+        ])
+        && request.resource.data.stockQuantity is number
+        && request.resource.data.stockQuantity >= 0
+        && request.resource.data.stockQuantity <= 10000000
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'stockQuantity',
+            'variations',
+            'stockMovementId'
+          ])
+          || validStockOperationPair(userId, resource.data.id, request.resource.data, false)
+        );
+    }
+
+    function validOwnerProductDataUpdate(userId) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(productKeys())
+        && optionalUserIdMatches(userId)
+        && storedUserIdMatches(userId)
+        && (
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'stockQuantity',
+            'variations',
+            'stockMovementId'
+          ])
+          || validStockOperationPair(userId, resource.data.id, request.resource.data, false)
+        )
+        && productShape(userId, resource.data.id);
+    }
+
+    function validStockOperationPair(userId, productId, productData, isCreate) {
+      return productData.stockMovementId is string
+        && productData.stockMovementId.size() <= 200
+        && (
+          isCreate
+            || productData.stockMovementId != resource.data.get('stockMovementId', '')
+        )
+        && stockOperationDataPair(userId, productId, productData, isCreate);
+    }
+
+    function stockOperationDataPair(userId, productId, productData, isCreate) {
+      let operationPath = /databases/$(database)/documents/users/$(userId)/stock_movements/$(productData.stockMovementId);
+      let operation = getAfter(operationPath).data;
+      let change = operation.changes[productId];
+      return existsAfter(operationPath)
+        && operation.userId == userId
+        && operation.productIds is list
+        && operation.productIds.hasAny([productId])
+        && operation.changes is map
+        && operation.changes.keys().hasAny([productId])
+        && change.productId == productId
+        && change.nextQuantity == productData.stockQuantity
+        && change.nextVariations == productData.get('variations', [])
+        && (
+          isCreate
+            ? change.previousQuantity == 0 && change.previousVariations == []
+            : change.previousQuantity == resource.data.get('stockQuantity', 0)
+              && change.previousVariations == resource.data.get('variations', [])
+        );
+    }
+
+    function validOwnerStockMovementCreate(userId, movementId) {
+      let productPath = /databases/$(database)/documents/users/$(userId)/products/$(request.resource.data.productIds[0]);
+      let product = getAfter(productPath).data;
+      return isOwner(userId)
+        && request.resource.data.keys().hasOnly([
+          'userId',
+          'type',
+          'batchId',
+          'note',
+          'createdAt',
+          'productIds',
+          'changes',
+          'cashLaunchId',
+          'cashLaunchOrderNumber',
+          'itemIds'
+        ])
+        && request.resource.data.productIds is list
+        && request.resource.data.productIds.size() > 0
+        && request.resource.data.productIds.size() <= 200
+        && request.resource.data.changes is map
+        && request.resource.data.changes.keys().hasOnly(request.resource.data.productIds)
+        && request.resource.data.changes.keys().hasAll(request.resource.data.productIds)
+        && request.resource.data.userId == userId
+        && request.resource.data.type in ['saida_os', 'estorno_os', 'entrada_manual', 'ajuste_manual']
+        && request.resource.data.batchId is string
+        && request.resource.data.batchId.size() <= 200
+        && request.resource.data.createdAt is string
+        && request.resource.data.createdAt.size() <= 40
+        && optionalText('note', 1000)
+        && (!request.resource.data.keys().hasAny(['cashLaunchId'])
+          || request.resource.data.cashLaunchId is string)
+        && (!request.resource.data.keys().hasAny(['cashLaunchOrderNumber'])
+          || request.resource.data.cashLaunchOrderNumber is string)
+        && (!request.resource.data.keys().hasAny(['itemIds'])
+          || (request.resource.data.itemIds is list && request.resource.data.itemIds.size() <= 200))
+        && existsAfter(productPath)
+        && product.stockMovementId == movementId;
+    }
+
+    function validOwnerCashLaunchFinalizedStockPaymentUpdate(userId) {
+      return isOwner(userId)
+        && storedUserIdMatches(userId)
+        && optionalUserIdMatches(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'clientId',
+          'clientName',
+          'bikeModel',
+          'status',
+          'openingDate',
+          'expectedDate',
+          'request',
+          'servicesExecuted',
+          'observation',
+          'items',
+          'merchandiseTotal',
+          'servicesTotal',
+          'discountTotal',
+          'orderDiscountValue',
+          'orderDiscountPercent',
+          'total',
+          'statusPagamento',
+          'valorPago',
+          'saldoDevedor',
+          'paidAt',
+          'invoiced',
+          'paymentMethod',
+          'stockDeducted',
+          'stockDeductedAt',
+          'stockMovementBatchId',
+          'stockShortageItems',
+          'updatedAt'
+        ])
+        && request.resource.data.status == 'Finalizado'
+        && request.resource.data.invoiced == true
+        && request.resource.data.paymentMethod in ['Debito', 'Credito', 'Pix', 'Dinheiro']
+        && request.resource.data.stockDeducted is bool
+        && request.resource.data.items is list
+        && request.resource.data.items.size() > 0
+        && request.resource.data.items.size() <= 200
+        && request.resource.data.merchandiseTotal is number
+        && request.resource.data.merchandiseTotal > 0
+        && request.resource.data.merchandiseTotal <= 10000000
+        && request.resource.data.total is number
+        && request.resource.data.total >= 0
+        && request.resource.data.total <= 10000000
+        && cashLaunchPaymentValid()
+        && (
+          request.resource.data.stockDeducted == true
+            ? request.resource.data.stockDeductedAt is string
+              && request.resource.data.stockDeductedAt.size() <= 40
+              && request.resource.data.stockMovementBatchId is string
+              && request.resource.data.stockMovementBatchId.size() <= 200
+            : request.resource.data.stockDeductedAt == null
+              && request.resource.data.stockMovementBatchId == null
+        )
+        && request.resource.data.updatedAt is string
+        && request.resource.data.updatedAt.size() <= 40;
+    }
+
+    function validOwnerCashLaunchFinalizedStockUpdate(userId) {
+      return isOwner(userId)
+        && storedUserIdMatches(userId)
+        && optionalUserIdMatches(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'items',
+          'merchandiseTotal',
+          'total',
+          'statusPagamento',
+          'valorPago',
+          'saldoDevedor',
+          'paidAt',
+          'stockDeducted',
+          'stockDeductedAt',
+          'stockMovementBatchId',
+          'stockShortageItems',
+          'updatedAt'
+        ])
+        && request.resource.data.status == 'Finalizado'
+        && request.resource.data.stockDeducted == true
+        && request.resource.data.items is list
+        && request.resource.data.items.size() > 0
+        && request.resource.data.items.size() <= 200
+        && request.resource.data.merchandiseTotal is number
+        && request.resource.data.merchandiseTotal > 0
+        && request.resource.data.merchandiseTotal <= 10000000
+        && request.resource.data.total is number
+        && request.resource.data.total >= 0
+        && request.resource.data.total <= 10000000
+        && cashLaunchPaymentValid()
+        && request.resource.data.stockDeductedAt is string
+        && request.resource.data.stockDeductedAt.size() <= 40
+        && request.resource.data.stockMovementBatchId is string
+        && request.resource.data.stockMovementBatchId.size() <= 200
+        && optionalList('stockShortageItems', 200)
+        && request.resource.data.updatedAt is string
+        && request.resource.data.updatedAt.size() <= 40;
+    }
+
+    function validOwnerCashLaunchCanceledUpdate(userId) {
+      return isOwner(userId)
+        && storedUserIdMatches(userId)
+        && optionalUserIdMatches(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(cashLaunchKeys())
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(cashFiscalFields())
+        && request.resource.data.status == 'Cancelado'
+        && request.resource.data.items is list
+        && request.resource.data.items.size() <= 200
+        && request.resource.data.merchandiseTotal is number
+        && request.resource.data.merchandiseTotal >= 0
+        && request.resource.data.merchandiseTotal <= 10000000
+        && request.resource.data.servicesTotal is number
+        && request.resource.data.servicesTotal >= 0
+        && request.resource.data.servicesTotal <= 10000000
+        && request.resource.data.discountTotal is number
+        && request.resource.data.discountTotal >= 0
+        && request.resource.data.discountTotal <= 10000000
+        && request.resource.data.total is number
+        && request.resource.data.total >= 0
+        && request.resource.data.total <= 10000000
+        && cashLaunchPaymentValid()
+        && request.resource.data.updatedAt is string
+        && request.resource.data.updatedAt.size() <= 40;
+    }
+
+    function validOwnerCashLaunchSimpleStatusUpdate(userId) {
+      return isOwner(userId)
+        && storedUserIdMatches(userId)
+        && optionalUserIdMatches(userId)
+        && (
+          !resource.data.keys().hasAny(['stockDeducted'])
+          || resource.data.stockDeducted != true
+        )
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+        && request.resource.data.status in ['Em Lancamento', 'Pendente', 'Cancelado']
+        && request.resource.data.updatedAt is string
+        && request.resource.data.updatedAt.size() <= 40;
+    }
+
+    function validOwnerCashLaunchStockRestoreUpdate(userId) {
+      return isOwner(userId)
+        && storedUserIdMatches(userId)
+        && optionalUserIdMatches(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'invoiced',
+          'stockDeducted',
+          'stockDeductedAt',
+          'stockMovementBatchId',
+          'updatedAt'
+        ])
+        && request.resource.data.status in ['Em Lancamento', 'Pendente', 'Cancelado']
+        && (
+          !request.resource.data.keys().hasAny(['invoiced'])
+          || request.resource.data.invoiced == false
+        )
+        && request.resource.data.stockDeducted == false
+        && request.resource.data.stockDeductedAt == null
+        && request.resource.data.stockMovementBatchId == null
+        && optionalList('stockShortageItems', 200)
+        && request.resource.data.updatedAt is string
+        && request.resource.data.updatedAt.size() <= 40;
+    }
+
+    function validOwnerCashLaunchStockUpdate(userId) {
+      return isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(cashLaunchKeys())
+        && request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'status',
+          'items',
+          'stockDeducted',
+          'stockDeductedAt',
+          'stockMovementBatchId',
+          'stockShortageItems',
+          'deletedAt',
+          'deletedBy',
+          'deletedReason'
+        ])
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(cashFiscalFields())
+        && request.resource.data.userId == userId
+        && storedUserIdMatches(userId)
+        && isText('orderNumber', 80)
+        && isText('clientName', 120)
+        && cashLaunchStatusValid()
+        && request.resource.data.items is list
+        && request.resource.data.items.size() <= 200
+        && (
+          request.resource.data.status in ['Em Lancamento', 'Cancelado']
+          || (request.resource.data.items.size() > 0 && request.resource.data.merchandiseTotal > 0)
+        )
+        && isNumberInRange('merchandiseTotal', 0, 10000000)
+        && isNumberInRange('servicesTotal', 0, 10000000)
+        && isNumberInRange('discountTotal', 0, 10000000)
+        && isNumberInRange('total', 0, 10000000)
+        && cashLaunchPaymentValid()
+        && request.resource.data.stockDeducted is bool
+        && (
+          request.resource.data.stockDeductedAt == null
+          || (request.resource.data.stockDeductedAt is string && request.resource.data.stockDeductedAt.size() <= 40)
+        )
+        && (
+          request.resource.data.stockMovementBatchId == null
+          || (request.resource.data.stockMovementBatchId is string && request.resource.data.stockMovementBatchId.size() <= 200)
+        )
+        && optionalList('stockShortageItems', 200)
+        && isText('createdAt', 40)
+        && isText('updatedAt', 40);
+    }
+
+    function validSettingsCreate(userId) {
+      return isOwner(userId)
+        && request.resource.data.keys().hasOnly([
+          'userId',
+          'whatsappTemplate',
+          'oilTypes',
+          'serviceTypes',
+          'disabledDefaultServiceTypes',
+          'businessEmail',
+          'warrantyCategories',
+          'businessName',
+          'businessPhone',
+          'businessWhatsapp',
+          'businessInstagram',
+          'businessAddress',
+          'isProfileComplete',
+          'expenses'
+        ])
+        && optionalUserIdMatches(userId);
+    }
+
+    function validSettingsUpdate(userId) {
+      return isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'userId',
+          'whatsappTemplate',
+          'oilTypes',
+          'serviceTypes',
+          'disabledDefaultServiceTypes',
+          'businessEmail',
+          'warrantyCategories',
+          'businessName',
+          'businessPhone',
+          'businessWhatsapp',
+          'businessInstagram',
+          'businessAddress',
+          'isProfileComplete',
+          'expenses'
+        ])
+        && optionalUserIdMatches(userId);
+    }
+
+    function clientCreateKeys() {
+      return [
+        'name',
+        'bikeModel',
+        'oilType',
+        'oilPrice',
+        'contact',
+        'email',
+        'vehiclePlate',
+        'mileageKm',
+        'lastMaintenanceDate',
+        'nextMaintenanceDate',
+        'recurrenceDays',
+        'status',
+        'isRecurringRevenue',
+        'notificacao_enviada',
+        'notificacaoStatus',
+        'lastServiceType',
+        'lastServiceValue',
+        'lastServiceNotes',
+        'userId',
+        'createdAt',
+        'lastAlertDate',
+        'serviceValue',
+        'statusPagamento',
+        'valorPago',
+        'saldoDevedor'
+      ];
+    }
+
+    function clientKeys() {
+      return [
+        'name',
+        'fullName',
+        'document',
+        'bikeModel',
+        'oilType',
+        'oilPrice',
+        'contact',
+        'email',
+        'vehiclePlate',
+        'mileageKm',
+        'lastMaintenanceDate',
+        'nextMaintenanceDate',
+        'recurrenceDays',
+        'status',
+        'isRecurringRevenue',
+        'notificacao_enviada',
+        'notificacaoStatus',
+        'lastServiceType',
+        'lastServiceValue',
+        'lastServiceNotes',
+        'userId',
+        'createdAt',
+        'lastAlertDate',
+        'serviceValue',
+        'statusPagamento',
+        'valorPago',
+        'saldoDevedor',
+        'automation',
+        'deletedAt',
+        'deletedBy',
+        'deletedReason',
+        'resetAt',
+        'resetId'
+      ];
+    }
+
+    function maintenanceKeys() {
+      return [
+        'clientId',
+        'clientName',
+        'bikeModel',
+        'date',
+        'oilType',
+        'oilPrice',
+        'serviceType',
+        'serviceValue',
+        'isRecurringRevenue',
+        'notes',
+        'userId',
+        'statusPagamento',
+        'valorPago',
+        'saldoDevedor',
+        'deletedAt',
+        'deletedBy',
+        'deletedReason',
+        'resetAt',
+        'resetId'
+      ];
+    }
+
+    function warrantyKeys() {
+      return [
+        'clientName',
+        'serviceType',
+        'serviceDescription',
+        'serviceValue',
+        'serviceDate',
+        'durationMonths',
+        'expiryDate',
+        'clientPhone',
+        'warrantyNumber',
+        'userId',
+        'createdAt',
+        'deletedAt',
+        'deletedBy',
+        'deletedReason',
+        'resetAt',
+        'resetId'
+      ];
+    }
+
+    function appointmentKeys() {
+      return [
+        'clientName',
+        'bikeModel',
+        'scheduledDate',
+        'address',
+        'serviceRequested',
+        'value',
+        'completed',
+        'createdAt',
+        'userId',
+        'deletedAt',
+        'deletedBy',
+        'deletedReason',
+        'resetAt',
+        'resetId'
+      ];
+    }
+
+    function expenseKeys() {
+      return [
+        'description',
+        'supplier',
+        'amount',
+        'paymentMethod',
+        'date',
+        'note',
+        'userId',
+        'createdAt',
+        'deletedAt',
+        'deletedBy',
+        'deletedReason',
+        'resetAt',
+        'resetId'
+      ];
+    }
+
+    function productKeys() {
+      return [
+        'id',
+        'sourceCode',
+        'description',
+        'variation',
+        'variations',
+        'ncm',
+        'salePrice',
+        'stockQuantity',
+        'stockMovementId',
+        'minStockQuantity',
+        'trackStock',
+        'importedAt',
+        'userId',
+        'createdAt',
+        'updatedAt',
+        'deletedAt',
+        'deletedBy',
+        'deletedReason',
+        'resetAt',
+        'resetId'
+      ];
+    }
+
+    function cashLaunchKeys() {
+      return [
+        'orderNumber',
+        'clientId',
+        'clientName',
+        'clientDocument',
+        'clientEmail',
+        'clientPhone',
+        'bikeModel',
+        'status',
+        'openingDate',
+        'expectedDate',
+        'request',
+        'servicesExecuted',
+        'observation',
+        'items',
+        'merchandiseTotal',
+        'servicesTotal',
+        'discountTotal',
+        'orderDiscountValue',
+        'orderDiscountPercent',
+        'total',
+        'statusPagamento',
+        'valorPago',
+        'saldoDevedor',
+        'paidAt',
+        'invoiced',
+        'paymentMethod',
+        'fiscalInvoiceId',
+        'fiscalReference',
+        'fiscalIssuedAt',
+        'manualFiscal',
+        'stockDeducted',
+        'stockDeductedAt',
+        'stockMovementBatchId',
+        'stockShortageItems',
+        'userId',
+        'createdAt',
+        'updatedAt',
+        'deletedAt',
+        'deletedBy',
+        'deletedReason',
+        'resetAt',
+        'resetId'
+      ];
+    }
+
+    function stockMovementKeys() {
+      return [
+        'userId',
+        'productId',
+        'productDescription',
+        'sourceCode',
+        'variationId',
+        'variation',
+        'type',
+        'quantity',
+        'previousQuantity',
+        'nextQuantity',
+        'cashLaunchId',
+        'cashLaunchOrderNumber',
+        'itemIds',
+        'batchId',
+        'note',
+        'createdAt'
+      ];
+    }
+
+    function cashFiscalFields() {
+      return ['fiscalInvoiceId', 'fiscalReference', 'fiscalIssuedAt'];
+    }
+
+    function messageLogKeys() {
+      return [
+        'clientId',
+        'clientName',
+        'bikeModel',
+        'phone',
+        'channel',
+        'status',
+        'trigger',
+        'message',
+        'createdAt',
+        'sentAt',
+        'error',
+        'userId',
+        'deletedAt',
+        'deletedBy',
+        'deletedReason',
+        'resetAt',
+        'resetId'
+      ];
+    }
+
+    function operationalLogKeys() {
+      return [
+        'timestamp',
+        'usuario',
+        'userId',
+        'oficina',
+        'acao',
+        'resultado',
+        'targetId',
+        'details'
+      ];
+    }
+
+    function whatsappAutomationKeys() {
+      return [
+        'userId',
+        'enabled',
+        'aiEnabled',
+        'autoReplyEnabled',
+        'appointmentEnabled',
+        'createdAt',
+        'updatedAt'
+      ];
+    }
+
+    match /access_requests/{userId} {
+      allow get: if isActiveMasterAdmin();
+      allow list: if isActiveMasterAdmin();
+      allow create: if signedIn() && isValidAccessRequestCreate(userId);
+      allow update: if isActiveMasterAdmin() && validAccessRequestTransition(userId);
+      allow delete: if false;
+    }
+
+    match /access_decisions/{auditId} {
+      allow create: if isActiveMasterAdmin()
+        && request.resource.data.targetUid is string
+        && validAccessDecisionAuditCreate(request.resource.data.targetUid, auditId);
+      allow get, list: if isActiveMasterAdmin();
+      allow update, delete: if false;
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isActiveMasterAdmin();
+      allow list: if false;
+      allow create: if validUserProfileCreate(userId);
+      allow update: if isActiveMasterAdmin() && validAccessProfileDecision(userId);
+      allow delete: if false;
+    }
+
+    match /system/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId}/fiscal_private/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId}/fiscal_invoice_files/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /users/{userId}/clients/{clientId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, clientCreateKeys()) && clientCreateShape(userId);
+      allow update: if isActiveOwner(userId) && (
+        validOwnerClientMaintenanceUpdate(userId)
+        || (validOwnerUpdate(userId, clientKeys()) && clientShape(userId))
+      );
+      allow delete: if false;
+    }
+
+    match /users/{userId}/maintenances/{maintenanceId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, maintenanceKeys()) && maintenanceShape(userId);
+      allow update: if isActiveOwner(userId) && (
+        validOwnerSoftDeleteUpdate(userId)
+        || (validOwnerUpdate(userId, maintenanceKeys()) && maintenanceShape(userId))
+      );
+      allow delete: if false;
+    }
+
+    match /users/{userId}/warranties/{warrantyId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, warrantyKeys()) && warrantyShape(userId);
+      allow update: if isActiveOwner(userId) && validOwnerUpdate(userId, warrantyKeys()) && warrantyShape(userId);
+      allow delete: if false;
+    }
+
+    match /users/{userId}/appointments/{appointmentId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, appointmentKeys()) && appointmentShape(userId);
+      allow update: if isActiveOwner(userId) && validOwnerUpdate(userId, appointmentKeys()) && appointmentShape(userId);
+      allow delete: if false;
+    }
+
+    match /users/{userId}/expenses/{expenseId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, expenseKeys()) && expenseShape(userId);
+      allow update: if isActiveOwner(userId) && validOwnerUpdate(userId, expenseKeys()) && expenseShape(userId);
+      allow delete: if false;
+    }
+
+    match /users/{userId}/products/{productId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isActiveOwner(userId)
+        && validOwnerCreate(userId, productKeys())
+        && productShape(userId, productId)
+        && validStockOperationPair(userId, productId, request.resource.data, true);
+      allow update: if isActiveOwner(userId)
+        && (validOwnerProductStockUpdate(userId) || validOwnerProductDataUpdate(userId));
+      allow delete: if false;
+    }
+
+    match /users/{userId}/stock_movements/{movementId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isActiveOwner(userId) && validOwnerStockMovementCreate(userId, movementId);
+      allow update, delete: if false;
+    }
+
+    match /users/{userId}/cash_launches/{launchId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isActiveOwner(userId)
+        && request.resource.data.userId == userId
+        && request.resource.data.keys().hasOnly(cashLaunchKeys())
+        && !request.resource.data.keys().hasAny(cashFiscalFields())
+        && cashLaunchShape(userId);
+      allow update: if isActiveOwner(userId) && (
+          validOwnerSoftDeleteUpdate(userId)
+          || validOwnerCashLaunchFinalizedStockPaymentUpdate(userId)
+          || validOwnerCashLaunchFinalizedStockUpdate(userId)
+          || validOwnerCashLaunchCanceledUpdate(userId)
+          || validOwnerCashLaunchSimpleStatusUpdate(userId)
+          || validOwnerCashLaunchStockRestoreUpdate(userId)
+          || validOwnerCashLaunchStockUpdate(userId)
+          || (
+            validOwnerUpdate(userId, cashLaunchKeys())
+            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(cashFiscalFields())
+            && cashLaunchUpdateShape(userId)
+          )
+        );
+      allow delete: if false;
+    }
+
+    match /users/{userId}/settings/{settingId} {
+      allow read: if settingId == 'config' && canReadUserData(userId);
+      allow create: if settingId == 'config' && isActiveOwner(userId) && validSettingsCreate(userId) && settingsShape(userId);
+      allow update: if settingId == 'config' && isActiveOwner(userId) && validSettingsUpdate(userId) && settingsShape(userId);
+      allow delete: if false;
+    }
+
+    match /users/{userId}/message_logs/{messageLogId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, messageLogKeys()) && messageLogShape(userId);
+      allow update: if isActiveOwner(userId) && validOwnerUpdate(userId, messageLogKeys()) && messageLogShape(userId);
+      allow delete: if false;
+    }
+
+    match /users/{userId}/operational_logs/{logId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, operationalLogKeys()) && operationalLogShape(userId);
+      allow update, delete: if false;
+    }
+
+    match /users/{userId}/whatsapp_sessions/{sessionId} {
+      allow read: if canReadUserData(userId);
+      allow write: if false;
+    }
+
+    match /users/{userId}/whatsapp_messages/{messageId} {
+      allow read: if canReadUserData(userId);
+      allow write: if false;
+    }
+
+    match /users/{userId}/whatsapp_contacts/{contactId} {
+      allow read: if canReadUserData(userId);
+      allow write: if false;
+    }
+
+    match /users/{userId}/whatsapp_automations/{automationId} {
+      allow read: if canReadUserData(userId);
+      allow create: if isActiveOwner(userId) && validOwnerCreate(userId, whatsappAutomationKeys()) && whatsappAutomationShape(userId);
+      allow update: if isActiveOwner(userId) && validOwnerUpdate(userId, whatsappAutomationKeys()) && whatsappAutomationShape(userId);
+      allow delete: if false;
+    }
+
+    match /users/{userId}/fiscal_companies/{companyId} {
+      allow read: if canReadUserData(userId);
+      allow write: if false;
+    }
+
+    match /users/{userId}/fiscal_invoices/{invoiceId} {
+      allow read: if canReadUserData(userId);
+      allow write: if false;
+    }
+
+    match /users/{userId}/fiscal_logs/{logId} {
+      allow read: if canReadUserData(userId);
+      allow write: if false;
+    }
+
+    match /users/{userId}/{document=**} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+

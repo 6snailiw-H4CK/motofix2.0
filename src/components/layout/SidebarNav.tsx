@@ -7,7 +7,6 @@ import {
   Package,
   ReceiptText,
   Settings as SettingsIcon,
-  Shield,
   ShieldCheck,
   PanelLeftClose,
   PanelLeftOpen,
@@ -121,12 +120,6 @@ export const getPrimaryNavItems = (isAdmin: boolean, fiscalModuleAvailable: bool
       icon: ShieldCheck,
       label: 'Master Admin',
       match: ['master-admin' as AppView],
-      group: 'tools' as const,
-    }, {
-      id: 'admin' as AppView,
-      icon: Shield,
-      label: 'Admin',
-      match: ['admin' as AppView],
       group: 'tools' as const,
     }]
     : []),

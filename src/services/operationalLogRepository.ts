@@ -2,6 +2,7 @@ import { collection, doc, setDoc } from 'firebase/firestore';
 import type { OperationalLogAction, OperationalLogResult } from '../types';
 import { db } from '../firebase';
 import { createFirestoreReplayDescriptor, queueFirestoreVoidWrite } from './firestoreOfflineQueue';
+import { isFirestoreNetworkEnabled } from './firestoreNetworkControl';
 
 type OperationalLogInput = {
   userId: string;
@@ -25,7 +26,8 @@ export const recordOperationalLog = ({
   details,
 }: OperationalLogInput) => {
   const docRef = doc(operationalLogCollectionPath(userId));
-  const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+  const isOffline = (typeof navigator !== 'undefined' && navigator.onLine === false)
+    || !isFirestoreNetworkEnabled();
   const logData = {
     timestamp: new Date().toISOString(),
     usuario: usuario || userId,

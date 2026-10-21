@@ -17,7 +17,6 @@ type MasterAdminViewProps = {
   onAuthorizationStateChange?: (state: "authorized" | "denied" | "expired" | "unavailable") => void;
 };
 
-type ManagedRole = "user" | "admin" | "master_admin";
 const ACCESS_DAY_PRESETS = [30, 60, 120, 365] as const;
 
 const dateLabel = (value: string | null | undefined) => {
@@ -27,19 +26,25 @@ const dateLabel = (value: string | null | undefined) => {
 };
 
 const statusLabel = (account: MasterAdminListResponse["users"][number]) => {
-  if (!account.isActive) return "Suspensa";
+  if (account.directorySource === "legacy_profile_backfill") {
+    if (!account.isActive) return "Cadastro legado · inativo";
+    if (account.manualAccessState === "expired") return "Cadastro legado · vencido";
+    if (account.ownerAccess.permanent || account.accessAllowed || account.manualAccessState === "active") {
+      return "Cadastro legado · ativo";
+    }
+    return "Cadastro legado · sem vigência";
+  }
+  if (account.requestStatus === "pending") return "Pendente";
+  if (account.requestStatus === "blocked") return "Suspensa";
   if (account.manualAccessState === "expired") return "Vencida";
+  if (!account.isActive) return "Suspensa";
   if (account.ownerAccess.permanent || account.accessAllowed || account.manualAccessState === "active") return "Ativa";
   return "Sem vigência";
 };
 
 const auditExpiry = (event: MasterAdminAuditEvent) => {
-  const manualAccess = event.after?.manualAccess;
-  if (manualAccess && typeof manualAccess === "object" && "expiresAt" in manualAccess) {
-    const expiresAt = manualAccess.expiresAt;
-    if (typeof expiresAt === "string") return expiresAt;
-  }
-  return null;
+  const expiresAt = event.after?.manualAccessExpiresAt;
+  return typeof expiresAt === "string" ? expiresAt : null;
 };
 
 const roleLabel = (role: unknown) => {
@@ -56,23 +61,47 @@ export const MasterAdminView = ({ currentUserId, onAuthorizationStateChange }: M
   const [detailError, setDetailError] = useState<string | null>(null);
   const [selectedUid, setSelectedUid] = useState("");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
   const [filter, setFilter] = useState<"all" | "active" | "blocked" | "expiring">("all");
   const [pageCursors, setPageCursors] = useState<Array<string | null>>([null]);
   const [pageIndex, setPageIndex] = useState(0);
   const [accessDays, setAccessDays] = useState("30");
-  const [managedRole, setManagedRole] = useState<ManagedRole>("user");
+  const [plan, setPlan] = useState("Acesso manual");
+  const [amount, setAmount] = useState("0");
+  const [paymentMethod, setPaymentMethod] = useState<"pix" | "manual" | "none">("none");
+  const [paymentConfirmed, setPaymentConfirmed] = useState(false);
   const [reason, setReason] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
   const cursor = pageCursors[pageIndex] ?? null;
+
+  useEffect(() => {
+    const updateConnection = () => setIsOnline(navigator.onLine);
+    window.addEventListener("online", updateConnection);
+    window.addEventListener("offline", updateConnection);
+    return () => {
+      window.removeEventListener("online", updateConnection);
+      window.removeEventListener("offline", updateConnection);
+    };
+  }, []);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => setDebouncedSearch(search), 350);
+    return () => window.clearTimeout(timeoutId);
+  }, [search]);
 
   useEffect(() => {
     let active = true;
     setLoading(true);
     setError(null);
-    void getMasterAdminUsers({ search, status: filter, role: "all", pageSize: 50 }, cursor)
+    void getMasterAdminUsers(
+      { search: debouncedSearch, status: filter, role: "all", pageSize: 50 },
+      cursor,
+      refreshKey > 0,
+    )
       .then((response) => {
         if (!active) return;
         setList(response);
@@ -82,11 +111,12 @@ export const MasterAdminView = ({ currentUserId, onAuthorizationStateChange }: M
         if (!active) return;
         setError(loadError instanceof Error ? loadError.message : "Não foi possível consultar as solicitações.");
         setList(null);
-        onAuthorizationStateChange?.("unavailable");
+        const status = loadError instanceof MasterAdminRequestError ? loadError.status : null;
+        onAuthorizationStateChange?.(status === 403 ? "denied" : status === 401 ? "expired" : "unavailable");
       })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [cursor, filter, onAuthorizationStateChange, refreshKey, search]);
+  }, [cursor, debouncedSearch, filter, onAuthorizationStateChange, refreshKey]);
 
   useEffect(() => {
     if (!selectedUid) {
@@ -99,11 +129,14 @@ export const MasterAdminView = ({ currentUserId, onAuthorizationStateChange }: M
     setDetail(null);
     setDetailError(null);
     setDetailLoading(true);
-    void getMasterAdminAccount(selectedUid).then((value) => {
+    void getMasterAdminAccount(selectedUid, refreshKey > 0).then((value) => {
       if (!active) return;
       setDetail(value);
       setAccessDays("30");
-      setManagedRole(value.account.role ?? "user");
+      setPlan("Acesso manual");
+      setAmount("0");
+      setPaymentMethod("none");
+      setPaymentConfirmed(false);
     }).catch((loadError: unknown) => {
       if (active) {
         const message = loadError instanceof Error ? loadError.message : "Não foi possível carregar a conta.";
@@ -118,8 +151,16 @@ export const MasterAdminView = ({ currentUserId, onAuthorizationStateChange }: M
 
   const saveDecision = async (enabled: boolean) => {
     if (!detail || saving || detail.account.uid === currentUserId) return;
+    if (!isOnline) {
+      toast.error("Liberar ou suspender uma conta exige conexão para validar a permissão e registrar a decisão no Firebase.");
+      return;
+    }
     if (!reason.trim()) {
       toast.error("Informe o motivo da decisão.");
+      return;
+    }
+    if (!plan.trim()) {
+      toast.error("Informe o plano ou a descrição do acesso.");
       return;
     }
     const days = Number(accessDays);
@@ -127,8 +168,21 @@ export const MasterAdminView = ({ currentUserId, onAuthorizationStateChange }: M
       toast.error("Informe uma vigência entre 1 e 3650 dias.");
       return;
     }
+    const paymentAmount = Number(amount);
+    if (enabled && (!Number.isFinite(paymentAmount) || paymentAmount <= 0 || paymentAmount > 1_000_000)) {
+      toast.error("Informe um valor de pagamento maior que zero.");
+      return;
+    }
+    if (enabled && paymentMethod === "none") {
+      toast.error("Selecione a forma de pagamento.");
+      return;
+    }
+    if (enabled && !paymentConfirmed) {
+      toast.error("Confirme o recebimento do pagamento antes de liberar o acesso.");
+      return;
+    }
     const prompt = enabled
-      ? `Conceder/renovar o acesso de ${detail.account.displayName || detail.account.uid} por ${days} dias?`
+      ? `Confirmar o pagamento de R$ ${paymentAmount.toFixed(2)} e conceder/renovar o acesso de ${detail.account.displayName || detail.account.uid} por ${days} dias?`
       : `Suspender o acesso de ${detail.account.displayName || detail.account.uid}?`;
     if (!window.confirm(prompt)) return;
     setSaving(true);
@@ -137,52 +191,23 @@ export const MasterAdminView = ({ currentUserId, onAuthorizationStateChange }: M
         isActive: enabled,
         days: enabled ? days : 0,
         reason,
+        plan,
+        amount: Number.isFinite(paymentAmount) ? paymentAmount : 0,
+        paymentMethod,
+        paymentConfirmed,
       });
       toast.success(enabled ? `Acesso concedido por ${days} dias.` : "Acesso suspenso.");
       setReason("");
       setRefreshKey((value) => value + 1);
     } catch (saveError) {
       toast.error(saveError instanceof Error ? saveError.message : "A decisão foi recusada.");
-      if (saveError instanceof MasterAdminRequestError && saveError.persisted) {
-        setReason("");
-        setRefreshKey((value) => value + 1);
-      }
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const saveRole = async () => {
-    if (!detail || saving || detail.account.uid === currentUserId || detail.account.ownerAccess.permanent) return;
-    if (managedRole === detail.account.role) {
-      toast.error("Selecione um nível de acesso diferente do atual.");
-      return;
-    }
-    if (!reason.trim()) {
-      toast.error("Informe o motivo da alteração de permissão.");
-      return;
-    }
-    const targetName = detail.account.displayName || detail.account.uid;
-    const prompt = `Alterar o perfil de ${targetName} de ${roleLabel(detail.account.role)} para ${roleLabel(managedRole)}?`;
-    if (!window.confirm(prompt)) return;
-    setSaving(true);
-    try {
-      await updateMasterAdminAccess(detail.account.uid, { role: managedRole, reason });
-      toast.success(`Perfil atualizado para ${roleLabel(managedRole)}.`);
-      setReason("");
-      setRefreshKey((value) => value + 1);
-    } catch (saveError) {
-      toast.error(saveError instanceof Error ? saveError.message : "A alteração de permissão foi recusada.");
-      if (saveError instanceof MasterAdminRequestError && saveError.persisted) {
-        setReason("");
-        setRefreshKey((value) => value + 1);
-      }
     } finally {
       setSaving(false);
     }
   };
 
   const parsedAccessDays = Number(accessDays);
+  const metrics = list?.metrics;
   const previewExpiry = Number.isInteger(parsedAccessDays) && parsedAccessDays >= 1 && parsedAccessDays <= 3650
     ? format(new Date(Date.now() + parsedAccessDays * 86_400_000), "dd/MM/yyyy")
     : null;
@@ -202,25 +227,32 @@ export const MasterAdminView = ({ currentUserId, onAuthorizationStateChange }: M
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.22em] text-violet-300">Central de controle</p>
             <h1 className="mt-1 text-2xl font-black text-white">Master Admin</h1>
-            <p className="mt-1 text-sm text-slate-400">Contas, permissões e vigência dos usuários em um só lugar.</p>
+            <p className="mt-1 text-sm text-slate-400">Contas, liberação, suspensão e vigência dos usuários em um só lugar.</p>
           </div>
         </div>
         <button type="button" onClick={() => {
           setPageCursors([null]);
           setPageIndex(0);
           setRefreshKey((value) => value + 1);
-        }} disabled={loading}
+        }} disabled={loading || !isOnline}
+          title={isOnline ? "Consultar dados atualizados no Firebase" : "Conecte-se para atualizar os dados do Firebase"}
           className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950/70 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-violet-400/40 hover:bg-slate-900 disabled:opacity-50">
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Atualizar dados
         </button>
       </header>
+
+      {list?.dataSource === "cache" && (
+        <p role="status" className="rounded-xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+          Exibindo a cópia local do Master Admin, carregada em {dateLabel(list.cachedAt)}. Ela pode estar desatualizada; liberar ou suspender contas fica disponível quando houver conexão.
+        </p>
+      )}
 
       <section aria-label="Resumo das contas" className="grid gap-3 md:grid-cols-3">
         {[
           {
             label: "Ativos",
             detail: "Contas ativadas no cadastro",
-            value: list?.metrics.active,
+            value: metrics?.active ?? 0,
             status: "active" as const,
             Icon: CheckCircle2,
             tone: "emerald",
@@ -228,7 +260,7 @@ export const MasterAdminView = ({ currentUserId, onAuthorizationStateChange }: M
           {
             label: "Cancelados",
             detail: "Contas desativadas ou bloqueadas",
-            value: list?.metrics.blocked,
+            value: metrics?.blocked ?? 0,
             status: "blocked" as const,
             Icon: Ban,
             tone: "rose",
@@ -236,7 +268,7 @@ export const MasterAdminView = ({ currentUserId, onAuthorizationStateChange }: M
           {
             label: "Vencendo em 7 dias",
             detail: "Acessos que precisam de atenção",
-            value: list?.metrics.expiringSoon,
+            value: metrics?.expiringSoon ?? 0,
             status: "expiring" as const,
             Icon: Clock3,
             tone: "amber",
@@ -319,14 +351,18 @@ export const MasterAdminView = ({ currentUserId, onAuthorizationStateChange }: M
                   <td className="p-2 text-slate-300">{dateLabel(account.manualAccessExpiresAt)}</td>
                 </tr>)}</tbody>
               </table>
-              {!list?.users.length && <p className="p-6 text-sm text-slate-400">Nenhum usuário encontrado.</p>}
+              {!error && list && list.users.length === 0 && (
+                <p className="p-6 text-sm text-slate-400">Nenhum usuário encontrado.</p>
+              )}
             </div>
           )}
           <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-400">
             <button type="button" disabled={pageIndex === 0 || loading}
               onClick={() => setPageIndex((value) => Math.max(0, value - 1))}
               className="rounded-lg border border-slate-700 px-3 py-2 disabled:opacity-40">Anterior</button>
-            <span>Página {pageIndex + 1} · {list?.total ?? 0} usuário(s)</span>
+            <span>
+              Página {pageIndex + 1} · {list ? `${list.total} usuário(s)` : error ? "Lista indisponível" : "Carregando"}
+            </span>
             <button type="button" disabled={!list?.hasMore || loading || !list.nextCursor}
               onClick={() => {
                 if (!list?.nextCursor) return;
@@ -335,7 +371,7 @@ export const MasterAdminView = ({ currentUserId, onAuthorizationStateChange }: M
               }}
               className="rounded-lg border border-slate-700 px-3 py-2 disabled:opacity-40">Próxima</button>
           </div>
-          <p className="mt-3 text-[11px] text-slate-500">A listagem é autenticada e consulta os perfis de usuário pelo servidor.</p>
+          <p className="mt-3 text-[11px] text-slate-500">A listagem usa solicitações mínimas do Firestore; a coleção de perfis não é enumerada.</p>
         </section>
 
       </div>
@@ -377,6 +413,11 @@ export const MasterAdminView = ({ currentUserId, onAuthorizationStateChange }: M
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 sm:p-6">
               {detailLoading && <p className="py-8 text-center text-sm text-slate-400">Carregando dados e histórico da conta…</p>}
               {detailError && <p role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300">{detailError}</p>}
+              {detail?.dataSource === "cache" && (
+                <p role="status" className="rounded-lg border border-amber-400/25 bg-amber-400/10 p-3 text-sm text-amber-100">
+                  Detalhes e histórico carregados do cache local. Confirme os dados online antes de tomar uma decisão administrativa.
+                </p>
+              )}
               {detail && <>
                 <section className="grid gap-3 rounded-xl border border-slate-700 bg-slate-950/40 p-4 sm:grid-cols-2">
                   <div>
@@ -395,12 +436,17 @@ export const MasterAdminView = ({ currentUserId, onAuthorizationStateChange }: M
                     <p className="text-xs text-slate-500">Vigência manual atual</p>
                     <p className="text-sm text-slate-200">{dateLabel(detail.account.manualAccessExpiresAt)}</p>
                   </div>
+                  <p className="text-xs text-slate-500 sm:col-span-2">
+                    Este painel gerencia vigência e suspensão. Perfis administrativos e claims são provisionados separadamente.
+                  </p>
                 </section>
 
                 {detail.account.uid === currentUserId
                   ? <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">Por segurança, não é permitido alterar o próprio acesso.</p>
                   : detail.account.ownerAccess.permanent
                     ? <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">A conta proprietária possui acesso permanente protegido.</p>
+                    : detail.account.role !== "user"
+                      ? <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">A vigência por este painel só pode ser alterada para contas com perfil de usuário.</p>
                     : <>
                       <section className="space-y-3 rounded-xl border border-slate-700 p-4">
                         <div>
@@ -431,18 +477,41 @@ export const MasterAdminView = ({ currentUserId, onAuthorizationStateChange }: M
                             {previewExpiry ? <>Acesso válido até <strong className="text-white">{previewExpiry}</strong></> : "Informe de 1 a 3650 dias"}
                           </p>
                         </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="block text-xs text-slate-300">Plano / descrição
+                            <input value={plan} onChange={(event) => setPlan(event.target.value)} maxLength={80}
+                              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
+                          </label>
+                          <label className="block text-xs text-slate-300">Valor recebido (R$)
+                            <input type="number" min="0" max="1000000" step="0.01" value={amount}
+                              onChange={(event) => setAmount(event.target.value)}
+                              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white" />
+                          </label>
+                          <label className="block text-xs text-slate-300">Forma de pagamento
+                            <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as typeof paymentMethod)}
+                              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white">
+                              <option value="none">Não se aplica / suspensão</option>
+                              <option value="pix">PIX</option>
+                              <option value="manual">Outro meio confirmado</option>
+                            </select>
+                          </label>
+                          <label className="flex items-center gap-2 self-end rounded-lg bg-slate-950/70 p-3 text-xs text-slate-300">
+                            <input type="checkbox" checked={paymentConfirmed} onChange={(event) => setPaymentConfirmed(event.target.checked)} />
+                            Confirmei o recebimento do pagamento.
+                          </label>
+                        </div>
                         <label className="block text-xs text-slate-300">Motivo / observação (obrigatório)
                           <textarea value={reason} onChange={(event) => setReason(event.target.value)} maxLength={500} rows={2}
                             placeholder="Ex.: plano de 60 dias confirmado"
                             className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-600" />
                         </label>
                         <div className="flex flex-wrap gap-2">
-                          <button type="button" disabled={saving || !previewExpiry} onClick={() => void saveDecision(true)}
+                          <button type="button" disabled={saving || !isOnline || !previewExpiry} onClick={() => void saveDecision(true)}
                             className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">
                             <UserRoundCheck className="h-4 w-4" /> Liberar / renovar acesso
                           </button>
                           <button type="button"
-                            disabled={saving || (!detail.account.isActive && detail.account.manualAccessState !== "active")}
+                            disabled={saving || !isOnline || (!detail.account.isActive && detail.account.manualAccessState !== "active")}
                             onClick={() => void saveDecision(false)}
                             className="inline-flex items-center gap-2 rounded-lg border border-rose-500/40 px-4 py-2.5 text-sm font-bold text-rose-300 disabled:opacity-50">
                             <UserRoundX className="h-4 w-4" /> Bloquear acesso
@@ -450,37 +519,16 @@ export const MasterAdminView = ({ currentUserId, onAuthorizationStateChange }: M
                         </div>
                       </section>
 
-                      <section className="space-y-3 rounded-xl border border-slate-700 p-4">
-                        <div>
-                          <h3 className="font-bold text-white">Permissões do sistema</h3>
-                          <p className="mt-1 text-xs text-slate-400">A troca de perfil atualiza as permissões e os claims de autenticação.</p>
-                        </div>
-                        <div className="flex flex-wrap items-end gap-2">
-                          <label className="min-w-52 flex-1 text-xs text-slate-300">Perfil de acesso
-                            <select value={managedRole} onChange={(event) => setManagedRole(event.target.value as ManagedRole)}
-                              className="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white">
-                              <option value="user">Usuário — acesso normal</option>
-                              <option value="admin">Administrador — ferramentas administrativas</option>
-                              <option value="master_admin">Master Admin — controle administrativo completo</option>
-                            </select>
-                          </label>
-                          <button type="button" disabled={saving || managedRole === detail.account.role}
-                            onClick={() => void saveRole()}
-                            className="rounded-lg border border-violet-500/40 px-4 py-2.5 text-sm font-bold text-violet-200 disabled:opacity-50">
-                            Salvar permissões
-                          </button>
-                        </div>
-                      </section>
                     </>}
 
                 <section className="border-t border-slate-700 pt-4">
-                  <h3 className="mb-2 text-sm font-bold text-white">Histórico de acesso e permissões · 10 recentes</h3>
+                  <h3 className="mb-2 text-sm font-bold text-white">Histórico de acesso · 10 recentes</h3>
                   <div className="max-h-52 space-y-2 overflow-auto">
-                    {detail.auditEvents.map((event) => <article key={event.id} className="rounded-lg bg-slate-950/70 p-3 text-xs">
+                    {(detail.auditEvents ?? []).map((event) => <article key={event.id} className="rounded-lg bg-slate-950/70 p-3 text-xs">
                       <p className="font-semibold text-slate-200">{event.action} · {dateLabel(event.timestamp)}</p>
-                      <p className="mt-1 text-slate-400">Administrador: {event.actor || "—"} · Perfil: {roleLabel(event.before?.role)} → {roleLabel(event.after?.role)}</p>
-                      <p className="text-slate-400">Vigência: {dateLabel(auditExpiry(event))}</p>
-                      {event.claimsSyncStatus === "failed" && <p className="text-rose-300">Sincronização das permissões falhou; confira o estado antes de repetir.</p>}
+                      <p className="mt-1 text-slate-400">Administrador UID: {event.actor || "—"} · Perfil da conta: {roleLabel(detail.account.role)}</p>
+                      <p className="text-slate-400">Vigência: {dateLabel(auditExpiry(event))} · Plano: {event.plan || "—"} · Valor: {event.amount ?? "—"}</p>
+                      {event.paymentConfirmed && <p className="text-emerald-300">Pagamento confirmado ({event.paymentMethod || "—"}).</p>}
                       <p className="text-slate-500">{event.reason || "Sem motivo registrado"}</p>
                     </article>)}
                     {!detail.auditEvents.length && <p className="text-xs text-slate-500">Sem decisões registradas.</p>}

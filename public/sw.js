@@ -24,36 +24,61 @@ const normalizeAssetUrl = (assetUrl) => {
 const readOfflineAssetManifest = async () => {
   try {
     const response = await fetch(OFFLINE_ASSET_MANIFEST_URL, { cache: 'no-store' });
-    if (!response.ok) return [];
+    if (!response.ok) return null;
 
     const manifest = await response.json();
-    if (!Array.isArray(manifest.assets)) return [];
+    if (
+      !manifest
+      || manifest.version !== CACHE_VERSION
+      || !Array.isArray(manifest.assets)
+      || !manifest.assets.includes('/index.html')
+      || !manifest.assets.includes('/master-admin.html')
+    ) {
+      return null;
+    }
 
-    return manifest.assets
+    const assets = manifest.assets
       .map(normalizeAssetUrl)
       .filter(Boolean);
+    return assets.length > 0 ? assets : null;
   } catch {
-    return [];
+    return null;
   }
 };
 
 const getPrecacheUrls = async () => {
   const urls = new Set(PRECACHE_URLS);
   const manifestUrls = await readOfflineAssetManifest();
-  manifestUrls.forEach((url) => urls.add(url));
+
+  // Development service workers are opt-in and do not have a build manifest.
+  // Production updates must have a matching manifest or preserve the old cache.
+  if (!manifestUrls && CACHE_VERSION !== 'dev') {
+    throw new Error('Offline asset manifest is missing or does not match this MotoFix build.');
+  }
+
+  manifestUrls?.forEach((url) => urls.add(url));
   return Array.from(urls);
 };
 
 const precacheOfflineAssets = async () => {
   const cache = await caches.open(APP_SHELL_CACHE);
   const urls = await getPrecacheUrls();
-  await Promise.all(urls.map((url) => cache.add(url).catch(() => null)));
+  await cache.addAll(urls);
 };
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    precacheOfflineAssets()
-      .then(() => self.skipWaiting())
+    (async () => {
+      try {
+        await precacheOfflineAssets();
+        // Let the previous worker finish serving its open app tabs before an
+        // update activates and removes that version's cached lazy-loaded chunks.
+      } catch (error) {
+        // A partial new cache must never replace a previously working offline app.
+        await caches.delete(APP_SHELL_CACHE);
+        throw error;
+      }
+    })()
   );
 });
 
@@ -146,11 +171,6 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(networkFirst(request));
-});
-
-self.addEventListener('message', (event) => {
-  if (event.data?.type !== 'MOTOFIX_PRECACHE_ASSETS') return;
-  event.waitUntil(precacheOfflineAssets());
 });
 
 self.addEventListener('notificationclick', (event) => {

@@ -4,6 +4,7 @@ import jsPDF from 'jspdf';
 import { useCallback, useState } from 'react';
 import { toast as sonnerToast } from 'sonner';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
+import { getFirestoreSaveResultMessage } from '../services/firestoreSaveStatus';
 import { recordOperationalLog } from '../services/operationalLogRepository';
 import { shouldGenerateWarrantyPdf } from '../services/warrantyPdfGuard';
 import { warrantyRepository } from '../services/warrantyRepository';
@@ -155,7 +156,7 @@ export const useWarrantyActions = ({
     try {
       if (editingWarranty) {
         await warrantyRepository.update(user.uid, editingWarranty.id, finalData);
-        sonnerToast.success('Garantia atualizada com sucesso!');
+        sonnerToast.success(getFirestoreSaveResultMessage('Garantia atualizada com sucesso!'));
       } else {
         const { id: warrantyId, remoteConfirmed } = await warrantyRepository.create(user.uid, finalData);
         recordOperationalLog({
@@ -194,7 +195,7 @@ export const useWarrantyActions = ({
     try {
       await warrantyRepository.remove(user.uid, id);
       onDeleted();
-      sonnerToast.success('Garantia movida para a lixeira.', {
+      sonnerToast.success(getFirestoreSaveResultMessage('Garantia movida para a lixeira.'), {
         action: {
           label: 'Desfazer',
           onClick: () => void warrantyRepository.restore(user.uid, id),

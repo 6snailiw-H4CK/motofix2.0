@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS } from '../constants/appDefaults';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
 import { operationalDataResetApi } from '../services/operationalDataResetApi';
 import { settingsRepository } from '../services/settingsRepository';
+import { getFirestoreSaveResultMessage } from '../services/firestoreSaveStatus';
 import type { Settings } from '../types';
 
 export type ProfileSetupData = {
@@ -49,7 +50,7 @@ export const useSettingsActions = ({ user, settings, setSettings }: UseSettingsA
     const updatedSettings = { ...settings, isProfileComplete: !!settings.businessName };
     await settingsRepository.saveConfig(user.uid, updatedSettings);
     setSettings(updatedSettings);
-    showSaveMessage('Perfil atualizado com sucesso!');
+    showSaveMessage(getFirestoreSaveResultMessage('Perfil atualizado com sucesso!'));
   }, [settings, setSettings, showSaveMessage, user]);
 
   const saveSettings = useCallback(async () => {
@@ -60,7 +61,7 @@ export const useSettingsActions = ({ user, settings, setSettings }: UseSettingsA
         ...settings,
         whatsappTemplate: settings.whatsappTemplate || DEFAULT_SETTINGS.whatsappTemplate,
       });
-      showSaveMessage('Configuracoes salvas com sucesso!');
+      showSaveMessage(getFirestoreSaveResultMessage('Configurações salvas com sucesso!'));
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'settings');
     }
@@ -73,7 +74,7 @@ export const useSettingsActions = ({ user, settings, setSettings }: UseSettingsA
     try {
       await settingsRepository.saveConfig(user.uid, updatedSettings);
       setSettings(updatedSettings);
-      showSaveMessage('Configuracoes salvas com sucesso!');
+      showSaveMessage(getFirestoreSaveResultMessage('Configurações salvas com sucesso!'));
     } catch (error) {
       handleFirestoreError(error, OperationType.UPDATE, 'settings');
     }

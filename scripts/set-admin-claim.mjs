@@ -3,11 +3,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
-import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import { FieldValue, getFirestore, Timestamp } from "firebase-admin/firestore";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const { calculateProfileAccess } = require("../functions/profileAccess.js");
+
+const normalizeTimestamp = (value) => (
+  value && typeof value.toDate === "function"
+    ? Timestamp.fromDate(value.toDate())
+    : value
+);
 
 const usage = `
 Uso:
@@ -62,10 +68,6 @@ for (const email of emails) {
   let auditRef;
   try {
     const user = await auth.getUserByEmail(email);
-    const isConfiguredOwner = !!configuredOwnerUid && user.uid === configuredOwnerUid;
-    if (isConfiguredOwner && (shouldRemove || normalizedRole !== "master_admin")) {
-      throw new Error("The configured owner must remain master_admin; no changes were made.");
-    }
     const profilePatch = {
       uid: user.uid,
       email: user.email || email,
@@ -107,11 +109,16 @@ for (const email of emails) {
         subscriptionExpiresAt: current.subscriptionExpiresAt || null,
       };
       const nextProfile = { ...current, ...profilePatch };
-      nextProfile.accessProjection = calculateProfileAccess(
+      const projection = calculateProfileAccess(
         nextProfile,
         user.uid,
         ownerUid,
       );
+      nextProfile.accessProjection = {
+        ...projection,
+        validUntil: normalizeTimestamp(projection.validUntil),
+        evaluatedAt: normalizeTimestamp(projection.evaluatedAt),
+      };
       after = {
         role: nextProfile.role || null,
         isActive: nextProfile.isActive === true,

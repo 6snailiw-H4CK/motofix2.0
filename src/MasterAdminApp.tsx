@@ -133,7 +133,7 @@ export const MasterAdminApp = () => {
         <section className="mx-auto max-w-md rounded-2xl border border-slate-700/70 bg-slate-900/60 p-6 shadow-xl sm:p-8">
           <h2 className="text-xl font-bold text-white">Acesso administrativo</h2>
           <p className="mt-2 text-sm leading-6 text-slate-400">
-            Entre com sua conta Google. O backend verificará a autorização Master Admin antes de exibir as contas.
+            Entre com sua conta Google. As regras do Firestore verificam a autorização Master Admin antes de liberar os dados.
           </p>
           {sessionExpired && (
             <p role="status" className="mt-4 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3 text-sm text-amber-200">
@@ -169,7 +169,7 @@ export const MasterAdminApp = () => {
         <section className="mx-auto max-w-lg rounded-2xl border border-amber-400/20 bg-slate-900/60 p-6">
           <h2 className="text-lg font-bold text-white">Sessão expirada</h2>
           <p role="status" className="mt-2 text-sm leading-6 text-slate-400">
-            O servidor rejeitou a sessão. O painel está bloqueado e a sessão está sendo encerrada; entre novamente para continuar.
+            O Firebase Auth rejeitou a sessão. O painel está bloqueado e a sessão está sendo encerrada; entre novamente para continuar.
           </p>
           {authError && <p role="alert" className="mt-4 text-sm text-rose-300">{authError}</p>}
           <button type="button" onClick={() => void handleSignOut()} className="mt-6 rounded-xl border border-slate-700 px-4 py-2.5 text-sm font-semibold text-slate-300 hover:bg-slate-800">
@@ -188,8 +188,8 @@ export const MasterAdminApp = () => {
           <h2 className="text-lg font-bold text-white">{denied ? "Acesso não autorizado" : "Não foi possível validar o acesso"}</h2>
           <p className="mt-2 text-sm leading-6 text-slate-400">
             {denied
-              ? "O backend não reconheceu esta conta como Master Admin ativo. A role local da interface não concede autorização."
-              : "Não foi possível consultar o serviço administrativo. Nenhum dado de contas foi liberado."}
+              ? "O Firestore não reconheceu esta conta como Master Admin ativo. A role local da interface não concede autorização."
+              : "Não foi possível consultar o Firestore. Nenhum dado de contas foi liberado."}
           </p>
           <p className="mt-4 break-all text-xs text-slate-500">Sessão: {user.email || user.uid}</p>
           {authError && <p role="alert" className="mt-4 text-sm text-rose-300">{authError}</p>}

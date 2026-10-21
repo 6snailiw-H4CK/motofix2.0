@@ -121,7 +121,7 @@ const checks = [
   ['owner identity config cannot be read or written by clients', rules.includes('match /system/{document=**}')
     && rules.includes('allow read, write: if false;')],
   ['client-side user collection listing is disabled', rules.includes('match /users/{userId}') && userRootRules.includes('allow list: if false;')],
-  ['Master Admin has no direct global profile or operational access', userRootRules.includes('allow get: if isOwner(userId);')
+  ['Master Admin can read one profile but cannot enumerate profiles or operational data', userRootRules.includes('allow get: if isOwner(userId) || isActiveMasterAdmin();')
     && userRootRules.includes('allow list: if false;')
     && !rules.includes('function isMasterAdmin()')
     && !operationalRules.includes('master_admin')],
@@ -133,6 +133,12 @@ const checks = [
     && customClaimsFunction.includes('claimsSyncAttempts')
     && customClaimsFunction.includes('claimsSyncError')],
   ['nested user collections are deny-by-default', rules.includes('match /users/{userId}/{document=**}') && rules.includes('allow read, write: if false;')],
+  ['product stock changes require a matching atomic stock operation', rules.includes("'stockMovementId'")
+    && rules.includes('function validStockOperationPair(userId, productId, productData, isCreate)')
+    && rules.includes('stockOperationDataPair(userId, productId, productData, isCreate)')
+    && rules.includes('validOwnerStockMovementCreate(userId, movementId)')
+    && rules.includes('product.stockMovementId == movementId')
+    && rules.includes('function validOwnerProductDataUpdate(userId)')],
   ['physical deletes are denied', !rules.split(/\r?\n/).some(line => line.trim().startsWith('allow delete:') && line.trim() !== 'allow delete: if false;')],
 ];
 

@@ -7,6 +7,7 @@ type UseClientStatusSyncParams = {
   clients: Client[];
   getStatus: (nextDateStr?: string) => MaintenanceStatus;
   user: User | null;
+  enabled: boolean;
 };
 
 const statusSyncIntervalMs = 300000;
@@ -24,11 +25,12 @@ export const useClientStatusSync = ({
   clients,
   getStatus,
   user,
+  enabled,
 }: UseClientStatusSyncParams) => {
   const blockedStatusSyncs = useRef(new Map<string, MaintenanceStatus>());
 
   const syncStatuses = useCallback(async () => {
-    if (!user?.uid) return;
+    if (!enabled || !user?.uid) return;
 
     for (const client of clients) {
       if (!client.nextMaintenanceDate) continue;
@@ -51,10 +53,10 @@ export const useClientStatusSync = ({
         console.error('Erro ao atualizar status do cliente', client.id, error);
       }
     }
-  }, [clients, getStatus, user?.uid]);
+  }, [clients, enabled, getStatus, user?.uid]);
 
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!enabled || !user?.uid) return;
 
     void syncStatuses();
     const interval = window.setInterval(() => {
@@ -62,5 +64,5 @@ export const useClientStatusSync = ({
     }, statusSyncIntervalMs);
 
     return () => window.clearInterval(interval);
-  }, [syncStatuses, user?.uid]);
+  }, [enabled, syncStatuses, user?.uid]);
 };

@@ -881,6 +881,10 @@ export const CashRegisterView = ({
       ? cashLaunches.find((launch) => launch.id === editingLaunchId)
       : undefined;
     const saveResult = await Promise.resolve(onSaveLaunch(buildDraft(statusOverride, invoiced), editingLaunchId || undefined, previousLaunch));
+    if (typeof saveResult === 'object' && saveResult.error) {
+      setSaveNotice(`Falha ao salvar a O.S.: ${saveResult.error}`);
+      return;
+    }
     if (saveResult) {
       const isOfflineSave = typeof saveResult === 'object'
         ? saveResult.savedOffline
@@ -902,6 +906,8 @@ export const CashRegisterView = ({
         await Promise.resolve(onAutoIssueFiscalFromCashLaunch?.(editingLaunchId));
       }
       resetDraft();
+    } else {
+      setSaveNotice('Nao foi possivel salvar a O.S. Confira o aviso e tente novamente.');
     }
   };
 

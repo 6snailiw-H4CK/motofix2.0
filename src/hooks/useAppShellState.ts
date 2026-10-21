@@ -61,6 +61,16 @@ export const useAppShellState = () => {
     }
   }, [colorMode]);
 
+  useEffect(() => {
+    const handleThemeChange = (event: Event) => {
+      const mode = (event as CustomEvent<ColorMode>).detail;
+      if (mode === 'dark' || mode === 'light') setColorMode(mode);
+    };
+
+    window.addEventListener('motofix-theme-change', handleThemeChange);
+    return () => window.removeEventListener('motofix-theme-change', handleThemeChange);
+  }, []);
+
   return {
     clientScheduleReturnView,
     colorMode,

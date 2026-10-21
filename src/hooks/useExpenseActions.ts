@@ -5,6 +5,7 @@ import { toast as sonnerToast } from 'sonner';
 import { parseBrazilianCurrency } from '../lib/money';
 import { expenseRepository } from '../services/expenseRepository';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
+import { getFirestoreSaveResultMessage } from '../services/firestoreSaveStatus';
 import { clearLocalDraft, loadLocalDraft, saveLocalDraft } from '../services/localDrafts';
 import { recordOperationalLog } from '../services/operationalLogRepository';
 
@@ -115,11 +116,7 @@ export const useExpenseActions = ({ user, onAfterSave, workshopName }: UseExpens
       clearLocalDraft(draftKey);
       resetForm();
       onAfterSave?.();
-      sonnerToast.success(
-        typeof navigator !== 'undefined' && navigator.onLine === false
-          ? 'Gasto salvo neste computador. Sincronizacao pendente.'
-          : 'Gasto registrado com sucesso.'
-      );
+      sonnerToast.success(getFirestoreSaveResultMessage('Gasto registrado com sucesso.'));
     } catch (error) {
       sonnerToast.error('Nao foi possivel salvar o gasto.');
       handleFirestoreError(error, OperationType.CREATE, 'expenses');
@@ -133,7 +130,7 @@ export const useExpenseActions = ({ user, onAfterSave, workshopName }: UseExpens
 
     try {
       await expenseRepository.remove(user.uid, expenseId);
-      sonnerToast.success('Gasto movido para a lixeira.', {
+      sonnerToast.success(getFirestoreSaveResultMessage('Gasto movido para a lixeira.'), {
         action: {
           label: 'Desfazer',
           onClick: () => void expenseRepository.restore(user.uid, expenseId),

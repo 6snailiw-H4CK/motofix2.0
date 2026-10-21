@@ -3,6 +3,7 @@ import { useCallback } from 'react';
 import type { User } from 'firebase/auth';
 import { toast as sonnerToast } from 'sonner';
 import { settingsRepository } from '../services/settingsRepository';
+import { getFirestoreSaveResultMessage } from '../services/firestoreSaveStatus';
 import type { Settings } from '../types';
 
 type UseOilTypeActionsParams = {
@@ -33,7 +34,7 @@ export const useOilTypeActions = ({
       const nextOilTypes = [...currentOilTypes, name];
       await settingsRepository.saveConfig(user.uid, { oilTypes: nextOilTypes });
       setSettings((current) => ({ ...current, oilTypes: nextOilTypes }));
-      sonnerToast.success('Tipo de oleo adicionado.');
+      sonnerToast.success(getFirestoreSaveResultMessage('Tipo de óleo adicionado.'));
       return name;
     } catch (error) {
       console.error(error);

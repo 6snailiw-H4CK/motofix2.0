@@ -1,6 +1,7 @@
 import { collection, doc, setDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { createFirestoreReplayDescriptor, queueFirestoreVoidWrite } from './firestoreOfflineQueue';
+import { withFirestoreSyncTimestamp } from './firestoreSyncFields';
 import { createRestoreMetadata, createSoftDeleteMetadata } from './softDelete';
 
 export type AppointmentWriteData = Record<string, unknown>;
@@ -12,19 +13,21 @@ const appointmentReplayPath = (userId: string, appointmentId: string) => ['users
 export const appointmentRepository = {
   async create(userId: string, data: AppointmentWriteData) {
     const docRef = doc(appointmentCollectionPath(userId));
+    const writeData = withFirestoreSyncTimestamp(data);
     await queueFirestoreVoidWrite(
-      () => setDoc(docRef, data),
+      () => setDoc(docRef, writeData),
       'Criar agendamento',
-      createFirestoreReplayDescriptor('set', appointmentReplayPath(userId, docRef.id), data)
+      createFirestoreReplayDescriptor('set', appointmentReplayPath(userId, docRef.id), writeData)
     );
     return docRef.id;
   },
 
   async update(userId: string, appointmentId: string, data: AppointmentWriteData) {
+    const writeData = withFirestoreSyncTimestamp(data);
     await queueFirestoreVoidWrite(
-      () => updateDoc(appointmentDocPath(userId, appointmentId), data),
+      () => updateDoc(appointmentDocPath(userId, appointmentId), writeData),
       'Atualizar agendamento',
-      createFirestoreReplayDescriptor('update', appointmentReplayPath(userId, appointmentId), data)
+      createFirestoreReplayDescriptor('update', appointmentReplayPath(userId, appointmentId), writeData)
     );
   },
 

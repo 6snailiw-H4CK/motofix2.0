@@ -1,11 +1,12 @@
 import { addDays, format, parseISO } from 'date-fns';
 import type { User } from 'firebase/auth';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { toast as sonnerToast } from 'sonner';
 import { canonicalServiceType } from '../lib/serviceTypes';
 import { clientRepository } from '../services/clientRepository';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
 import { maintenanceRepository } from '../services/maintenanceRepository';
+import { getFirestoreSaveResultMessage } from '../services/firestoreSaveStatus';
 import { recordOperationalLog } from '../services/operationalLogRepository';
 import type { Client, MaintenanceRecord, MaintenanceStatus } from '../types';
 
@@ -55,57 +56,78 @@ export const useMaintenanceActions = ({
   workshopName,
 }: UseMaintenanceActionsParams) => {
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const quickMaintenanceLocks = useRef(new Set<string>());
+  const completedQuickMaintenances = useRef(new Map<string, string>());
 
   const addMaintenance = useCallback(async (
     client: Client,
     date: string = format(new Date(), maintenanceDateFormat)
   ) => {
-    if (!user?.uid || processingId === client?.id) return;
+    if (!user?.uid || !client?.id || quickMaintenanceLocks.current.has(client.id)) return;
+
+    const previousCompletionDate = completedQuickMaintenances.current.get(client.id);
+    if (previousCompletionDate !== undefined && client.lastMaintenanceDate === previousCompletionDate) {
+      sonnerToast.error('Este servico ja foi enviado. Aguarde a sincronizacao para evitar um lancamento duplicado.');
+      return;
+    }
+    if (previousCompletionDate !== undefined) completedQuickMaintenances.current.delete(client.id);
 
     if (client?.status === 'OK') {
       sonnerToast.error(`O servico para ${client?.name} ja foi registrado recentemente.`);
       return;
     }
 
-    setProcessingId(client?.id);
+    quickMaintenanceLocks.current.add(client.id);
+    setProcessingId(client.id);
+    const previousDate = client.lastMaintenanceDate || '';
     const nextDate = format(addDays(parseISO(date), client?.recurrenceDays || 30), maintenanceDateFormat);
     const serviceValue = client?.lastServiceValue || client?.oilPrice || 0;
     const serviceType = canonicalServiceType(client?.lastServiceType || defaultServiceType);
 
     try {
-      const maintenanceId = await maintenanceRepository.create(user.uid, {
-        clientId: client.id,
-        clientName: client.name,
-        bikeModel: client.bikeModel,
-        date,
-        oilType: client.oilType,
-        oilPrice: client.oilPrice || 0,
-        serviceType,
-        serviceValue,
-        isRecurringRevenue: client.isRecurringRevenue || false,
-        statusPagamento: 'Pago',
-        valorPago: serviceValue,
-        saldoDevedor: 0,
-        userId: user.uid,
-        notes: quickMaintenanceNotes,
-      });
+      const { maintenanceId } = await clientRepository.saveWithMaintenance(
+        user.uid,
+        {
+          operation: 'update',
+          id: client.id,
+          data: {
+            lastMaintenanceDate: date,
+            nextMaintenanceDate: nextDate,
+            status: getStatus(nextDate),
+            notificacao_enviada: false,
+            notificacaoStatus: 'pendente',
+            lastServiceType: serviceType,
+            lastServiceValue: serviceValue,
+            serviceValue,
+            statusPagamento: 'Pago',
+            valorPago: serviceValue,
+            saldoDevedor: 0,
+            lastServiceNotes: quickMaintenanceNotes,
+          },
+        },
+        {
+          operation: 'create',
+          data: {
+            clientId: client.id,
+            clientName: client.name,
+            bikeModel: client.bikeModel,
+            date,
+            oilType: client.oilType,
+            oilPrice: client.oilPrice || 0,
+            serviceType,
+            serviceValue,
+            isRecurringRevenue: client.isRecurringRevenue || false,
+            statusPagamento: 'Pago',
+            valorPago: serviceValue,
+            saldoDevedor: 0,
+            userId: user.uid,
+            notes: quickMaintenanceNotes,
+          },
+        },
+      );
 
-      await clientRepository.update(user.uid, client.id, {
-        lastMaintenanceDate: date,
-        nextMaintenanceDate: nextDate,
-        status: getStatus(nextDate),
-        notificacao_enviada: false,
-        notificacaoStatus: 'pendente',
-        lastServiceType: serviceType,
-        lastServiceValue: serviceValue,
-        serviceValue,
-        statusPagamento: 'Pago',
-        valorPago: serviceValue,
-        saldoDevedor: 0,
-        lastServiceNotes: quickMaintenanceNotes,
-      });
-
-      sonnerToast.success(`Servico de ${client.name} confirmado com sucesso!`);
+      completedQuickMaintenances.current.set(client.id, previousDate);
+      sonnerToast.success(getFirestoreSaveResultMessage(`Serviço de ${client.name} confirmado com sucesso!`));
       recordOperationalLog({
         userId: user.uid,
         usuario: user.email,
@@ -118,9 +140,10 @@ export const useMaintenanceActions = ({
       handleFirestoreError(error, OperationType.WRITE, 'maintenances/clients');
       sonnerToast.error('Erro ao confirmar servico.');
     } finally {
+      quickMaintenanceLocks.current.delete(client.id);
       setProcessingId(null);
     }
-  }, [defaultServiceType, getStatus, processingId, user, workshopName]);
+  }, [defaultServiceType, getStatus, user, workshopName]);
 
   const deleteMaintenance = useCallback(async (target: string | MaintenanceRecord) => {
     if (!user?.uid) return;
@@ -191,7 +214,7 @@ export const useMaintenanceActions = ({
         }
       }
 
-      sonnerToast.success('Servico removido. Cadastro do cliente preservado.');
+      sonnerToast.success(getFirestoreSaveResultMessage('Serviço removido. Cadastro do cliente preservado.'));
       onDeleted();
     } catch (error) {
       handleFirestoreError(error, OperationType.DELETE, 'maintenances');
@@ -200,6 +223,36 @@ export const useMaintenanceActions = ({
       setProcessingId(null);
     }
   }, [clients, defaultServiceType, getStatus, maintenances, onDeleted, user]);
+
+  const deleteLegacyService = useCallback(async (client: Client) => {
+    if (!user?.uid || !client.id) return;
+
+    try {
+      setProcessingId(`legacy-service:${client.id}`);
+      await clientRepository.update(user.uid, client.id, {
+        lastMaintenanceDate: '',
+        nextMaintenanceDate: '',
+        status: 'OK',
+        notificacao_enviada: false,
+        notificacaoStatus: 'pendente',
+        lastServiceType: '',
+        lastServiceValue: 0,
+        lastServiceNotes: '',
+        serviceValue: 0,
+        statusPagamento: 'Pago',
+        valorPago: 0,
+        saldoDevedor: 0,
+      });
+
+      sonnerToast.success(getFirestoreSaveResultMessage('Registro antigo removido. Cadastro do cliente preservado.'));
+      onDeleted();
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'clients');
+      sonnerToast.error('Erro ao excluir o registro antigo.');
+    } finally {
+      setProcessingId(null);
+    }
+  }, [onDeleted, user]);
 
   const confirmPayment = useCallback(async (
     maintenanceId: string | undefined,
@@ -217,7 +270,7 @@ export const useMaintenanceActions = ({
         valorPago: maintenance.serviceValue || 0,
         saldoDevedor: 0,
       });
-      sonnerToast.success('Pagamento confirmado!');
+      sonnerToast.success(getFirestoreSaveResultMessage('Pagamento confirmado!'));
     } catch (error) {
       console.error('confirmPayment error:', error);
       handleFirestoreError(error, OperationType.UPDATE, 'maintenances');
@@ -247,7 +300,7 @@ export const useMaintenanceActions = ({
         valorPago: newValorPago,
         saldoDevedor: Math.max(0, (maintenance.serviceValue || 0) - newValorPago),
       });
-      sonnerToast.success('Debito quitado com sucesso!');
+      sonnerToast.success(getFirestoreSaveResultMessage('Débito quitado com sucesso!'));
     } catch (error) {
       console.error('settleDebt error:', error);
       handleFirestoreError(error, OperationType.UPDATE, 'maintenances');
@@ -260,6 +313,7 @@ export const useMaintenanceActions = ({
     addMaintenance,
     confirmPayment,
     deleteMaintenance,
+    deleteLegacyService,
     processingId,
     settleDebt,
   };

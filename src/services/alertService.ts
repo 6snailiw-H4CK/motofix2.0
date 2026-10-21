@@ -9,6 +9,7 @@ import { format, parseISO, isValid } from 'date-fns';
 import { Client, MessageLog } from '../types';
 import { ReminderEligibility } from '../utils/reminderEligibility';
 import { createFirestoreReplayDescriptor, queueFirestoreVoidWrite } from './firestoreOfflineQueue';
+import { withFirestoreSyncTimestamp } from './firestoreSyncFields';
 
 export const AlertService = {
   /**
@@ -91,6 +92,7 @@ export const AlertService = {
         trigger: 'manual',
         message: message,
         createdAt: now,
+        updatedAt: now,
         userId: userId
       };
 
@@ -122,7 +124,7 @@ export const AlertService = {
     const dateOnly = timestamp.split('T')[0]; // YYYY-MM-DD
     const currentAttempts = client.automation?.sendAttempts || 0;
 
-    const updateData = {
+    const updateData = withFirestoreSyncTimestamp({
       lastAlertDate: dateOnly, // Legado
       notificacao_enviada: true,
       notificacaoStatus: 'concluido',
@@ -135,7 +137,7 @@ export const AlertService = {
         sendAttempts: currentAttempts + 1,
         lastError: null // Limpa erro anterior em caso de sucesso na abertura
       }
-    };
+    }, timestamp);
 
     await queueFirestoreVoidWrite(
       () => updateDoc(doc(db, 'users', client.userId, 'clients', client.id), updateData),

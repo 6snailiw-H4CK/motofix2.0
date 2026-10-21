@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import {
   AlertTriangle,
   Bike,
+  CalendarDays,
   CheckCircle,
   CheckCircle2,
   DollarSign,
@@ -12,6 +13,7 @@ import {
   Search,
   Trash2,
   UserPlus,
+  Wallet,
   Wrench,
 } from 'lucide-react';
 import { cn, safeFormat } from '../../lib/utils';
@@ -23,6 +25,7 @@ type ClientServiceTab = 'all' | 'recorrentes' | 'eventuais';
 type ClientsViewProps = {
   clients: Client[];
   maintenances: MaintenanceRecord[];
+  recurringMonthlySummary: { expected: number; received: number };
   clientBalanceMap: Map<string, number>;
   searchQuery: string;
   serviceListFilter: ServiceListFilter;
@@ -39,6 +42,7 @@ type ClientsViewProps = {
   onSendWhatsApp: (client: Client) => void;
   onEditClient: (client: Client) => void;
   onDeleteMaintenanceClick: (maintenance: MaintenanceRecord) => void;
+  onDeleteLegacyServiceClick: (client: Client) => void;
 };
 
 const serviceFilterOptions: ServiceListFilter[] = ['all', 'recorrentes', 'eventuais'];
@@ -73,6 +77,7 @@ const matchesServiceFilter = (record: MaintenanceRecord, filter: ServiceListFilt
 export const ClientsView = ({
   clients,
   maintenances,
+  recurringMonthlySummary,
   clientBalanceMap,
   searchQuery,
   serviceListFilter,
@@ -89,6 +94,7 @@ export const ClientsView = ({
   onSendWhatsApp,
   onEditClient,
   onDeleteMaintenanceClick,
+  onDeleteLegacyServiceClick,
 }: ClientsViewProps) => {
   const [expandedClientId, setExpandedClientId] = useState<string | null>(null);
   const [clientServiceTab, setClientServiceTab] = useState<Record<string, ClientServiceTab>>({});
@@ -161,6 +167,33 @@ export const ClientsView = ({
         </div>
       </section>
 
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2" aria-label="Resumo mensal da recorrência">
+        <article className="rounded-2xl border border-sky-400/20 bg-gradient-to-br from-sky-950/50 to-[#0d1626] p-4 shadow-lg shadow-black/10">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-sky-200/75">Previsto neste mês</p>
+              <p className="mt-2 text-2xl font-black text-white">{formatCurrency(recurringMonthlySummary.expected)}</p>
+            </div>
+            <span className="grid h-10 w-10 place-items-center rounded-xl border border-sky-300/20 bg-sky-400/10 text-sky-300">
+              <CalendarDays className="h-5 w-5" />
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-slate-400">Soma dos serviços recorrentes com retorno previsto para este mês.</p>
+        </article>
+        <article className="rounded-2xl border border-emerald-400/20 bg-gradient-to-br from-emerald-950/45 to-[#0d1626] p-4 shadow-lg shadow-black/10">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-emerald-200/75">Recebido de recorrência</p>
+              <p className="mt-2 text-2xl font-black text-white">{formatCurrency(recurringMonthlySummary.received)}</p>
+            </div>
+            <span className="grid h-10 w-10 place-items-center rounded-xl border border-emerald-300/20 bg-emerald-400/10 text-emerald-300">
+              <Wallet className="h-5 w-5" />
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-slate-400">Pagamentos registrados neste mês ao concluir serviços recorrentes.</p>
+        </article>
+      </section>
+
       {overdueClientsCount > 0 && (
         <div className="flex items-center gap-3 rounded-xl border border-red-400/25 bg-gradient-to-r from-red-950/35 to-slate-950/50 px-4 py-3 shadow-lg shadow-red-950/10">
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-red-400/20 bg-red-500/10 text-red-400">
@@ -184,6 +217,16 @@ export const ClientsView = ({
           {clients.map((client) => {
             const allClientServices = maintenancesByClient.get(client.id) || [];
             const latestMaintenance = allClientServices[0];
+            const hasLegacyService = allClientServices.length === 0 && Boolean(
+              client.lastServiceType
+              || client.lastServiceValue
+              || client.lastServiceNotes
+              || client.lastMaintenanceDate
+              || client.serviceValue
+              || client.valorPago
+              || client.saldoDevedor
+            );
+            const legacyServiceDeleteId = `legacy-service:${client.id}`;
             const latestVisibleMaintenance = latestMaintenance;
             const legacyTotal = latestMaintenance?.serviceValue ?? client.lastServiceValue ?? 0;
             const valorTotal = allClientServices.length > 0
@@ -199,13 +242,22 @@ export const ClientsView = ({
             const balance = clientBalanceMap.get(client.id) || 0;
             const isProcessing = processingId === client.id;
             const isDeletingLatestMaintenance = latestMaintenance ? processingId === latestMaintenance.id : false;
-            const isConfirmingDelete = latestMaintenance ? deleteConfirmId === latestMaintenance.id : false;
+            const isDeletingLegacyService = hasLegacyService && processingId === legacyServiceDeleteId;
+            const isDeletingService = isDeletingLatestMaintenance || isDeletingLegacyService;
+            const isConfirmingDelete = latestMaintenance
+              ? deleteConfirmId === latestMaintenance.id
+              : hasLegacyService && deleteConfirmId === legacyServiceDeleteId;
             const isExpanded = expandedClientId === client.id;
-            const servicesCount = allClientServices.length || (client.lastServiceType ? 1 : 0);
+            const servicesCount = allClientServices.length || (hasLegacyService ? 1 : 0);
             const activeClientServiceTab = clientServiceTab[client.id] || 'all';
             const listedServices = activeClientServiceTab === 'all'
               ? allClientServices
               : allClientServices.filter((maintenance) => matchesServiceFilter(maintenance, activeClientServiceTab));
+            const showLegacyService = hasLegacyService && (
+              activeClientServiceTab === 'all'
+              || (activeClientServiceTab === 'recorrentes' && Boolean(client.isRecurringRevenue))
+              || (activeClientServiceTab === 'eventuais' && !client.isRecurringRevenue)
+            );
             const isOverdue = client.status === 'OVERDUE';
             const isWarning = client.status === 'WARNING';
             const hasPriority = isOverdue || balance > 0;
@@ -324,27 +376,30 @@ export const ClientsView = ({
                     >
                       <Edit2 className="h-4 w-4" />
                     </button>
-                    {latestMaintenance && (
+                    {(latestMaintenance || hasLegacyService) && (
                       <button
                         type="button"
-                        onClick={() => onDeleteMaintenanceClick(latestMaintenance)}
-                        disabled={isDeletingLatestMaintenance}
+                        onClick={() => {
+                          if (latestMaintenance) onDeleteMaintenanceClick(latestMaintenance);
+                          else onDeleteLegacyServiceClick(client);
+                        }}
+                        disabled={isDeletingService}
                         className={cn(
                           'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[10px] font-bold uppercase transition-colors disabled:opacity-50 sm:px-3',
                           isConfirmingDelete
                             ? 'animate-pulse bg-red-500 text-white'
                             : 'border border-red-400/20 bg-red-500/10 text-red-300 hover:border-red-400/40 hover:bg-red-500/20'
                         )}
-                        title={isConfirmingDelete ? 'Confirmar exclusão do último serviço' : 'Apagar último serviço'}
+                        title={isConfirmingDelete ? 'Confirmar exclusão do serviço' : 'Apagar serviço'}
                       >
-                        {isDeletingLatestMaintenance ? (
+                        {isDeletingService ? (
                           <RefreshCw className="h-4 w-4 animate-spin" />
                         ) : isConfirmingDelete ? (
                           <CheckCircle className="h-4 w-4" />
                         ) : (
                           <Trash2 className="h-4 w-4" />
                         )}
-                        <span>{isConfirmingDelete ? 'Confirmar' : 'Apagar'}</span>
+                        <span>{isDeletingService ? 'Excluindo...' : isConfirmingDelete ? 'Confirmar' : 'Apagar'}</span>
                       </button>
                     )}
                   </div>
@@ -415,7 +470,7 @@ export const ClientsView = ({
                       <div>
                         <p className="text-[9px] uppercase font-bold text-slate-500 tracking-widest">Servicos deste cliente</p>
                         <p className="text-[9px] text-slate-500">
-                          {listedServices.length} de {allClientServices.length} registro(s)
+                          {listedServices.length + (showLegacyService ? 1 : 0)} de {allClientServices.length + (hasLegacyService ? 1 : 0)} registro(s)
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -437,10 +492,50 @@ export const ClientsView = ({
                       </div>
                     </div>
 
-                    {listedServices.length === 0 ? (
+                    {listedServices.length === 0 && !showLegacyService ? (
                       <div className="p-3 text-[10px] text-slate-500">Nenhum servico no historico para este filtro.</div>
                     ) : (
                       <div className="divide-y divide-slate-700/30">
+                        {showLegacyService && (
+                          <div className="flex items-center justify-between gap-3 p-3">
+                            <div className="min-w-0 flex items-center gap-3">
+                              <div className="rounded-lg bg-slate-700/50 p-2 text-slate-400">
+                                <Wrench className="h-4 w-4" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="truncate text-xs font-bold">{client.lastServiceType || 'Servico anterior'}</p>
+                                  <span className="rounded bg-slate-700/50 px-1 text-[7px] font-bold uppercase text-slate-300">Registro antigo</span>
+                                </div>
+                                <p className="truncate text-[9px] text-slate-500">
+                                  {safeFormat(client.lastMaintenanceDate, 'dd/MM/yyyy')} - {client.lastServiceNotes || 'Salvo no cadastro do cliente'}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                              <div className="text-right">
+                                <p className="text-[10px] font-bold text-white">{formatCurrency(client.lastServiceValue ?? client.serviceValue ?? 0)}</p>
+                                <p className="text-[8px] font-bold text-slate-400">{client.statusPagamento || 'Pago'}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => onDeleteLegacyServiceClick(client)}
+                                disabled={isDeletingLegacyService}
+                                aria-label={isConfirmingDelete ? 'Confirmar exclusao do registro antigo' : 'Excluir registro antigo'}
+                                className={cn(
+                                  'inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-[10px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                                  isConfirmingDelete
+                                    ? 'animate-pulse bg-red-500 text-white'
+                                    : 'border border-red-400/20 bg-red-500/10 text-red-300 hover:border-red-400/40 hover:bg-red-500/20'
+                                )}
+                                title={isConfirmingDelete ? 'Clique novamente para confirmar' : 'Excluir este registro antigo'}
+                              >
+                                {isDeletingLegacyService ? <RefreshCw className="h-4 w-4 animate-spin" /> : isConfirmingDelete ? <CheckCircle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
+                                <span>{isDeletingLegacyService ? 'Excluindo...' : isConfirmingDelete ? 'Confirmar exclusao' : 'Excluir registro'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
                         {listedServices.map((record) => {
                           const debt = getDebtValue(record);
                           const paymentStatus = record.statusPagamento || 'Pago';
@@ -503,13 +598,17 @@ export const ClientsView = ({
                                   type="button"
                                   onClick={() => onDeleteMaintenanceClick(record)}
                                   disabled={isRowProcessing}
+                                  aria-label={isConfirmingRowDelete ? `Confirmar exclusao do registro de ${record.serviceType || 'servico'}` : `Excluir registro de ${record.serviceType || 'servico'}`}
                                   className={cn(
-                                    'p-2 rounded-lg transition-colors disabled:opacity-50',
-                                    isConfirmingRowDelete ? 'bg-red-500 text-white animate-pulse' : 'bg-red-500/10 text-red-500 hover:bg-red-500/20'
+                                    'inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-[10px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                                    isConfirmingRowDelete
+                                      ? 'bg-red-500 text-white animate-pulse'
+                                      : 'border border-red-400/20 bg-red-500/10 text-red-300 hover:border-red-400/40 hover:bg-red-500/20'
                                   )}
-                                  title="Excluir este lancamento"
+                                  title={isConfirmingRowDelete ? 'Clique novamente para confirmar' : 'Excluir este registro'}
                                 >
-                                  {isConfirmingRowDelete ? <CheckCircle className="w-4 h-4" /> : <Trash2 className="w-4 h-4" />}
+                                  {isRowProcessing ? <RefreshCw className="h-4 w-4 animate-spin" /> : isConfirmingRowDelete ? <CheckCircle className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
+                                  <span>{isRowProcessing ? 'Excluindo...' : isConfirmingRowDelete ? 'Confirmar exclusão' : 'Excluir registro'}</span>
                                 </button>
                               </div>
                             </div>

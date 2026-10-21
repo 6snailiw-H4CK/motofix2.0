@@ -9,7 +9,6 @@ import {
   Package,
   ReceiptText,
   Settings as SettingsIcon,
-  Shield,
   ShieldCheck,
   Users,
 } from 'lucide-react';
@@ -96,7 +95,6 @@ export const BottomNav = ({ view, fiscalModuleAvailable, isAdmin, isMasterAdmin,
         ...(fiscalModuleAvailable ? [{ id: 'fiscal' as AppView, icon: FileText, label: 'Fiscal', match: ['fiscal' as AppView], shortLabel: 'Fiscal' }] : []),
         ...(isAdmin ? [{ id: 'general-report' as AppView, icon: FileText, label: 'Relatorios', match: ['general-report' as AppView, 'financial-health' as AppView], shortLabel: 'Relatorios' }] : []),
         ...(isMasterAdmin ? [{ id: 'master-admin' as AppView, icon: ShieldCheck, label: 'Master Admin', match: ['master-admin' as AppView], shortLabel: 'Master Admin' }] : []),
-        ...(isMasterAdmin ? [{ id: 'admin' as AppView, icon: Shield, label: 'Admin', match: ['admin' as AppView], shortLabel: 'Admin' }] : []),
       ],
     },
   ];
