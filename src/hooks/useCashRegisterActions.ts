@@ -11,7 +11,7 @@ import { parseProductsWorkbook } from '../services/productSpreadsheet';
 import { productRepository } from '../services/productRepository';
 import type { CashRegisterLaunch } from '../types';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
-import { recordOperationalLog } from '../services/operationalLogRepository';
+import { getOperationalChangedFields, recordOperationalLog } from '../services/operationalLogRepository';
 import { getFirestoreSaveResultMessage } from '../services/firestoreSaveStatus';
 import { isQuotaError } from '../lib/firebaseRetry';
 import { clearLocalDraft, loadLocalDraft } from '../services/localDrafts';
@@ -84,23 +84,39 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
             updatedAt: now,
           });
 
-      if (!launchId && result.id && !result.savedOffline) {
+      if (result.id) {
+        const previousData = previousLaunch as unknown as Record<string, unknown> | undefined;
+        const nextData = launchData as unknown as Record<string, unknown>;
+        const statusChanged = Boolean(previousLaunch && previousLaunch.status !== draft.status);
+        const action = !launchId
+          ? 'os_criada'
+          : statusChanged && draft.status === 'Finalizado'
+            ? 'os_finalizada'
+            : statusChanged && draft.status === 'Cancelado'
+              ? 'os_cancelada'
+              : statusChanged
+                ? 'os_status_alterado'
+                : 'os_atualizada';
         recordOperationalLog({
           userId: user.uid,
           usuario: user.email,
           oficina: workshopName,
-          acao: 'os_criada',
+          acao: action,
           targetId: result.id,
-          details: { orderNumber: result.id, clientName: draft.clientName, total: draft.total },
+          details: {
+            module: 'Ordem de Serviço',
+            fields: getOperationalChangedFields(previousData, nextData),
+            stockAffected: draft.status === 'Finalizado' || previousLaunch?.stockDeducted === true,
+          },
         });
-        if (Number(draft.total) > 0) {
+        if (paidAmount > previousPaidAmount) {
           recordOperationalLog({
             userId: user.uid,
             usuario: user.email,
             oficina: workshopName,
             acao: 'receita_criada',
             targetId: result.id,
-            details: { source: 'cash_launch', orderNumber: result.id, total: draft.total },
+            details: { module: 'Caixa', source: 'Ordem de Serviço', fields: ['valor recebido', 'forma de pagamento'] },
           });
         }
       }
@@ -181,6 +197,14 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
     setDeletingLaunchId(launchId);
     try {
       await cashRegisterRepository.delete(user.uid, launchId, undefined, previousLaunch);
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName,
+        acao: 'os_removida',
+        targetId: launchId,
+        details: { module: 'Ordem de Serviço', stockAffected: previousLaunch?.stockDeducted === true },
+      });
       const cashRegisterDraftKey = `${user.uid}:cash-register`;
       const cashRegisterDraft = loadLocalDraft<{ editingLaunchId?: string | null }>(cashRegisterDraftKey);
       if (cashRegisterDraft?.data.editingLaunchId === launchId) {
@@ -191,7 +215,17 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
           label: 'Desfazer',
           onClick: () => {
             void cashRegisterRepository.restore(user.uid, launchId)
-              .then(() => sonnerToast.success(getFirestoreSaveResultMessage('O.S. restaurada.')))
+              .then(() => {
+                recordOperationalLog({
+                  userId: user.uid,
+                  usuario: user.email,
+                  oficina: workshopName,
+                  acao: 'os_restaurada',
+                  targetId: launchId,
+                  details: { module: 'Ordem de Serviço' },
+                });
+                sonnerToast.success(getFirestoreSaveResultMessage('O.S. restaurada.'));
+              })
               .catch((error) => sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel restaurar a O.S.'));
           },
         },
@@ -207,7 +241,30 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
     } finally {
       setDeletingLaunchId(null);
     }
-  }, [user]);
+  }, [user, workshopName]);
+
+  const settleCardReceipt = useCallback(async (launch: CashRegisterLaunch, paymentEntryId: string, date: string) => {
+    if (!user) return false;
+    try {
+      const settledAt = new Date(`${date}T12:00:00`).toISOString();
+      const updated = await cashRegisterRepository.recordCardSettlement(user.uid, launch, paymentEntryId, settledAt);
+      if (!updated) return false;
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName,
+        acao: 'pagamento_confirmado',
+        targetId: launch.id,
+        details: { module: 'Caixa', fields: ['repasse de cartão'] },
+      });
+      sonnerToast.success(getFirestoreSaveResultMessage('Repasse da operadora registrado no caixa.'));
+      return true;
+    } catch (error) {
+      sonnerToast.error('Não foi possível registrar o repasse da operadora.');
+      handleFirestoreError(error, OperationType.UPDATE, `cash_launches/${launch.id}`);
+      return false;
+    }
+  }, [user, workshopName]);
 
   return {
     deleteLaunch,
@@ -216,5 +273,6 @@ export const useCashRegisterActions = ({ user, workshopName }: UseCashRegisterAc
     isImportingProducts,
     isSavingLaunch,
     saveLaunch,
+    settleCardReceipt,
   };
 };

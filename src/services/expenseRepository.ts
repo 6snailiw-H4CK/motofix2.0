@@ -22,6 +22,15 @@ export const expenseRepository = {
     return docRef.id;
   },
 
+  async recordSettlement(userId: string, expenseId: string, settlementEntries: unknown[]) {
+    const patch = withFirestoreSyncTimestamp({ accountingVersion: 1, settlementEntries });
+    await queueFirestoreVoidWrite(
+      () => updateDoc(expenseDocPath(userId, expenseId), patch),
+      'Registrar pagamento de conta',
+      createFirestoreReplayDescriptor('update', expenseReplayPath(userId, expenseId), patch)
+    );
+  },
+
   async remove(userId: string, expenseId: string, reason?: string) {
     const metadata = createSoftDeleteMetadata(userId, reason);
     await queueFirestoreVoidWrite(

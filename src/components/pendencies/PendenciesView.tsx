@@ -1,7 +1,7 @@
 import { ArrowLeft, CheckCircle2, DollarSign, ReceiptText, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { cn, safeFormat } from '../../lib/utils';
-import { getCashPaymentStatus, getCashReceivableAmount } from '../../lib/cashPayments';
+import { getCashPaymentStatus, getCashReceivableAmount, getMaintenanceReceivableAmount } from '../../lib/cashPayments';
 import type { CashRegisterLaunch, MaintenanceRecord } from '../../types';
 
 type PendenciesViewProps = {
@@ -14,14 +14,6 @@ type PendenciesViewProps = {
 };
 
 const normalizeStatus = (status?: string) => String(status || 'Pago').trim();
-
-const getDebt = (maintenance: MaintenanceRecord) => {
-  const stored = Number(maintenance.saldoDevedor);
-  if (Number.isFinite(stored) && stored > 0) return stored;
-  const total = Number(maintenance.serviceValue) || 0;
-  const paid = Number(maintenance.valorPago) || 0;
-  return Math.max(0, total - paid);
-};
 
 const currency = (value: number) =>
   value.toLocaleString('pt-BR', {
@@ -40,7 +32,7 @@ export const PendenciesView = ({
   const [query, setQuery] = useState('');
   const pendingRows = useMemo(() => (
     maintenances
-      .map((maintenance) => ({ maintenance, debt: getDebt(maintenance), status: normalizeStatus(maintenance.statusPagamento) }))
+      .map((maintenance) => ({ maintenance, debt: getMaintenanceReceivableAmount(maintenance), status: normalizeStatus(maintenance.statusPagamento) }))
       .filter(({ debt, status }) => debt > 0 && status.toLowerCase() !== 'pago')
       .sort((a, b) => {
         if (b.debt !== a.debt) return b.debt - a.debt;
@@ -58,10 +50,17 @@ export const PendenciesView = ({
         return new Date(a.launch.openingDate || a.launch.createdAt).getTime() - new Date(b.launch.openingDate || b.launch.createdAt).getTime();
       })
   ), [cashLaunches]);
+  const pendingOrders = useMemo(() => (
+    cashLaunches
+      .filter((launch) => launch.status === 'Pendente')
+      .sort((a, b) => new Date(a.openingDate || a.createdAt).getTime() - new Date(b.openingDate || b.createdAt).getTime())
+  ), [cashLaunches]);
+  const pendingOrdersTotal = pendingOrders.reduce((sum, launch) => sum + (Number(launch.total) || 0), 0);
   const combinedRows = useMemo(() => [
     ...pendingRows.map((row) => ({
       id: row.maintenance.id,
       type: 'maintenance' as const,
+      clientId: row.maintenance.clientId,
       clientName: row.maintenance.clientName || 'Cliente sem nome',
       bikeModel: row.maintenance.bikeModel || 'Moto nao informada',
       label: row.maintenance.serviceType || 'Servico',
@@ -73,6 +72,7 @@ export const PendenciesView = ({
     ...pendingCashRows.map((row) => ({
       id: row.launch.id,
       type: 'cash' as const,
+      clientId: row.launch.clientId,
       clientName: row.launch.clientName || 'Cliente sem nome',
       bikeModel: row.launch.bikeModel || 'Moto nao informada',
       label: row.launch.orderNumber || 'Lancamento caixa',
@@ -96,7 +96,31 @@ export const PendenciesView = ({
     ))
     : combinedRows;
 
-  const totalDue = combinedRows.reduce((sum, row) => sum + row.debt, 0);
+  const totalDue = combinedRows.reduce((sum, row) => sum + row.debt, 0) + pendingOrdersTotal;
+  const clientIdsByName = new Map<string, string>();
+  [...combinedRows, ...pendingOrders.map((launch) => ({
+    clientId: launch.clientId,
+    clientName: launch.clientName || 'Cliente sem nome',
+    id: launch.id,
+    type: 'cash' as const,
+  }))].forEach((row) => {
+    if (row.clientId) {
+      const normalizedName = row.clientName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase('pt-BR');
+      if (normalizedName) clientIdsByName.set(normalizedName, row.clientId);
+    }
+  });
+  const pendingClientKeys = new Set([...combinedRows, ...pendingOrders.map((launch) => ({
+    clientId: launch.clientId,
+    clientName: launch.clientName || 'Cliente sem nome',
+    id: launch.id,
+    type: 'cash' as const,
+  }))].map((row) => {
+    const normalizedName = row.clientName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase('pt-BR');
+    const clientId = row.clientId || clientIdsByName.get(normalizedName);
+    if (clientId) return `client:${clientId}`;
+    if (normalizedName && normalizedName !== 'consumidor final') return `name:${normalizedName}`;
+    return `record:${row.type}:${row.id}`;
+  }));
   const partialCount = pendingRows.filter(({ status }) => status.toLowerCase() === 'parcial').length
     + pendingCashRows.filter(({ launch }) => getCashPaymentStatus(launch) === 'Parcial').length;
 
@@ -114,7 +138,7 @@ export const PendenciesView = ({
           <div className="min-w-0">
             <p className="text-[10px] font-black uppercase tracking-[0.22em] text-orange-400">Cobranca rapida</p>
             <h2 className="mt-0.5 text-2xl font-black tracking-tight text-white">Pendencias</h2>
-            <p className="mt-0.5 text-xs text-slate-400 sm:text-sm">Clientes com valores em aberto. Utilize esta area para registrar pagamentos.</p>
+          <p className="mt-0.5 text-xs text-slate-400 sm:text-sm">O.S. aguardando conclusao e cobrancas de servicos ja finalizados.</p>
           </div>
       </div>
 
@@ -126,6 +150,9 @@ export const PendenciesView = ({
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">A receber</p>
             <p className="mt-0.5 truncate text-xl font-black text-white">R$ {currency(totalDue)}</p>
+            {pendingOrdersTotal > 0 && (
+              <p className="mt-1 text-[10px] text-slate-400">Inclui R$ {currency(pendingOrdersTotal)} em O.S. aguardando conclusao.</p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-3 rounded-xl border border-slate-700/80 bg-gradient-to-r from-slate-800/50 to-slate-900/60 p-3.5 shadow-lg shadow-black/10 sm:p-4">
@@ -134,7 +161,8 @@ export const PendenciesView = ({
           </span>
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Clientes</p>
-            <p className="mt-1 text-2xl font-black leading-none text-white">{combinedRows.length}</p>
+            <p className="mt-1 text-2xl font-black leading-none text-white">{pendingClientKeys.size}</p>
+            <p className="mt-1 text-[10px] text-slate-400">Clientes unicos com cobrancas ou O.S. pendentes.</p>
           </div>
         </div>
         <div className="flex items-center gap-3 rounded-xl border border-orange-500/25 bg-gradient-to-r from-orange-500/[0.06] to-slate-900/60 p-3.5 shadow-lg shadow-black/10 sm:p-4">
@@ -148,6 +176,56 @@ export const PendenciesView = ({
           </div>
         </div>
       </div>
+
+      {pendingOrders.length > 0 && (
+        <section className="space-y-3 rounded-2xl border border-amber-500/25 bg-amber-500/[0.04] p-3 sm:p-4">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-amber-300">Aguardando conclusao</p>
+              <h3 className="mt-1 text-base font-black text-white">Ordens de servico pendentes</h3>
+              <p className="mt-1 text-xs text-slate-400">Esses valores sao orcamentos em aberto; nao sao faturamento nem cobranca ate a O.S. ser finalizada.</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs font-bold text-slate-300">{pendingOrders.length} O.S.</p>
+              <p className="text-sm font-black text-amber-200">Orcamentos: R$ {currency(pendingOrdersTotal)}</p>
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/30">
+            <table className="w-full min-w-[680px] text-left">
+              <thead className="border-b border-slate-800 bg-slate-800/45 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                <tr>
+                  <th className="px-4 py-3">Cliente</th>
+                  <th className="px-4 py-3">O.S. aberta em</th>
+                  <th className="px-4 py-3 text-right">Valor do orcamento</th>
+                  <th className="px-4 py-3 text-right">Acao</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/90">
+                {pendingOrders.map((launch) => (
+                  <tr key={launch.id} className="transition-colors hover:bg-slate-800/25">
+                    <td className="max-w-[360px] px-4 py-3">
+                      <p className="truncate text-sm font-black text-slate-100">{launch.clientName || 'Cliente sem nome'}</p>
+                      <p className="mt-0.5 truncate text-[11px] text-slate-400">{launch.bikeModel || 'Moto nao informada'} · {launch.orderNumber || 'Ordem de servico'}</p>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-xs font-bold text-slate-200">{safeFormat(launch.openingDate || launch.createdAt) || '-'}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-black text-amber-200">R$ {currency(Number(launch.total) || 0)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => onOpenCashLaunch(launch)}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-sky-500 px-3.5 py-2 text-xs font-bold text-white shadow-sm shadow-sky-950/30 transition hover:bg-sky-400"
+                      >
+                        <ReceiptText className="h-4 w-4" />
+                        Abrir O.S.
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <div className="rounded-xl border border-slate-700/80 bg-slate-900/45 p-2 shadow-lg shadow-black/10">
         <div className="relative">

@@ -6,7 +6,7 @@ import {
   subscribeFirestoreOfflineQueue,
   type FirestoreOfflineQueueState
 } from '../services/firestoreOfflineQueue';
-import { getLocalDraftCount, subscribeLocalDrafts } from '../services/localDrafts';
+import { getLocalDraftSummaries, subscribeLocalDrafts, type LocalDraftSummary } from '../services/localDrafts';
 import {
   getFirestoreNetworkState,
   subscribeFirestoreNetworkState,
@@ -19,7 +19,7 @@ export type OfflineSyncStatus = {
   pendingWrites: number;
   failedWrites: number;
   confirmedWrites: number;
-  localDraftCount: number;
+  localDrafts: LocalDraftSummary[];
   lastQueuedAt: string | null;
   lastSyncedAt: string | null;
   lastError: string | null;
@@ -34,10 +34,10 @@ const getIsOnline = () => (
   typeof navigator === 'undefined' ? true : navigator.onLine
 );
 
-export const useOfflineSyncStatus = (): OfflineSyncStatus => {
+export const useOfflineSyncStatus = (userId?: string | null): OfflineSyncStatus => {
   const [isOnline, setIsOnline] = useState(getIsOnline);
   const [queueState, setQueueState] = useState<FirestoreOfflineQueueState>(getFirestoreOfflineQueueState);
-  const [localDraftCount, setLocalDraftCount] = useState(getLocalDraftCount);
+  const [localDrafts, setLocalDrafts] = useState<LocalDraftSummary[]>(() => getLocalDraftSummaries(userId));
   const [networkState, setNetworkState] = useState<FirestoreNetworkState>(getFirestoreNetworkState);
   const lastPendingCount = useRef(queueState.pendingWrites);
   const lastPendingNoticeAt = useRef(0);
@@ -71,7 +71,7 @@ export const useOfflineSyncStatus = (): OfflineSyncStatus => {
     lastPendingCount.current = queueState.pendingWrites;
   }, [queueState.pendingWrites]);
 
-  useEffect(() => subscribeLocalDrafts(setLocalDraftCount), []);
+  useEffect(() => subscribeLocalDrafts(setLocalDrafts, userId), [userId]);
 
   useEffect(() => subscribeFirestoreNetworkState(setNetworkState), []);
 
@@ -92,7 +92,7 @@ export const useOfflineSyncStatus = (): OfflineSyncStatus => {
     pendingWrites: queueState.pendingWrites,
     failedWrites: queueState.failedWrites,
     confirmedWrites: queueState.confirmedWrites,
-    localDraftCount,
+    localDrafts,
     lastQueuedAt: queueState.lastQueuedAt,
     lastSyncedAt: queueState.lastSettledAt || networkState.lastSyncAt,
     lastError: queueState.lastError,

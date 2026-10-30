@@ -271,7 +271,7 @@ test("designated owner with a permanent profile entitlement can use own data wit
   }));
 });
 
-test("another active Master Admin cannot use permanent owner entitlement fields as an access grant", async () => {
+test("another active Master Admin can use only own operational data without permanent owner entitlement", async () => {
   const otherMasterUid = "different-master-admin";
   await seed([
     ["users", otherMasterUid, profile(otherMasterUid, {
@@ -280,12 +280,18 @@ test("another active Master Admin cannot use permanent owner entitlement fields 
       ownerAccess: { enabled: true, permanent: true },
     })],
     [`users/${otherMasterUid}/clients`, "private-client", { name: "private data" }],
+    [`users/${permanentOwnerUid}/clients`, "owner-private-client", { name: "owner data" }],
   ]);
   const otherMasterDb = testEnv.authenticatedContext(otherMasterUid, {
     master_admin: true,
   }).firestore();
 
-  await expectPermissionDenied(getDoc(doc(otherMasterDb, "users", otherMasterUid, "clients", "private-client")));
+  const ownClient = await getDoc(doc(otherMasterDb, "users", otherMasterUid, "clients", "private-client"));
+  assert.equal(ownClient.exists(), true);
+  await expectPermissionDenied(getDoc(doc(otherMasterDb, "users", permanentOwnerUid, "clients", "owner-private-client")));
+  await expectPermissionDenied(updateDoc(doc(otherMasterDb, "users", otherMasterUid), {
+    role: "user",
+  }));
 });
 
 test("Master Admin can list requests and read one profile but cannot list user profiles", async () => {

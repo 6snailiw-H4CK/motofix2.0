@@ -8,6 +8,11 @@ import { handleFirestoreError, OperationType } from '../services/firestoreError'
 import { getFirestoreSaveResultMessage } from '../services/firestoreSaveStatus';
 import { clearLocalDraft, loadLocalDraft, saveLocalDraft } from '../services/localDrafts';
 import { recordOperationalLog } from '../services/operationalLogRepository';
+import type { CashPaymentMethod, ExpenseRecord } from '../types';
+
+const makeExpenseId = () => typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+  ? crypto.randomUUID()
+  : `expense-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 type UseExpenseActionsParams = {
   user: User | null;
@@ -19,9 +24,10 @@ export const useExpenseActions = ({ user, onAfterSave, workshopName }: UseExpens
   const [description, setDescription] = useState('');
   const [supplier, setSupplier] = useState('');
   const [amount, setAmount] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('Cartao de Credito');
+  const [paymentMethod, setPaymentMethod] = useState('Credito');
   const [date, setDate] = useState<string>(format(new Date(), 'yyyy-MM-dd'));
   const [note, setNote] = useState('');
+  const [dueDate, setDueDate] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isDraftHydrated, setIsDraftHydrated] = useState(false);
   const draftKey = user?.uid ? `${user.uid}:expense-form` : '';
@@ -30,9 +36,10 @@ export const useExpenseActions = ({ user, onAfterSave, workshopName }: UseExpens
     setDescription('');
     setSupplier('');
     setAmount('');
-    setPaymentMethod('Cartao de Credito');
+    setPaymentMethod('Credito');
     setDate(format(new Date(), 'yyyy-MM-dd'));
     setNote('');
+    setDueDate('');
     if (draftKey) clearLocalDraft(draftKey);
   }, [draftKey]);
 
@@ -49,15 +56,17 @@ export const useExpenseActions = ({ user, onAfterSave, workshopName }: UseExpens
       paymentMethod: string;
       date: string;
       note: string;
+      dueDate?: string;
     }>(draftKey);
 
     if (draft?.data) {
       setDescription(draft.data.description || '');
       setSupplier(draft.data.supplier || '');
       setAmount(draft.data.amount || '');
-      setPaymentMethod(draft.data.paymentMethod || 'Cartao de Credito');
+      setPaymentMethod(draft.data.paymentMethod || 'Credito');
       setDate(draft.data.date || format(new Date(), 'yyyy-MM-dd'));
       setNote(draft.data.note || '');
+      setDueDate(draft.data.dueDate || '');
     }
 
     setIsDraftHydrated(true);
@@ -79,8 +88,9 @@ export const useExpenseActions = ({ user, onAfterSave, workshopName }: UseExpens
       paymentMethod,
       date,
       note,
+      dueDate,
     });
-  }, [amount, date, description, draftKey, isDraftHydrated, note, paymentMethod, supplier]);
+  }, [amount, date, description, draftKey, dueDate, isDraftHydrated, note, paymentMethod, supplier]);
 
   const saveExpense = useCallback(async (canonicalSupplier?: string) => {
     if (!user) return;
@@ -94,15 +104,25 @@ export const useExpenseActions = ({ user, onAfterSave, workshopName }: UseExpens
 
     setIsSaving(true);
     try {
+      const now = new Date().toISOString();
+      const normalizedMethod = paymentMethod as CashPaymentMethod;
       const expenseId = await expenseRepository.create(user.uid, {
         description: description.trim(),
         supplier: normalizedSupplier,
         amount: parsedAmount,
         paymentMethod,
         date: date || format(new Date(), 'yyyy-MM-dd'),
+        accountingVersion: 1,
+        dueDate: normalizedMethod === 'Credito' ? (dueDate || null) : null,
+        settlementEntries: normalizedMethod === 'Credito' ? [] : [{
+          id: makeExpenseId(),
+          amount: parsedAmount,
+          method: normalizedMethod,
+          settledAt: now,
+        }],
         note: note.trim() || '',
         userId: user.uid,
-        createdAt: format(new Date(), "yyyy-MM-dd'T'HH:mm:ss'Z'"),
+        createdAt: now,
       });
       recordOperationalLog({
         userId: user.uid,
@@ -110,7 +130,7 @@ export const useExpenseActions = ({ user, onAfterSave, workshopName }: UseExpens
         oficina: workshopName,
         acao: 'despesa_criada',
         targetId: expenseId,
-        details: { description: description.trim(), amount: parsedAmount },
+        details: { module: 'Gastos', fields: ['descrição', 'fornecedor', 'valor', 'forma de pagamento', 'data', 'vencimento'] },
       });
 
       clearLocalDraft(draftKey);
@@ -123,24 +143,75 @@ export const useExpenseActions = ({ user, onAfterSave, workshopName }: UseExpens
     } finally {
       setIsSaving(false);
     }
-  }, [amount, date, description, note, onAfterSave, paymentMethod, resetForm, supplier, user, workshopName]);
+  }, [amount, date, description, dueDate, note, onAfterSave, paymentMethod, resetForm, supplier, user, workshopName]);
+
+  const settleExpense = useCallback(async (
+    expense: ExpenseRecord,
+    amountToSettle: number,
+    method: CashPaymentMethod,
+    settledAt: string,
+  ) => {
+    if (!user) return;
+    const existingEntries = expense.settlementEntries || [];
+    const paid = existingEntries.reduce((sum, entry) => sum + Math.max(0, Number(entry.amount) || 0), 0);
+    const remaining = Math.max(0, Number(expense.amount) - paid);
+    if (amountToSettle <= 0 || amountToSettle > remaining + 0.01) {
+      sonnerToast.error('O valor do pagamento deve ser maior que zero e não pode superar o saldo da conta.');
+      return;
+    }
+    try {
+      await expenseRepository.recordSettlement(user.uid, expense.id, [...existingEntries, {
+        id: makeExpenseId(),
+        amount: amountToSettle,
+        method,
+        settledAt: new Date(`${settledAt}T12:00:00`).toISOString(),
+      }]);
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName,
+        acao: 'conta_paga',
+        targetId: expense.id,
+        details: { module: 'Gastos', fields: ['pagamento', 'forma de pagamento', 'data de liquidação'] },
+      });
+      sonnerToast.success(getFirestoreSaveResultMessage('Pagamento da conta registrado; o gasto original não foi duplicado.'));
+    } catch (error) {
+      sonnerToast.error('Não foi possível registrar o pagamento da conta.');
+      handleFirestoreError(error, OperationType.UPDATE, `expenses/${expense.id}`);
+    }
+  }, [user, workshopName]);
 
   const deleteExpense = useCallback(async (expenseId: string) => {
     if (!user) return;
 
     try {
       await expenseRepository.remove(user.uid, expenseId);
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName,
+        acao: 'despesa_removida',
+        targetId: expenseId,
+        details: { module: 'Gastos' },
+      });
       sonnerToast.success(getFirestoreSaveResultMessage('Gasto movido para a lixeira.'), {
         action: {
           label: 'Desfazer',
-          onClick: () => void expenseRepository.restore(user.uid, expenseId),
+          onClick: () => void expenseRepository.restore(user.uid, expenseId).then(() => recordOperationalLog({
+            userId: user.uid,
+            usuario: user.email,
+            oficina: workshopName,
+            acao: 'despesa_restaurada',
+            targetId: expenseId,
+            details: { module: 'Gastos' },
+          })),
         },
       });
     } catch (error) {
       console.error('Erro ao remover gasto:', error);
       sonnerToast.error('Nao foi possivel excluir o gasto.');
     }
-  }, [user]);
+  }, [user, workshopName]);
 
   return {
     amount,
@@ -150,10 +221,13 @@ export const useExpenseActions = ({ user, onAfterSave, workshopName }: UseExpens
     isSaving,
     note,
     paymentMethod,
+    dueDate,
     resetForm,
     saveExpense,
+    settleExpense,
     setAmount,
     setDate,
+    setDueDate,
     setDescription,
     setNote,
     setPaymentMethod,

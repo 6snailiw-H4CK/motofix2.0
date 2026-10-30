@@ -44,6 +44,8 @@ import { useUserCollections } from './hooks/useUserCollections';
 import { viewUsesUserCollection } from './hooks/userCollectionScopes';
 import { useWarrantyActions } from './hooks/useWarrantyActions';
 import { useWhatsAppReminderActions } from './hooks/useWhatsAppReminderActions';
+import { createAutomaticPwaLocalBackup, getPwaLocalBackupStatus } from './services/pwaLocalBackup';
+import { getLastFirestoreSyncAt } from './services/firestoreNetworkControl';
 import { getMaintenanceStatus } from './lib/maintenanceStatus';
 import { canonicalServiceType, getServiceTypeKey } from './lib/serviceTypes';
 import { isAdminRole, isMasterAdminRole } from './types';
@@ -93,10 +95,20 @@ export default function App() {
     operationalLogs,
     collectionListenerIssues,
     refreshCurrentView,
+    refreshAllCollections,
     isRefreshingCollections,
     lastCollectionsSyncedAt,
   } = useUserCollections({ user, userProfile, isNewUser, hasAccountAccess: subscriptionActive, view });
-  const offlineSyncStatus = useOfflineSyncStatus();
+  const offlineSyncStatus = useOfflineSyncStatus(user?.uid);
+
+  useEffect(() => {
+    if (!user?.uid || !lastCollectionsSyncedAt) return;
+    if (!getPwaLocalBackupStatus(user.uid).configured) return;
+    const completedFullSyncAt = getLastFirestoreSyncAt(user.uid);
+    if (!completedFullSyncAt || completedFullSyncAt !== lastCollectionsSyncedAt) return;
+    void createAutomaticPwaLocalBackup(user.uid);
+  }, [lastCollectionsSyncedAt, user?.uid]);
+
   const {
     clearDeleteConfirm,
     confirmOrRequestDelete,
@@ -150,6 +162,13 @@ export default function App() {
       });
     }
   }, [refreshCurrentView]);
+  const handleBackupPreExportSync = useCallback(async () => {
+    const result = await refreshAllCollections();
+    if (result.failedCollections.length > 0) {
+      throw new Error(`A sincronização deixou pendências: ${result.failedCollections.join(', ')}.`);
+    }
+    return result;
+  }, [refreshAllCollections]);
   const handleExpenseSaved = useCallback(() => setView('expenses'), [setView]);
   const openWarrantyForm = useCallback(() => setView('new-warranty'), [setView]);
   const handleWarrantySaved = useCallback(() => setView('warranties'), [setView]);
@@ -186,6 +205,7 @@ export default function App() {
   const appointmentActions = useAppointmentActions({
     user,
     onDeleted: handleDeleteConfirmed,
+    workshopName,
   });
   const expenseActions = useExpenseActions({
     user,
@@ -201,6 +221,8 @@ export default function App() {
   });
   const productActions = useProductActions({
     user,
+    products: productCatalog,
+    workshopName,
     onDeleted: handleDeleteConfirmed,
   });
   const maintenanceActions = useMaintenanceActions({
@@ -215,10 +237,12 @@ export default function App() {
   const messageLogActions = useMessageLogActions({
     user,
     onDeleted: handleDeleteConfirmed,
+    workshopName,
   });
   const settingsActions = useSettingsActions({
     user,
     settings,
+    settingsLoaded,
     setSettings,
   });
   const warrantyActions = useWarrantyActions({
@@ -434,6 +458,7 @@ export default function App() {
             setView: handleViewChange,
             onColorModeChange: setColorMode,
             view,
+            onSyncForBackup: handleBackupPreExportSync,
           }}
         />
       </AppShell>

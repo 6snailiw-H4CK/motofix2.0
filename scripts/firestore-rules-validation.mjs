@@ -19,6 +19,7 @@ const TEST_USER_OTHER = 'other-user-999';
 const CASH_LAUNCH_ID = 'cash-launch-001';
 const LEGACY_MAINTENANCE_ID = 'legacy-maintenance-001';
 const LEGACY_CLIENT_ID = 'legacy-client-001';
+const CURRENT_CLIENT_ID = 'current-client-maintenance-001';
 const LEGACY_CLIENT_MAINTENANCE_ID = 'legacy-client-maintenance-001';
 const INACTIVE_CASH_LAUNCH_ID = 'inactive-cash-launch-001';
 const INACTIVE_EXPENSE_ID = 'inactive-expense-001';
@@ -75,10 +76,10 @@ async function setupAccessProjectionScenarios(testEnv) {
     { name: 'stripe-projection-denied', isActive: true, billing: { status: 'active', currentPeriodEnd: future }, accessProjection: { allowed: true, source: 'stripe', validUntil: future } },
     { name: 'valid-until-iso-string', isActive: true, accessProjection: { allowed: true, source: 'manual', validUntil: '2099-01-01T00:00:00.000Z' } },
     { name: 'owner-entitlement-valid', role: 'master_admin', isActive: true, ownerAccess: { enabled: true, permanent: true }, accessProjection: { allowed: true, source: 'owner', validUntil: null } },
-    { name: 'owner-entitlement-no-owner-claim', role: 'master_admin', masterAdminClaim: true, isActive: true, ownerAccess: { enabled: true, permanent: true }, accessProjection: { allowed: true, source: 'owner', validUntil: null } },
-    { name: 'owner-entitlement-stale-config', role: 'master_admin', masterAdminClaim: true, ownerClaim: true, isActive: true, ownerAccess: { enabled: true, permanent: true }, accessProjection: { allowed: true, source: 'owner', validUntil: null } },
-    { name: 'owner-entitlement-no-owner-flag', role: 'master_admin', masterAdminClaim: true, isActive: true, accessProjection: { allowed: true, source: 'owner', validUntil: null } },
-    { name: 'owner-entitlement-not-permanent', role: 'master_admin', masterAdminClaim: true, isActive: true, ownerAccess: { enabled: true, permanent: false }, accessProjection: { allowed: true, source: 'owner', validUntil: null } },
+    { name: 'active-master-admin-own-data', role: 'master_admin', masterAdminClaim: true, isActive: true },
+    { name: 'active-master-admin-with-stale-owner-claim-own-data', role: 'master_admin', masterAdminClaim: true, ownerClaim: true, isActive: true },
+    { name: 'active-master-admin-without-owner-fields-own-data', role: 'master_admin', masterAdminClaim: true, isActive: true },
+    { name: 'active-master-admin-with-nonpermanent-owner-fields-own-data', role: 'master_admin', masterAdminClaim: true, isActive: true, ownerAccess: { enabled: true, permanent: false } },
     { name: 'owner-entitlement-wrong-role', role: 'user', masterAdminClaim: true, isActive: true, ownerAccess: { enabled: true, permanent: true }, accessProjection: { allowed: true, source: 'owner', validUntil: null } },
     { name: 'owner-entitlement-inactive', role: 'master_admin', masterAdminClaim: true, isActive: false, ownerAccess: { enabled: true, permanent: true }, accessProjection: { allowed: true, source: 'owner', validUntil: null } },
   ].map((scenario) => ({
@@ -375,6 +376,7 @@ const writeStockOperation = (transaction, firestore, {
     ...(cashLaunchOrderNumber ? { cashLaunchOrderNumber } : {}),
     ...(itemIds ? { itemIds } : {}),
   });
+  return movementId;
 };
 
 async function setupTestData(testEnv) {
@@ -417,6 +419,31 @@ async function setupTestData(testEnv) {
       bikeModel: 'Moto antiga',
       contact: '000000000',
       legacyField: 'Cadastro sem os campos atuais obrigatórios',
+    });
+    await setDoc(doc(firestore, 'users', TEST_USER_OWNER, 'clients', CURRENT_CLIENT_ID), {
+      userId: TEST_USER_OWNER,
+      name: 'Cliente completo',
+      bikeModel: 'Moto atual',
+      contact: '11999990000',
+      email: 'cliente@example.com',
+      vehiclePlate: 'ABC1234',
+      oilType: '10W30',
+      oilPrice: 60,
+      lastMaintenanceDate: '2026-09-20T00:00:00.000Z',
+      nextMaintenanceDate: '2026-10-20T00:00:00.000Z',
+      recurrenceDays: 30,
+      status: 'OVERDUE',
+      isRecurringRevenue: true,
+      notificacao_enviada: false,
+      notificacaoStatus: 'pendente',
+      lastServiceType: 'Troca de óleo',
+      lastServiceValue: 60,
+      lastServiceNotes: 'Última troca',
+      serviceValue: 60,
+      statusPagamento: 'Pago',
+      valorPago: 60,
+      saldoDevedor: 0,
+      createdAt: now(),
     });
     await setDoc(doc(firestore, 'users', TEST_USER_INACTIVE, 'cash_launches', INACTIVE_CASH_LAUNCH_ID), {
       ...ownerCashLaunchData,
@@ -738,11 +765,10 @@ async function runTests() {
     await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'valid-until-iso-string'), false, 'VALIDUNTIL STRING ISO');
     console.log('P1.5-A) identidade UID designada e ownerAccess permanente permitem sem projeção de billing');
     await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'owner-entitlement-valid'), true, 'OWNER ENTITLEMENT EXPLÍCITO');
-    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'owner-entitlement-no-owner-claim'), false, 'MASTER ADMIN NÃO DESIGNADO');
-    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'owner-entitlement-stale-config'), false, 'OWNER ANTIGO APÓS ROTAÇÃO');
-    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'owner-entitlement-valid'), true, 'OWNER SEM CONFIGURAÇÃO OU CLAIM');
-    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'owner-entitlement-no-owner-flag'), false, 'OWNER SEM ENTITLEMENT');
-    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'owner-entitlement-not-permanent'), false, 'OWNER SEM MARCADOR PERMANENTE');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'active-master-admin-own-data'), true, 'MASTER ADMIN ATIVO COM CLAIM ACESSA A PRÓPRIA ÁRVORE');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'active-master-admin-with-stale-owner-claim-own-data'), true, 'CLAIM ADMIN ATIVO NÃO DEPENDE DE CLAIM DE OWNER');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'active-master-admin-without-owner-fields-own-data'), true, 'MASTER ADMIN ATIVO NÃO PRECISA DE CAMPOS OWNER');
+    await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'active-master-admin-with-nonpermanent-owner-fields-own-data'), true, 'MASTER ADMIN ATIVO NÃO DEPENDE DE OWNER PERMANENTE');
     await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'owner-entitlement-wrong-role'), false, 'OWNER COM ROLE USER');
     await readProjectionScenario(projectionScenarios.find(({ name }) => name === 'owner-entitlement-inactive'), false, 'OWNER INATIVO');
 
@@ -870,6 +896,64 @@ async function runTests() {
     } else {
       console.log('   ✅ Cliente legado e manutenção foram atualizados juntos');
     }
+
+    console.log('1d) Owner pode salvar cliente completo e criar manutenção no mesmo lote');
+    const fullClientMaintenanceBatch = writeBatch(ownerDb);
+    const fullClientUpdatedAt = now();
+    const currentClientRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'clients', CURRENT_CLIENT_ID);
+    fullClientMaintenanceBatch.update(currentClientRef, {
+      name: 'Cliente completo',
+      bikeModel: 'Moto atual',
+      contact: '11999990000',
+      email: 'cliente@example.com',
+      vehiclePlate: 'ABC1234',
+      oilType: '10W30',
+      oilPrice: 90,
+      userId: TEST_USER_OWNER,
+      lastMaintenanceDate: fullClientUpdatedAt,
+      nextMaintenanceDate: fullClientUpdatedAt,
+      recurrenceDays: 30,
+      isRecurringRevenue: true,
+      status: 'OK',
+      notificacao_enviada: false,
+      notificacaoStatus: 'pendente',
+      lastServiceType: 'Troca de óleo',
+      lastServiceValue: 90,
+      serviceValue: 90,
+      lastServiceNotes: 'Última troca',
+      lastAlertDate: '',
+      statusPagamento: 'Pago',
+      valorPago: 90,
+      saldoDevedor: 0,
+      createdAt: (await getDoc(currentClientRef)).data().createdAt,
+      updatedAt: fullClientUpdatedAt,
+    });
+    fullClientMaintenanceBatch.set(doc(
+      ownerDb,
+      'users',
+      TEST_USER_OWNER,
+      'maintenances',
+      'maintenance-full-client-batch',
+    ), {
+      userId: TEST_USER_OWNER,
+      clientId: CURRENT_CLIENT_ID,
+      clientName: 'Cliente completo',
+      bikeModel: 'Moto atual',
+      date: fullClientUpdatedAt,
+      oilType: '10W30',
+      oilPrice: 90,
+      serviceType: 'Troca de óleo',
+      serviceValue: 90,
+      isRecurringRevenue: true,
+      notes: 'Registro de manutenção de teste.',
+      statusPagamento: 'Pago',
+      valorPago: 90,
+      saldoDevedor: 0,
+      updatedAt: fullClientUpdatedAt,
+    });
+    await fullClientMaintenanceBatch.commit();
+    console.log('   ✅ Atualização completa do cliente e criação da manutenção foram aceitas');
+
     try {
       await updateDoc(legacyClientRef, { name: 'Nome alterado sem validação completa' });
       fail('A exceção de manutenção permitiu alterar dados de cadastro legado');
@@ -926,6 +1010,31 @@ async function runTests() {
     }
 
     const commonDb = testEnv.authenticatedContext(TEST_USER_REGULAR).firestore();
+    console.log('1e) Owner pode ocultar e restaurar retorno sem apagar o cliente');
+    const returnArchiveRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'clients', CURRENT_CLIENT_ID);
+    await updateDoc(returnArchiveRef, { returnArchived: true, updatedAt: now() });
+    const archivedClient = await getDoc(returnArchiveRef);
+    if (!archivedClient.exists() || archivedClient.data().returnArchived !== true || archivedClient.data().name !== 'Cliente completo') {
+      fail('Arquivar retorno alterou ou removeu indevidamente o cliente');
+    }
+    await updateDoc(returnArchiveRef, { returnArchived: false, updatedAt: now() });
+    try {
+      await updateDoc(returnArchiveRef, { returnArchived: 'true', updatedAt: now() });
+      fail('Owner conseguiu salvar returnArchived com tipo inválido');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') throw error;
+    }
+    try {
+      await updateDoc(doc(commonDb, 'users', TEST_USER_OWNER, 'clients', CURRENT_CLIENT_ID), {
+        returnArchived: true,
+        updatedAt: now(),
+      });
+      fail('Usuário comum conseguiu arquivar retorno de outra oficina');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') throw error;
+    }
+    console.log('   ✅ Retorno foi arquivado/restaurado sem apagar o cadastro; tipo inválido e acesso cruzado negados');
+
     console.log('P0.2-I) Usuário comum não pode ler documento administrativo direto');
     try {
       await getDoc(doc(commonDb, adminPath));
@@ -1052,6 +1161,28 @@ async function runTests() {
       console.log('   ✅ operational_log criado com sucesso por owner');
     }
 
+    console.log('7b) Owner pode registrar arquivamento de retorno; ações desconhecidas continuam negadas');
+    const returnArchiveLogId = `return-archive-log-${randomUUID()}`;
+    await setDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'operational_logs', returnArchiveLogId), {
+      ...operationLogData,
+      acao: 'retorno_arquivado',
+      targetId: CURRENT_CLIENT_ID,
+    });
+    const returnArchiveLog = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'operational_logs', returnArchiveLogId));
+    if (!returnArchiveLog.exists() || returnArchiveLog.data().acao !== 'retorno_arquivado') {
+      fail('Owner não conseguiu criar operational_log de retorno_arquivado');
+    }
+    try {
+      await setDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'operational_logs', `unsupported-log-${randomUUID()}`), {
+        ...operationLogData,
+        acao: 'acao_nao_permitida',
+      });
+      fail('Owner conseguiu criar operational_log com ação fora da lista permitida');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') throw error;
+    }
+    console.log('   ✅ Ação de arquivamento aceita e ação desconhecida corretamente negada');
+
     console.log('8) Master Admin não pode ler operational_logs de outra oficina');
     try {
       await getDoc(doc(adminClaimDb, 'users', TEST_USER_OWNER, 'operational_logs', logId));
@@ -1123,37 +1254,37 @@ async function runTests() {
       console.log('   ✅ Usuario comum corretamente impedido de criar stock_movement de outro usuario');
     }
 
-    console.log('12) Owner pode finalizar cash_launch com metadata de estoque');
-    await updateDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID), {
-      status: 'Finalizado',
-      items: [{
-        id: 'item-001',
-        productId: PRODUCT_ID,
-        sourceCode: 'EST-001',
-        description: 'Produto com estoque',
-        variation: '',
-        ncm: '00000000',
-        quantity: 1,
-        unitPrice: 25,
-        discountValue: 0,
-        discountPercent: 0,
-        netUnitPrice: 25,
+    console.log('12) Owner nao pode marcar baixa de estoque sem movimentacao vinculada');
+    try {
+      await updateDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID), {
+        status: 'Finalizado',
+        items: [{
+          id: 'item-001',
+          productId: PRODUCT_ID,
+          sourceCode: 'EST-001',
+          description: 'Produto com estoque',
+          variation: '',
+          ncm: '00000000',
+          quantity: 1,
+          unitPrice: 25,
+          discountValue: 0,
+          discountPercent: 0,
+          netUnitPrice: 25,
+          total: 25,
+          date: '2026-06-23',
+          note: '',
+        }],
+        merchandiseTotal: 25,
         total: 25,
-        date: '2026-06-23',
-        note: '',
-      }],
-      merchandiseTotal: 25,
-      total: 25,
-      stockDeducted: true,
-      stockDeductedAt: now(),
-      stockMovementBatchId: 'stock-batch-001',
-      updatedAt: now(),
-    });
-    const finalizedLaunchDoc = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_ID));
-    if (!finalizedLaunchDoc.exists() || finalizedLaunchDoc.data().stockDeducted !== true) {
-      fail('Owner nao conseguiu finalizar cash_launch com metadata de estoque');
-    } else {
-      console.log('   ✅ cash_launch aceitou metadata de estoque na finalizacao');
+        stockDeducted: true,
+        stockDeductedAt: now(),
+        stockMovementBatchId: 'stock-batch-001',
+        updatedAt: now(),
+      });
+      fail('Owner marcou baixa de estoque sem criar movimentacao vinculada');
+    } catch (error) {
+      if (error?.code !== 'permission-denied') fail(`Finalizacao sem movimentacao falhou inesperadamente: ${error?.code || error}`);
+      else console.log('   ✅ Firestore bloqueou baixa sem movimento exato vinculado');
     }
 
     console.log('13) Usuário comum não pode ler /users de outro usuário diretamente');
@@ -1183,7 +1314,7 @@ async function runTests() {
       const productRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'products', PRODUCT_PAYMENT_ID);
       const launchRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_PAYMENT_ID);
       const productSnapshot = await transaction.get(productRef);
-      writeStockOperation(transaction, ownerDb, {
+      const movementId = writeStockOperation(transaction, ownerDb, {
         productRef,
         productId: PRODUCT_PAYMENT_ID,
         product: productSnapshot.data(),
@@ -1199,18 +1330,77 @@ async function runTests() {
       transaction.update(launchRef, {
         status: 'Finalizado',
         invoiced: true,
-        paymentMethod: 'Pix',
+        paymentMethod: 'Debito',
+        accountingVersion: 1,
+        paymentEntries: [
+          { id: 'receipt-debit-001', amount: 60, method: 'Debito', receivedAt: timestamp },
+          { id: 'receipt-credit-001', amount: 40, method: 'Credito', receivedAt: timestamp },
+        ],
         stockDeducted: true,
         stockDeductedAt: timestamp,
         stockMovementBatchId: 'stock-payment-batch-001',
+        stockMovementId: movementId,
         updatedAt: timestamp,
       });
     });
     const finalizedPaymentLaunchDoc = await getDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'cash_launches', CASH_LAUNCH_PAYMENT_ID));
-    if (!finalizedPaymentLaunchDoc.exists() || finalizedPaymentLaunchDoc.data().paymentMethod !== 'Pix') {
+    if (!finalizedPaymentLaunchDoc.exists() || finalizedPaymentLaunchDoc.data().paymentMethod !== 'Debito') {
       fail('Owner nao conseguiu finalizar cash_launch faturada com pagamento e baixa de estoque');
     } else {
-      console.log('   cash_launch faturada aceitou pagamento e baixa de estoque na mesma transacao');
+      const paymentEntries = finalizedPaymentLaunchDoc.data().paymentEntries || [];
+      if (paymentEntries.length !== 2 || paymentEntries.reduce((sum, entry) => sum + entry.amount, 0) !== 100) {
+        fail('Owner nao conseguiu salvar recebimentos divididos por forma e data');
+      } else {
+        console.log('   cash_launch faturada aceitou baixa e recebimentos divididos em Debito e Credito');
+      }
+    }
+
+    console.log('15b) Novo modelo de despesas permite conta a pagar e pagamento sem duplicar a despesa');
+    const payableExpenseRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'expenses', 'ledger-expense-001');
+    await setDoc(payableExpenseRef, {
+      userId: TEST_USER_OWNER,
+      description: 'Compra de teste no crédito',
+      supplier: 'Fornecedor teste',
+      amount: 1000,
+      paymentMethod: 'Credito',
+      date: '2026-10-22',
+      dueDate: '2026-11-10',
+      accountingVersion: 1,
+      settlementEntries: [],
+      note: '',
+      createdAt: now(),
+    });
+    await updateDoc(payableExpenseRef, {
+      settlementEntries: [{ id: 'settlement-001', amount: 1000, method: 'Pix', settledAt: now() }],
+      updatedAt: now(),
+    });
+    const payableExpense = await getDoc(payableExpenseRef);
+    if (!payableExpense.exists() || payableExpense.data().settlementEntries?.[0]?.amount !== 1000) {
+      fail('Owner nao conseguiu registrar o pagamento da conta a pagar');
+    } else {
+      console.log('   compra ficou separada da data de quitação e o pagamento foi aceito pelas regras');
+    }
+
+    console.log('15c) Gasto à vista aceita dueDate nulo como o formulário envia');
+    const cashExpenseRef = doc(ownerDb, 'users', TEST_USER_OWNER, 'expenses', 'ledger-expense-cash-001');
+    await setDoc(cashExpenseRef, {
+      userId: TEST_USER_OWNER,
+      description: 'Despesa de teste no Pix',
+      supplier: 'Fornecedor teste',
+      amount: 25,
+      paymentMethod: 'Pix',
+      date: '2026-10-23',
+      dueDate: null,
+      accountingVersion: 1,
+      settlementEntries: [{ id: 'settlement-cash-001', amount: 25, method: 'Pix', settledAt: now() }],
+      note: '',
+      createdAt: now(),
+    });
+    const cashExpense = await getDoc(cashExpenseRef);
+    if (!cashExpense.exists() || cashExpense.data().dueDate !== null) {
+      fail('Owner nao conseguiu salvar despesa à vista com vencimento nulo');
+    } else {
+      console.log('   gasto à vista foi aceito e o vencimento nulo permaneceu correto');
     }
 
     console.log('16) Owner pode faturar O.S. com produtos sem controle de estoque');

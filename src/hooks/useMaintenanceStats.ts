@@ -1,7 +1,7 @@
 import { isAfter, parseISO } from 'date-fns';
 import { useCallback, useMemo } from 'react';
 import type { CashRegisterLaunch, Client, MaintenanceRecord, Warranty } from '../types';
-import { getCashPaidAmount, getCashPaymentStatus, getCashReceivableAmount, isCashLaunchFinancial } from '../lib/cashPayments';
+import { getCashPaidAmount, getCashPaymentStatus, getCashReceivableAmount, getMaintenanceReceivableAmount, isCashLaunchFinancial } from '../lib/cashPayments';
 import { getServiceTypeLabel, isOilChangeService } from '../lib/serviceTypes';
 
 export type ServiceListFilter = 'all' | 'recorrentes' | 'eventuais';
@@ -252,16 +252,17 @@ export const useMaintenanceStats = ({
       const maintenanceDate = parseISO(maintenance.date);
       const isCurrentMonth = maintenanceDate.getMonth() === currentMonth && maintenanceDate.getFullYear() === currentYear;
       const status = normalizePaymentStatus(maintenance.statusPagamento).toLowerCase();
+      const balance = getMaintenanceReceivableAmount(maintenance);
 
       if (status === 'pendente') {
-        aReceber += maintenance.saldoDevedor || 0;
+        aReceber += balance;
         if (isCurrentMonth) {
-          aReceberMes += maintenance.saldoDevedor || 0;
+          aReceberMes += balance;
         }
       }
 
       if (status === 'parcial') {
-        parcialAReceber += maintenance.saldoDevedor || 0;
+        parcialAReceber += balance;
       }
 
       if (isCurrentMonth) {
@@ -310,7 +311,7 @@ export const useMaintenanceStats = ({
     };
   }, [dashboardCashLaunches, dashboardMaintenances]);
 
-  const overdueClients = useMemo(() => clients.filter(client => client.status === 'OVERDUE'), [clients]);
+  const overdueClients = useMemo(() => clients.filter(client => client.status === 'OVERDUE' && !client.returnArchived), [clients]);
 
   const topServicesData = useMemo(() => {
     const servicesByRevenue = dashboardMaintenances.reduce((acc: Record<string, number>, maintenance) => {
@@ -365,10 +366,8 @@ export const useMaintenanceStats = ({
     const map = new Map<string, number>();
     maintenances.forEach((maintenance) => {
       if (maintenance.clientId) {
-        const status = normalizePaymentStatus(maintenance.statusPagamento).toLowerCase();
-        const shouldCountDebt = status === 'pendente' || status === 'parcial';
         const currentBalance = map.get(maintenance.clientId) || 0;
-        map.set(maintenance.clientId, currentBalance + (shouldCountDebt ? maintenance.saldoDevedor || 0 : 0));
+        map.set(maintenance.clientId, currentBalance + getMaintenanceReceivableAmount(maintenance));
       }
     });
     return map;

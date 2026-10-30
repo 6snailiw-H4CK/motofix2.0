@@ -1,4 +1,4 @@
-import { ArrowLeft, CalendarClock, MessageSquare, Plus, RefreshCw, Search, UserPlus, X } from 'lucide-react';
+import { ArrowLeft, CalendarClock, MessageSquare, Plus, RefreshCw, Search, Trash2, UserPlus, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { cn, safeFormat } from '../../lib/utils';
 import type { Client } from '../../types';
@@ -7,11 +7,14 @@ type ReturnsViewProps = {
   clients: Client[];
   dailyPendingAlerts: Client[];
   processingId?: string | null;
+  deleteConfirmId?: string | null;
+  deletingReturnId?: string | null;
   onBack: () => void;
   onEditClient: (client: Client) => void;
   onNewClient: () => void;
   onNewReturn: () => void;
   onRegisterReturn: (client: Client) => Promise<void> | void;
+  onDeleteReturn: (client: Client) => Promise<boolean> | boolean | void;
   onSendWhatsApp: (client: Client) => void;
 };
 
@@ -69,11 +72,6 @@ const toDateInputValue = (value?: string) => {
   return [parsed.getFullYear(), String(parsed.getMonth() + 1).padStart(2, '0'), String(parsed.getDate()).padStart(2, '0')].join('-');
 };
 
-const getTodayInputValue = () => {
-  const today = new Date();
-  return [String(today.getDate()).padStart(2, '0'), String(today.getMonth() + 1).padStart(2, '0'), today.getFullYear()].join('/');
-};
-
 const dateFilterToIso = (value: string) => {
   const matched = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (!matched) return '';
@@ -93,15 +91,18 @@ export const ReturnsView = ({
   clients,
   dailyPendingAlerts,
   processingId,
+  deleteConfirmId,
+  deletingReturnId,
   onBack,
   onEditClient,
   onNewClient,
   onNewReturn,
   onRegisterReturn,
+  onDeleteReturn,
   onSendWhatsApp,
 }: ReturnsViewProps) => {
   const [clientSearch, setClientSearch] = useState('');
-  const [returnDateFilter, setReturnDateFilter] = useState(getTodayInputValue);
+  const [returnDateFilter, setReturnDateFilter] = useState('');
   const contactTodayIds = new Set(dailyPendingAlerts.map((client) => client.id));
   const sortedClients = useMemo(() => {
     const normalizedSearch = normalizeSearchText(clientSearch);
@@ -254,6 +255,8 @@ export const ReturnsView = ({
             {sortedClients.map((client) => {
               const meta = statusMeta[client.status];
               const isProcessing = processingId === client.id;
+              const isDeleting = deletingReturnId === client.id;
+              const isConfirmingDelete = deleteConfirmId === client.id;
               const canRegisterReturn = client.status !== 'OK';
               const serviceDate = safeFormat(client.lastMaintenanceDate) || '-';
               const returnDate = safeFormat(client.nextMaintenanceDate) || '-';
@@ -297,7 +300,7 @@ export const ReturnsView = ({
                     {notes}
                   </p>
 
-                  <div className="mt-2 grid grid-cols-2 gap-2 sm:flex sm:justify-end">
+                  <div className="mt-2 grid grid-cols-3 gap-2 sm:flex sm:justify-end">
                     <button
                       type="button"
                       onClick={() => onSendWhatsApp(client)}
@@ -319,6 +322,21 @@ export const ReturnsView = ({
                     >
                       <RefreshCw className="h-3.5 w-3.5" />
                       {isProcessing ? 'Salvando...' : 'Registrar'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void onDeleteReturn(client)}
+                      disabled={isDeleting || isProcessing}
+                      aria-label={isConfirmingDelete ? `Confirmar exclusao do retorno de ${client.name}` : `Excluir retorno de ${client.name}`}
+                      className={cn(
+                        'inline-flex items-center justify-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-bold transition disabled:cursor-not-allowed disabled:opacity-60',
+                        isConfirmingDelete
+                          ? 'border-red-500 bg-red-600 text-white hover:bg-red-700'
+                          : 'border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20'
+                      )}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      {isDeleting ? 'Excluindo...' : isConfirmingDelete ? 'Confirmar' : 'Excluir'}
                     </button>
                   </div>
                 </article>

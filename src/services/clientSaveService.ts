@@ -157,12 +157,29 @@ export const saveClientWithMaintenance = async ({
     createdAt,
   };
 
+  if (editingClient && (clientData.serviceType || scheduleProfile)) {
+    finalClientData.returnArchived = false;
+  }
+
   if (Number.isFinite(mileageKm)) {
     finalClientData.mileageKm = mileageKm;
   }
 
+  // Send only the fields that actually changed. Replaying the entire form payload
+  // makes Firestore Rules revalidate many unrelated fields inside the same
+  // client+maintenance batch and can exhaust the Rules expression budget.
+  const clientUpdateData = editingClient
+    ? Object.fromEntries(
+      Object.entries(finalClientData).filter(([field, value]) => (
+        field !== 'userId'
+        && field !== 'createdAt'
+        && !Object.is(value, (editingClient as unknown as Record<string, unknown>)[field])
+      )),
+    )
+    : finalClientData;
+
   const clientWrite = editingClient
-    ? { operation: 'update' as const, id: editingClient.id, data: finalClientData }
+    ? { operation: 'update' as const, id: editingClient.id, data: clientUpdateData }
     : { operation: 'create' as const, data: finalClientData };
 
   const buildMaintenanceData = (clientId: string, data: MaintenanceInput) => ({

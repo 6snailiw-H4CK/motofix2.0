@@ -1,12 +1,18 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocFromCache,
+  getDocs,
+  getDocsFromCache,
+  query,
   runTransaction,
   setDoc,
+  updateDoc,
   type DocumentReference,
   type Transaction,
   type WriteBatch,
+  where,
   writeBatch,
 } from 'firebase/firestore';
 
@@ -22,6 +28,7 @@ import type {
   CashRegisterLaunch,
   ProductCatalogItem,
   ProductCatalogVariation,
+  StockMovementOperation,
   StockMovementType,
 } from '../types';
 import {
@@ -32,7 +39,6 @@ import {
 } from './firestoreOfflineQueue';
 import { createRestoreMetadata, createSoftDeleteMetadata } from './softDelete';
 import { validateCashLaunchData } from './cashRegisterValidation';
-import { shouldUseStockRestoreOnDelete } from './cashRegisterDeleteLogic';
 import { applyStockOperation } from './stockTransaction';
 import { notifyFirestoreLocalCollectionsChanged } from './firestoreCollectionSync';
 import { withFirestoreSyncTimestamp } from './firestoreSyncFields';
@@ -214,6 +220,11 @@ const collectStockAdjustments = async (
   cashLaunchId?: string,
   cashLaunchOrderNumber?: string,
 ): Promise<StockCollection> => {
+  const unlinkedItem = items.find((item) => normalizeQuantity(item.quantity) > 0 && !String(item.productId || '').trim());
+  if (unlinkedItem) {
+    throw new Error(`O item "${unlinkedItem.description || unlinkedItem.id}" nao possui uma mercadoria vinculada. Corrija a referencia antes de finalizar a O.S.`);
+  }
+
   const groups = groupStockItems(items);
   const adjustments: StockAdjustment[] = [];
   const shortages: CashRegisterStockShortage[] = [];
@@ -234,8 +245,7 @@ const collectStockAdjustments = async (
     }
 
     if (!productSnapshot.exists()) {
-      console.warn(`Mercadoria "${group.description || group.productId}" nao encontrada para sincronizar estoque da O.S.; item mantido sem movimento de estoque.`);
-      continue;
+      throw new Error(`A mercadoria vinculada ao item "${group.description || group.productId}" nao foi encontrada. Corrija a referencia antes de finalizar a O.S.`);
     }
 
     const product = {
@@ -540,6 +550,138 @@ const applyStockAdjustments = (
   });
 };
 
+const resolveOriginalMovementId = async (
+  userId: string,
+  launch: CashRegisterLaunch,
+  offline: boolean,
+): Promise<string> => {
+  if (launch.stockMovementId) return launch.stockMovementId;
+  const batchId = launch.stockMovementBatchId;
+  if (!batchId) {
+    throw new Error('A O.S. indica baixa de estoque, mas nao possui vinculo com o lote de movimentacao. Revise o historico antes de estornar.');
+  }
+
+  const movements = collection(db, 'users', userId, 'stock_movements');
+  const matchingBatch = query(movements, where('batchId', '==', batchId));
+  const snapshot = offline ? await getDocsFromCache(matchingBatch) : await getDocs(matchingBatch);
+  const candidates = snapshot.docs.filter((entry) => {
+    const data = entry.data() as Partial<StockMovementOperation>;
+    return data.type === 'saida_os'
+      && data.batchId === batchId
+      && (!data.cashLaunchId || data.cashLaunchId === launch.id);
+  });
+  if (candidates.length !== 1) {
+    throw new Error(candidates.length
+      ? 'O lote da O.S. aponta para mais de uma baixa de estoque. O estorno foi bloqueado para evitar devolucao duplicada.'
+      : 'A baixa original da O.S. nao foi encontrada no cache local. Sincronize antes de cancelar ou excluir esta O.S.');
+  }
+  return candidates[0].id;
+};
+
+const readOriginalMovement = async (
+  userId: string,
+  launch: CashRegisterLaunch,
+  movementId: string,
+  transaction?: Transaction,
+): Promise<StockMovementOperation> => {
+  const movementRef = doc(db, 'users', userId, 'stock_movements', movementId);
+  const snapshot = transaction
+    ? await transaction.get(movementRef)
+    : await getDocFromCache(movementRef);
+  if (!snapshot.exists()) throw new Error('A movimentacao original da O.S. nao foi encontrada; estorno bloqueado para proteger o estoque.');
+  const movement = snapshot.data() as StockMovementOperation;
+  if (
+    movement.userId !== userId
+    || movement.type !== 'saida_os'
+    || (movement.cashLaunchId && movement.cashLaunchId !== launch.id)
+    || (launch.stockMovementBatchId && movement.batchId !== launch.stockMovementBatchId)
+    || !Array.isArray(movement.productIds)
+    || !movement.changes
+  ) {
+    throw new Error('A movimentacao original nao corresponde a esta O.S.; estorno bloqueado para proteger o estoque.');
+  }
+  return movement;
+};
+
+const collectExactReversalAdjustments = async (
+  transaction: Transaction | null,
+  userId: string,
+  movement: StockMovementOperation,
+): Promise<StockAdjustment[]> => {
+  const adjustments: StockAdjustment[] = [];
+  for (const productId of movement.productIds) {
+    const change = movement.changes[productId];
+    if (!change || change.productId !== productId) {
+      throw new Error('A movimentacao original tem um vinculo de produto invalido; estorno bloqueado.');
+    }
+
+    const previousVariations = change.previousVariations || [];
+    const nextVariations = change.nextVariations || [];
+    const variationChanges = previousVariations.flatMap((previousVariation) => {
+      const nextVariation = nextVariations.find((candidate) => candidate.id === previousVariation.id);
+      if (!nextVariation) throw new Error(`A variacao ${previousVariation.id} nao esta na movimentacao original; estorno bloqueado.`);
+      const delta = normalizeQuantity(previousVariation.stockQuantity) - normalizeQuantity(nextVariation.stockQuantity);
+      if (delta < 0) throw new Error('A movimentacao de saida contem aumento de estoque; estorno bloqueado para revisao.');
+      return delta > 0 ? [{ variationId: previousVariation.id, quantity: delta }] : [];
+    });
+    if (variationChanges.length === 0 && previousVariations.length !== nextVariations.length) {
+      throw new Error('A lista de variacoes mudou desde a baixa original; estorno bloqueado para revisao.');
+    }
+
+    const productDelta = normalizeQuantity(change.previousQuantity) - normalizeQuantity(change.nextQuantity);
+    if (productDelta < 0) throw new Error('A movimentacao de saida contem aumento de estoque; estorno bloqueado para revisao.');
+    const usesVariationStock = variationChanges.length > 0;
+    if (usesVariationStock && variationChanges.reduce((sum, item) => sum + item.quantity, 0) !== productDelta) {
+      throw new Error('As quantidades de estoque geral e variacoes divergem na baixa original; estorno bloqueado para revisao.');
+    }
+    const groups = usesVariationStock
+      ? variationChanges
+      : productDelta > 0 ? [{ variationId: '', quantity: productDelta }] : [];
+    if (!groups.length) continue;
+
+    const productRef = productDocPath(userId, productId);
+    const productSnapshot = transaction
+      ? await transaction.get(productRef)
+      : await getDocFromCache(productRef);
+    if (!productSnapshot.exists()) {
+      throw new Error(`A mercadoria ${productId} da baixa original nao existe mais; estorno bloqueado para evitar inconsistencia.`);
+    }
+    const product = { id: productSnapshot.id, ...(productSnapshot.data() as Omit<ProductCatalogItem, 'id'>) };
+
+    for (const group of groups) {
+      const variation = group.variationId
+        ? product.variations?.find((candidate) => candidate.id === group.variationId)
+        : undefined;
+      if (group.variationId && !variation) {
+        throw new Error(`A variacao ${group.variationId} da baixa original nao existe mais; estorno bloqueado.`);
+      }
+      const previousQuantity = variation
+        ? normalizeQuantity(variation.stockQuantity)
+        : normalizeQuantity(product.stockQuantity);
+      const nextQuantity = previousQuantity + group.quantity;
+      if (nextQuantity > 10_000_000) throw new Error('O estorno ultrapassaria o limite permitido de estoque.');
+      adjustments.push({
+        group: {
+          productId,
+          quantity: group.quantity,
+          itemIds: movement.itemIds || [],
+          sourceCode: product.sourceCode,
+          description: product.description,
+          variationId: group.variationId,
+          variation: product.variations?.find((candidate) => candidate.id === group.variationId)?.name,
+        },
+        product,
+        productRef,
+        previousQuantity,
+        nextQuantity,
+        usesVariationStock: Boolean(variation),
+      });
+    }
+  }
+  if (!adjustments.length) throw new Error('A movimentacao original nao contem uma baixa efetiva para estornar.');
+  return adjustments;
+};
+
 const stockOperationReplayMutations = (
   userId: string,
   operation: ReturnType<typeof applyStockOperation>,
@@ -586,10 +728,11 @@ const stockOperationReplayMutations = (
   ];
 };
 
-const stockMetadata = (hasMovements: boolean, now: string, batchId: string) => ({
+const stockMetadata = (hasMovements: boolean, now: string, batchId: string, movementId: string | null = null) => ({
   stockDeducted: hasMovements,
   stockDeductedAt: hasMovements ? now : null,
   stockMovementBatchId: hasMovements ? batchId : null,
+  stockMovementId: hasMovements ? movementId : null,
 });
 
 const finalizeWithStockTransaction = async (
@@ -615,7 +758,7 @@ const finalizeWithStockTransaction = async (
     const operation = applyStockAdjustments(batch, userId, launch, adjustments, 'deduct', now, batchId);
     const launchData = {
       ...data,
-      ...stockMetadata(adjustments.length > 0, now, batchId),
+      ...stockMetadata(adjustments.length > 0, now, batchId, operation?.id || null),
       stockShortageItems: toPersistedStockShortages(shortages),
     };
     batch.set(launchRef, launchData);
@@ -644,11 +787,11 @@ const finalizeWithStockTransaction = async (
       launchId,
       data.orderNumber,
     );
-    applyStockAdjustments(transaction, userId, launch, adjustments, 'deduct', now, batchId);
+    const operation = applyStockAdjustments(transaction, userId, launch, adjustments, 'deduct', now, batchId);
 
     transaction.set(launchRef, {
       ...data,
-      ...stockMetadata(adjustments.length > 0, now, batchId),
+      ...stockMetadata(adjustments.length > 0, now, batchId, operation?.id || null),
       stockShortageItems: toPersistedStockShortages(shortages),
     });
     return toPersistedStockShortages(shortages);
@@ -694,7 +837,7 @@ const updateWithStockTransaction = async (
       const operation = applyStockAdjustments(batch, userId, nextLaunch, adjustments, 'deduct', now, batchId);
       const launchPatch = {
         ...updateData,
-        ...stockMetadata(adjustments.length > 0, now, batchId),
+        ...stockMetadata(adjustments.length > 0, now, batchId, operation?.id || null),
         stockShortageItems: toPersistedStockShortages(shortages),
       };
       batch.update(launchRef, launchPatch);
@@ -705,13 +848,16 @@ const updateWithStockTransaction = async (
       resultShortages = toPersistedStockShortages(shortages);
     } else if (currentLaunch.stockDeducted === true && nextStatus !== 'Finalizado') {
       const batchId = createId(`stock-${launchId}-estorno`);
-      const { adjustments } = await collectStockAdjustments(null, userId, currentLaunch.items || [], 'restore');
+      const movementId = await resolveOriginalMovementId(userId, currentLaunch, true);
+      const originalMovement = await readOriginalMovement(userId, currentLaunch, movementId);
+      const adjustments = await collectExactReversalAdjustments(null, userId, originalMovement);
       const operation = applyStockAdjustments(batch, userId, currentLaunch, adjustments, 'restore', now, batchId);
       const launchPatch = {
         ...updateData,
         stockDeducted: false,
         stockDeductedAt: null,
-        stockMovementBatchId: null,
+        stockMovementBatchId: operation?.data.batchId || null,
+        stockMovementId: operation?.id || null,
       };
       batch.update(launchRef, launchPatch);
       replayWrites.push(
@@ -734,6 +880,19 @@ const updateWithStockTransaction = async (
   }
 
   requireOnlineStockSync();
+
+  // Legacy O.S. records have a batch id but may not yet have the exact movement
+  // id. Resolve that immutable movement before the transaction; the transaction
+  // below rereads the O.S. and confirms the same link before restoring stock.
+  let legacyMovementId: string | null = null;
+  if (data.status && data.status !== 'Finalizado') {
+    const candidateSnapshot = await getDoc(cashLaunchDocPath(userId, launchId));
+    if (!candidateSnapshot.exists()) throw new Error('O.S. nao encontrada para atualizar o estoque.');
+    const candidate = toLaunch(launchId, candidateSnapshot.data() as Omit<CashRegisterLaunch, 'id'>);
+    if (candidate.stockDeducted === true && !candidate.stockMovementId) {
+      legacyMovementId = await resolveOriginalMovementId(userId, candidate, false);
+    }
+  }
 
   const shortages = await runTransaction(db, async (transaction) => {
     const launchRef = cashLaunchDocPath(userId, launchId);
@@ -768,10 +927,10 @@ const updateWithStockTransaction = async (
         launchId,
         nextLaunch.orderNumber,
       );
-      applyStockAdjustments(transaction, userId, nextLaunch, adjustments, 'deduct', now, batchId);
+      const operation = applyStockAdjustments(transaction, userId, nextLaunch, adjustments, 'deduct', now, batchId);
       transaction.update(launchRef, {
         ...updateData,
-        ...stockMetadata(adjustments.length > 0, now, batchId),
+        ...stockMetadata(adjustments.length > 0, now, batchId, operation?.id || null),
         stockShortageItems: toPersistedStockShortages(shortages),
       });
       return toPersistedStockShortages(shortages);
@@ -779,13 +938,20 @@ const updateWithStockTransaction = async (
 
     if (currentLaunch.stockDeducted === true && nextStatus !== 'Finalizado') {
       const batchId = createId(`stock-${launchId}-estorno`);
-      const { adjustments } = await collectStockAdjustments(transaction, userId, currentLaunch.items || [], 'restore');
-      applyStockAdjustments(transaction, userId, currentLaunch, adjustments, 'restore', now, batchId);
+      const movementId = currentLaunch.stockMovementId || legacyMovementId;
+      if (!movementId) throw new Error('Nao foi possivel identificar a baixa original desta O.S.; estorno bloqueado para proteger o estoque.');
+      if (currentLaunch.stockMovementId && legacyMovementId && currentLaunch.stockMovementId !== legacyMovementId) {
+        throw new Error('A O.S. foi alterada durante a tentativa de estorno. Atualize a tela e tente novamente.');
+      }
+      const originalMovement = await readOriginalMovement(userId, currentLaunch, movementId, transaction);
+      const adjustments = await collectExactReversalAdjustments(transaction, userId, originalMovement);
+      const operation = applyStockAdjustments(transaction, userId, currentLaunch, adjustments, 'restore', now, batchId);
       transaction.update(launchRef, {
         ...updateData,
         stockDeducted: false,
         stockDeductedAt: null,
-        stockMovementBatchId: null,
+        stockMovementBatchId: operation?.data.batchId || null,
+        stockMovementId: operation?.id || null,
       });
       return [];
     }
@@ -813,13 +979,16 @@ const deleteWithStockTransaction = async (
     let launchPatch: Record<string, unknown> = { ...metadata };
     if (launch.stockDeducted === true) {
       const batchId = createId(`stock-${launchId}-exclusao`);
-      const { adjustments } = await collectStockAdjustments(null, userId, launch.items || [], 'restore');
+      const movementId = await resolveOriginalMovementId(userId, launch, true);
+      const originalMovement = await readOriginalMovement(userId, launch, movementId);
+      const adjustments = await collectExactReversalAdjustments(null, userId, originalMovement);
       const operation = applyStockAdjustments(batch, userId, launch, adjustments, 'restore', now, batchId);
       launchPatch = {
         ...metadata,
         stockDeducted: false,
         stockDeductedAt: null,
-        stockMovementBatchId: null,
+        stockMovementBatchId: operation?.data.batchId || null,
+        stockMovementId: operation?.id || null,
       };
       replayWrites.push(...stockOperationReplayMutations(userId, operation, adjustments, now));
     }
@@ -836,19 +1005,30 @@ const deleteWithStockTransaction = async (
 
   requireOnlineStockSync();
 
+  const candidateSnapshot = await getDoc(cashLaunchDocPath(userId, launchId));
+  if (!candidateSnapshot.exists()) throw new Error('O.S. nao encontrada para excluir.');
+  const candidate = toLaunch(launchId, candidateSnapshot.data() as Omit<CashRegisterLaunch, 'id'>);
+  const legacyMovementId = candidate.stockDeducted === true && !candidate.stockMovementId
+    ? await resolveOriginalMovementId(userId, candidate, false)
+    : null;
+
   await runTransaction(db, async (transaction) => {
     const launchRef = cashLaunchDocPath(userId, launchId);
-    const launch = previousLaunch ?? (await readLaunchInTransaction(transaction, userId, launchId)).launch;
+    const launch = (await readLaunchInTransaction(transaction, userId, launchId)).launch;
 
     if (launch.stockDeducted === true) {
       const batchId = createId(`stock-${launchId}-exclusao`);
-      const { adjustments } = await collectStockAdjustments(transaction, userId, launch.items || [], 'restore');
-      applyStockAdjustments(transaction, userId, launch, adjustments, 'restore', now, batchId);
+      const movementId = launch.stockMovementId || legacyMovementId;
+      if (!movementId) throw new Error('Nao foi possivel identificar a baixa original desta O.S.; estorno bloqueado para proteger o estoque.');
+      const originalMovement = await readOriginalMovement(userId, launch, movementId, transaction);
+      const adjustments = await collectExactReversalAdjustments(transaction, userId, originalMovement);
+      const operation = applyStockAdjustments(transaction, userId, launch, adjustments, 'restore', now, batchId);
       transaction.update(launchRef, {
         ...metadata,
         stockDeducted: false,
         stockDeductedAt: null,
-        stockMovementBatchId: null,
+        stockMovementBatchId: operation?.data.batchId || null,
+        stockMovementId: operation?.id || null,
       });
       return;
     }
@@ -874,7 +1054,7 @@ const restoreWithStockTransaction = async (userId: string, launchId: string, pre
       const operation = applyStockAdjustments(batch, userId, launch, adjustments, 'deduct', now, batchId);
       launchPatch = {
         ...metadata,
-        ...stockMetadata(adjustments.length > 0, now, batchId),
+        ...stockMetadata(adjustments.length > 0, now, batchId, operation?.id || null),
         stockShortageItems: toPersistedStockShortages(shortages),
         updatedAt: now,
       };
@@ -895,15 +1075,15 @@ const restoreWithStockTransaction = async (userId: string, launchId: string, pre
 
   await runTransaction(db, async (transaction) => {
     const launchRef = cashLaunchDocPath(userId, launchId);
-    const launch = previousLaunch ?? (await readLaunchInTransaction(transaction, userId, launchId)).launch;
+    const launch = (await readLaunchInTransaction(transaction, userId, launchId)).launch;
 
     if (launch.status === 'Finalizado' && launch.stockDeducted !== true) {
       const batchId = createId(`stock-${launchId}-restauracao`);
       const { adjustments, shortages } = await collectStockAdjustments(transaction, userId, launch.items || [], 'deduct');
-      applyStockAdjustments(transaction, userId, launch, adjustments, 'deduct', now, batchId);
+      const operation = applyStockAdjustments(transaction, userId, launch, adjustments, 'deduct', now, batchId);
       transaction.update(launchRef, {
         ...metadata,
-        ...stockMetadata(adjustments.length > 0, now, batchId),
+        ...stockMetadata(adjustments.length > 0, now, batchId, operation?.id || null),
         stockShortageItems: toPersistedStockShortages(shortages),
         updatedAt: now,
       });
@@ -920,6 +1100,24 @@ const restoreWithStockTransaction = async (userId: string, launchId: string, pre
 
 export const cashRegisterRepository = {
   addStockForInsufficientLaunch: addStockForCashLaunchShortage,
+
+  async recordCardSettlement(userId: string, launch: CashRegisterLaunch, paymentEntryId: string, settledAt: string) {
+    const entries = launch.paymentEntries || [];
+    const target = entries.find((entry) => entry.id === paymentEntryId);
+    if (!target || target.settledAt || !['Debito', 'Credito'].includes(target.method)) return false;
+    const patch = withFirestoreSyncTimestamp({
+      accountingVersion: 1,
+      paymentEntries: entries.map((entry) => entry.id === paymentEntryId ? { ...entry, settledAt } : entry),
+      updatedAt: new Date().toISOString(),
+    });
+    await queueFirestoreVoidWrite(
+      () => updateDoc(cashLaunchDocPath(userId, launch.id), patch),
+      'Registrar repasse da operadora',
+      createFirestoreReplayDescriptor('update', cashLaunchReplayPath(userId, launch.id), patch),
+    );
+    notifyFirestoreLocalCollectionsChanged(userId, ['cash_launches']);
+    return true;
+  },
 
   async create(userId: string, data: CashRegisterWriteData): Promise<CashRegisterSaveResult> {
     validateCashLaunchData(data);
@@ -949,7 +1147,8 @@ export const cashRegisterRepository = {
     const writeData = withFirestoreSyncTimestamp({ ...data, userId });
 
     const nextStatus = writeData.status || previousLaunch?.status;
-    const needsStockTransaction = shouldUseStockTransaction(previousLaunch, nextStatus);
+    const needsStockTransaction = isFirestoreNetworkEnabled()
+      || shouldUseStockTransaction(previousLaunch, nextStatus);
 
     if (needsStockTransaction) {
       return updateWithStockTransaction(userId, launchId, writeData, previousLaunch);
@@ -965,18 +1164,7 @@ export const cashRegisterRepository = {
 
   async delete(userId: string, launchId: string, reason?: string, previousLaunch?: CashRegisterLaunch) {
     const metadata = createSoftDeleteMetadata(userId, reason);
-    const requiresStockRestore = shouldUseStockRestoreOnDelete(previousLaunch);
-
-    if (requiresStockRestore) {
-      await deleteWithStockTransaction(userId, launchId, metadata, previousLaunch);
-      return;
-    }
-
-    await queueFirestoreVoidWrite(
-      () => setDoc(cashLaunchDocPath(userId, launchId), metadata, { merge: true }),
-      'Arquivar lancamento de caixa',
-      createFirestoreReplayDescriptor('update', cashLaunchReplayPath(userId, launchId), metadata)
-    );
+    await deleteWithStockTransaction(userId, launchId, metadata, previousLaunch);
   },
 
   async restore(userId: string, launchId: string, previousLaunch?: CashRegisterLaunch) {

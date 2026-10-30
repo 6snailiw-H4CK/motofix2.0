@@ -5,7 +5,7 @@ import { useCallback, useState } from 'react';
 import { toast as sonnerToast } from 'sonner';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
 import { getFirestoreSaveResultMessage } from '../services/firestoreSaveStatus';
-import { recordOperationalLog } from '../services/operationalLogRepository';
+import { getOperationalChangedFields, recordOperationalLog } from '../services/operationalLogRepository';
 import { shouldGenerateWarrantyPdf } from '../services/warrantyPdfGuard';
 import { warrantyRepository } from '../services/warrantyRepository';
 import type { Settings, Warranty } from '../types';
@@ -156,6 +156,20 @@ export const useWarrantyActions = ({
     try {
       if (editingWarranty) {
         await warrantyRepository.update(user.uid, editingWarranty.id, finalData);
+        recordOperationalLog({
+          userId: user.uid,
+          usuario: user.email,
+          oficina: workshopName || settings?.businessName,
+          acao: 'garantia_atualizada',
+          targetId: editingWarranty.id,
+          details: {
+            module: 'Garantias',
+            fields: getOperationalChangedFields(
+              editingWarranty as unknown as Record<string, unknown>,
+              finalData as unknown as Record<string, unknown>,
+            ),
+          },
+        });
         sonnerToast.success(getFirestoreSaveResultMessage('Garantia atualizada com sucesso!'));
       } else {
         const { id: warrantyId, remoteConfirmed } = await warrantyRepository.create(user.uid, finalData);
@@ -165,7 +179,7 @@ export const useWarrantyActions = ({
           oficina: workshopName || settings?.businessName,
           acao: 'garantia_criada',
           targetId: warrantyId,
-          details: { clientName: finalData.clientName, warrantyNumber: finalData.warrantyNumber },
+          details: { module: 'Garantias', fields: ['cliente', 'serviço', 'valor', 'duração', 'vencimento'] },
         });
         sonnerToast.success(remoteConfirmed
           ? 'Garantia registrada e confirmada pelo servidor!'
@@ -194,11 +208,26 @@ export const useWarrantyActions = ({
 
     try {
       await warrantyRepository.remove(user.uid, id);
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName || settings?.businessName,
+        acao: 'garantia_removida',
+        targetId: id,
+        details: { module: 'Garantias' },
+      });
       onDeleted();
       sonnerToast.success(getFirestoreSaveResultMessage('Garantia movida para a lixeira.'), {
         action: {
           label: 'Desfazer',
-          onClick: () => void warrantyRepository.restore(user.uid, id),
+          onClick: () => void warrantyRepository.restore(user.uid, id).then(() => recordOperationalLog({
+            userId: user.uid,
+            usuario: user.email,
+            oficina: workshopName || settings?.businessName,
+            acao: 'garantia_restaurada',
+            targetId: id,
+            details: { module: 'Garantias' },
+          })),
         },
       });
     } catch (error) {

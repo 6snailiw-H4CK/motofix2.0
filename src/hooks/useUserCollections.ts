@@ -75,6 +75,10 @@ import {
 } from '../services/firestoreNetworkControl';
 import { preloadUserOfflineData, shouldPreloadOfflineData } from '../services/offlineDataPreload';
 import { recordFirestorePreload } from '../debug/firestoreDebug';
+import {
+  getServerConfirmedOperationalLogIds,
+  rememberServerConfirmedOperationalLogs,
+} from '../services/operationalLogSyncStatus';
 
 export type CollectionListenerIssue = {
   key: string;
@@ -116,6 +120,7 @@ type UseUserCollectionsResult = {
   operationalLogs: OperationalLog[];
   collectionListenerIssues: CollectionListenerIssue[];
   refreshCurrentView: () => Promise<CollectionSyncResult>;
+  refreshAllCollections: () => Promise<CollectionSyncResult>;
   isRefreshingCollections: boolean;
   lastCollectionsSyncedAt: string | null;
 };
@@ -365,7 +370,28 @@ export function useUserCollections({
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
         break;
       case 'operational_logs':
-        setOperationalLogs(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as OperationalLog)));
+        {
+          const serverConfirmedIds = snapshot.metadata.fromCache
+            ? []
+            : snapshot.docs
+              .filter((item) => !item.metadata.hasPendingWrites)
+              .map((item) => item.id);
+          rememberServerConfirmedOperationalLogs(userId, serverConfirmedIds);
+          const knownServerConfirmedIds = getServerConfirmedOperationalLogIds(userId);
+          setOperationalLogs(snapshot.docs.map((item) => {
+            const data = item.data();
+            const serverConfirmed = !item.metadata.hasPendingWrites
+              && (serverConfirmedIds.includes(item.id) || knownServerConfirmedIds.has(item.id));
+            const syncStatus: OperationalLog['syncStatus'] = item.metadata.hasPendingWrites
+              ? 'pendente'
+              : serverConfirmed
+                ? 'sincronizado'
+                : data.resultado === 'salvo_offline'
+                  ? 'offline'
+                  : 'nao_verificado';
+            return { id: item.id, ...data, syncStatus } as OperationalLog;
+          }));
+        }
         break;
       case 'message_logs':
         setMessageLogs(mapActiveDocuments<MessageLog>(snapshot.docs)
@@ -695,6 +721,10 @@ export function useUserCollections({
     () => syncCollections(activeCollections, true),
     [activeCollections, syncCollections]
   );
+  const refreshAllCollections = useCallback(
+    () => syncCollections(allUserCollectionKeys, true),
+    [syncCollections]
+  );
 
   useEffect(() => {
     const resetCollections = () => {
@@ -792,6 +822,7 @@ export function useUserCollections({
     operationalLogs,
     collectionListenerIssues: Object.values(collectionListenerIssuesByKey).sort((a, b) => b.at.localeCompare(a.at)),
     refreshCurrentView,
+    refreshAllCollections,
     isRefreshingCollections,
     lastCollectionsSyncedAt,
   };

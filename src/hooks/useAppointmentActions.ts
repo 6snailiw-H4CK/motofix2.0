@@ -6,6 +6,7 @@ import { parseBrazilianCurrency } from '../lib/money';
 import { appointmentRepository } from '../services/appointmentRepository';
 import { getFirestoreSaveResultMessage } from '../services/firestoreSaveStatus';
 import { clearLocalDraft, loadLocalDraft, saveLocalDraft } from '../services/localDrafts';
+import { recordOperationalLog } from '../services/operationalLogRepository';
 import type { Appointment } from '../types';
 
 export type AppointmentFormValues = {
@@ -19,10 +20,11 @@ export type AppointmentFormValues = {
 
 type UseAppointmentActionsParams = {
   user: User | null;
+  workshopName?: string;
   onDeleted: () => void;
 };
 
-export const useAppointmentActions = ({ user, onDeleted }: UseAppointmentActionsParams) => {
+export const useAppointmentActions = ({ user, workshopName, onDeleted }: UseAppointmentActionsParams) => {
   const [clientName, setClientName] = useState('');
   const [bikeModel, setBikeModel] = useState('');
   const [date, setDate] = useState('');
@@ -118,7 +120,7 @@ export const useAppointmentActions = ({ user, onDeleted }: UseAppointmentActions
     }
 
     try {
-      await appointmentRepository.create(user.uid, {
+      const appointmentId = await appointmentRepository.create(user.uid, {
         clientName: clientName.trim(),
         bikeModel: bikeModel.trim(),
         scheduledDate: date,
@@ -128,6 +130,15 @@ export const useAppointmentActions = ({ user, onDeleted }: UseAppointmentActions
         createdAt: new Date().toISOString(),
         userId: user.uid,
         completed: false,
+      });
+
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName,
+        acao: 'agendamento_criado',
+        targetId: appointmentId,
+        details: { module: 'Agenda', fields: ['cliente', 'moto/modelo', 'data', 'endereço', 'serviço solicitado', 'valor'] },
       });
 
       clearLocalDraft(draftKey);
@@ -142,7 +153,7 @@ export const useAppointmentActions = ({ user, onDeleted }: UseAppointmentActions
       setMessage('Erro ao salvar agendamento. Tente novamente.');
       return false;
     }
-  }, [address, bikeModel, clientName, date, draftKey, resetForm, serviceRequested, user, value]);
+  }, [address, bikeModel, clientName, date, draftKey, resetForm, serviceRequested, user, value, workshopName]);
 
   const toggleAppointmentCompleted = useCallback(async (appointment: Appointment) => {
     if (!user?.uid || !appointment?.id || appointment.completed) return;
@@ -151,30 +162,53 @@ export const useAppointmentActions = ({ user, onDeleted }: UseAppointmentActions
       await appointmentRepository.update(user.uid, appointment.id, {
         completed: true,
       });
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName,
+        acao: 'agendamento_concluido',
+        targetId: appointment.id,
+        details: { module: 'Agenda', fields: ['status'] },
+      });
       sonnerToast.success(getFirestoreSaveResultMessage('Agendamento marcado como concluído.'));
     } catch (error) {
       console.error('Erro ao atualizar status de agendamento:', error);
       sonnerToast.error('Falha ao marcar o agendamento.');
     }
-  }, [user]);
+  }, [user, workshopName]);
 
   const deleteAppointment = useCallback(async (id: string | undefined) => {
     if (!user?.uid || !id) return;
 
     try {
       await appointmentRepository.remove(user.uid, id);
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName,
+        acao: 'agendamento_removido',
+        targetId: id,
+        details: { module: 'Agenda' },
+      });
       onDeleted();
       sonnerToast.success(getFirestoreSaveResultMessage('Agendamento movido para a lixeira.'), {
         action: {
           label: 'Desfazer',
-          onClick: () => void appointmentRepository.restore(user.uid, id),
+          onClick: () => void appointmentRepository.restore(user.uid, id).then(() => recordOperationalLog({
+            userId: user.uid,
+            usuario: user.email,
+            oficina: workshopName,
+            acao: 'agendamento_restaurado',
+            targetId: id,
+            details: { module: 'Agenda' },
+          })),
         },
       });
     } catch (error) {
       console.error('Erro ao excluir agendamento:', error);
       sonnerToast.error('Erro ao excluir agendamento.');
     }
-  }, [onDeleted, user]);
+  }, [onDeleted, user, workshopName]);
 
   return {
     calendarMonth,

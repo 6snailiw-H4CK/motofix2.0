@@ -16,6 +16,28 @@ type OperationalLogInput = {
 
 const operationalLogCollectionPath = (userId: string) => collection(db, 'users', userId, 'operational_logs');
 
+const operationalMetadataFields = new Set([
+  'id', 'userId', 'createdAt', 'updatedAt', 'timestamp', 'orderNumber',
+]);
+
+const hasAuditValue = (value: unknown) => {
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (typeof value === 'number') return Number.isFinite(value) && value !== 0;
+  if (typeof value === 'boolean') return value;
+  if (Array.isArray(value)) return value.length > 0;
+  return Boolean(value && typeof value === 'object' && Object.keys(value).length > 0);
+};
+
+/** Returns changed field names only, so operational history never needs to store field values. */
+export const getOperationalChangedFields = (
+  before: Record<string, unknown> | null | undefined,
+  after: Record<string, unknown>,
+) => Object.keys(after).filter((field) => {
+  if (operationalMetadataFields.has(field)) return false;
+  if (!before) return hasAuditValue(after[field]);
+  return JSON.stringify(before[field]) !== JSON.stringify(after[field]);
+});
+
 export const recordOperationalLog = ({
   userId,
   usuario,

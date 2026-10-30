@@ -10,7 +10,7 @@ import {
 import { createRestoreMetadata, createSoftDeleteMetadata } from './softDelete';
 import { applyStockOperation } from './stockTransaction';
 import { notifyFirestoreLocalCollectionsChanged } from './firestoreCollectionSync';
-import { isFirestoreNetworkEnabled } from './firestoreNetworkControl';
+import { isFirestoreNetworkEnabled, withFirestoreNetworkSession } from './firestoreNetworkControl';
 
 type ProductWriteData = Omit<ProductCatalogItem, 'id' | 'userId' | 'importedAt' | 'createdAt' | 'updatedAt'>;
 
@@ -424,7 +424,7 @@ export const productRepository = {
       ...(productId ? {} : { importedAt: now, createdAt: now }),
     };
 
-    if (isFirestoreNetworkEnabled()) {
+    const saveAgainstServer = async () => {
       await runTransaction(db, async (transaction) => {
         const snapshot = await transaction.get(ref);
         const current = snapshot.exists() ? snapshot.data() as ProductCatalogItem : undefined;
@@ -462,6 +462,16 @@ export const productRepository = {
           createdAt: now,
         });
       });
+    };
+
+    const browserOnline = typeof navigator === 'undefined' || navigator.onLine !== false;
+    if (isFirestoreNetworkEnabled()) {
+      await saveAgainstServer();
+    } else if (browserOnline) {
+      // Stock edits made while the app's periodic Firestore gate is closed
+      // still need a fresh server baseline. Otherwise a cached quantity can
+      // create a stale movement that Firestore rules correctly reject later.
+      await withFirestoreNetworkSession(userId, saveAgainstServer);
     } else {
       let snapshot = null;
       try {

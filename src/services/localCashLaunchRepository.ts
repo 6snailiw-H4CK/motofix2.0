@@ -4,7 +4,53 @@ const LOCAL_CASH_LAUNCHES_STORAGE_KEY = 'motofix:local-cash-launches';
 const LOCAL_PRODUCTS_STORAGE_KEY = 'motofix:local-products';
 export const LOCAL_CASH_LAUNCHES_UPDATED_EVENT = 'motofix:local-cash-launches-updated';
 
-const canUseWindow = () => typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+const canUseWindow = () => {
+  try {
+    return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+  } catch {
+    return false;
+  }
+};
+
+/** Read-only audit for business records stored outside Firestore while offline. */
+export const inspectLocalOperationalStorage = () => {
+  if (!canUseWindow()) {
+    return { readable: false, malformedCount: 0, cashLaunches: [] as CashRegisterLaunch[], products: [] as ProductCatalogItem[] };
+  }
+
+  try {
+    const parseArray = <T extends { id?: unknown }>(key: string) => {
+      let raw: string | null;
+      try { raw = window.localStorage.getItem(key); }
+      catch { return { records: [] as T[], malformedCount: 1 }; }
+      if (raw === null) return { records: [] as T[], malformedCount: 0 };
+      let parsed: unknown;
+      try { parsed = JSON.parse(raw); }
+      catch { return { records: [] as T[], malformedCount: 1 }; }
+      if (!Array.isArray(parsed)) return { records: [] as T[], malformedCount: 1 };
+      const malformedCount = parsed.filter((record) => (
+        !record || typeof record !== 'object' || Array.isArray(record)
+        || typeof (record as { id?: unknown }).id !== 'string'
+        || !(record as { id: string }).id.trim()
+      )).length;
+      return {
+        records: parsed.filter((record): record is T => Boolean(record && typeof record === 'object' && !Array.isArray(record)
+          && typeof (record as { id?: unknown }).id === 'string' && Boolean((record as { id: string }).id.trim()))),
+        malformedCount,
+      };
+    };
+    const launches = parseArray<CashRegisterLaunch>(LOCAL_CASH_LAUNCHES_STORAGE_KEY);
+    const products = parseArray<ProductCatalogItem>(LOCAL_PRODUCTS_STORAGE_KEY);
+    return {
+      readable: launches.malformedCount === 0 && products.malformedCount === 0,
+      malformedCount: launches.malformedCount + products.malformedCount,
+      cashLaunches: launches.records,
+      products: products.records,
+    };
+  } catch {
+    return { readable: false, malformedCount: 0, cashLaunches: [] as CashRegisterLaunch[], products: [] as ProductCatalogItem[] };
+  }
+};
 
 const sortLaunches = (launches: CashRegisterLaunch[]) => (
   [...launches].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())

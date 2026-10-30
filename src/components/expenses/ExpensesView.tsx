@@ -15,7 +15,8 @@ import {
 } from 'recharts';
 import { ArrowLeft, CalendarDays, ChartNoAxesColumnIncreasing, CreditCard, Plus, Receipt, Store, TrendingUp, Wallet, X } from 'lucide-react';
 import { DateInput } from '../DateInput';
-import type { ExpenseRecord } from '../../types';
+import { parseBrazilianCurrency } from '../../lib/money';
+import type { CashPaymentMethod, ExpenseRecord } from '../../types';
 
 type ExpensesViewProps = {
   expenseEntries: ExpenseRecord[];
@@ -24,6 +25,7 @@ type ExpensesViewProps = {
   amount: string;
   paymentMethod: string;
   date: string;
+  dueDate: string;
   note: string;
   isSaving: boolean;
   onBack: () => void;
@@ -32,9 +34,11 @@ type ExpensesViewProps = {
   onAmountChange: (value: string) => void;
   onPaymentMethodChange: (value: string) => void;
   onDateChange: (value: string) => void;
+  onDueDateChange: (value: string) => void;
   onNoteChange: (value: string) => void;
   onSaveExpense: (canonicalSupplier?: string) => Promise<void> | void;
   onDeleteExpense: (expenseId: string) => Promise<void> | void;
+  onSettleExpense: (expense: ExpenseRecord, amount: number, method: CashPaymentMethod, date: string) => Promise<void> | void;
   onResetForm: () => void;
 };
 
@@ -60,6 +64,7 @@ export const ExpensesView = ({
   amount,
   paymentMethod,
   date,
+  dueDate,
   note,
   isSaving,
   onBack,
@@ -68,13 +73,16 @@ export const ExpensesView = ({
   onAmountChange,
   onPaymentMethodChange,
   onDateChange,
+  onDueDateChange,
   onNoteChange,
   onSaveExpense,
   onDeleteExpense,
+  onSettleExpense,
   onResetForm,
 }: ExpensesViewProps) => {
   const [isExpenseFormOpen, setIsExpenseFormOpen] = useState(false);
   const [openSupplierKey, setOpenSupplierKey] = useState<string | null>(null);
+  const [settlementDraft, setSettlementDraft] = useState<{ expenseId: string; amount: string; method: CashPaymentMethod; date: string } | null>(null);
   const [periodStart, setPeriodStart] = useState(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [periodEnd, setPeriodEnd] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const filteredExpenseEntries = useMemo(
@@ -237,6 +245,16 @@ export const ExpensesView = ({
                   className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-sm text-white outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/10"
                 />
               </div>
+              {paymentMethod === 'Credito' && (
+                <div className="space-y-1.5 sm:col-span-1 xl:col-span-3">
+                  <label className="px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Vencimento da fatura</label>
+                  <DateInput
+                    value={dueDate}
+                    onChange={onDueDateChange}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2.5 text-sm text-white outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/10"
+                  />
+                </div>
+              )}
               <div className="space-y-1.5 sm:col-span-1 xl:col-span-3">
                 <label className="px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Forma de pagamento</label>
                 <select
@@ -400,7 +418,7 @@ export const ExpensesView = ({
                   <th className="px-4 py-3">Data</th>
                   <th className="px-4 py-3">Descricao</th>
                   <th className="px-4 py-3">Fornecedor</th>
-                  <th className="px-4 py-3">Metodo</th>
+                  <th className="px-4 py-3">Metodo / conta</th>
                   <th className="px-4 py-3 text-right">Valor</th>
                   <th className="px-4 py-3 text-right">Acao</th>
                 </tr>
@@ -419,9 +437,29 @@ export const ExpensesView = ({
                         <CreditCard className="h-3 w-3 text-slate-400" />
                         {entry.paymentMethod}
                       </span>
+                      {entry.accountingVersion === 1 && entry.paymentMethod === 'Credito' && (
+                        <p className="mt-1 text-[10px] font-semibold text-amber-300">
+                          A pagar: {currency.format(Math.max(0, entry.amount - (entry.settlementEntries || []).reduce((sum, row) => sum + (Number(row.amount) || 0), 0)))}
+                        </p>
+                      )}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 text-right text-xs font-black text-primary">{currency.format(entry.amount)}</td>
                     <td className="whitespace-nowrap px-4 py-3 text-right">
+                      {entry.accountingVersion === 1 && entry.paymentMethod === 'Credito'
+                        && entry.amount - (entry.settlementEntries || []).reduce((sum, row) => sum + (Number(row.amount) || 0), 0) > 0.009 && (
+                        <button
+                          type="button"
+                          onClick={() => setSettlementDraft({
+                            expenseId: entry.id,
+                            amount: String(Math.max(0, entry.amount - (entry.settlementEntries || []).reduce((sum, row) => sum + (Number(row.amount) || 0), 0)).toFixed(2)),
+                            method: 'Pix',
+                            date: format(new Date(), 'yyyy-MM-dd'),
+                          })}
+                          className="mr-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-[10px] font-bold text-emerald-200 hover:bg-emerald-500/20"
+                        >
+                          Registrar pagamento
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => void onDeleteExpense(entry.id)}
@@ -437,6 +475,48 @@ export const ExpensesView = ({
           </div>
         )}
       </section>
+
+      {settlementDraft && (() => {
+        const expense = expenseEntries.find((entry) => entry.id === settlementDraft.expenseId);
+        if (!expense) return null;
+        return (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm">
+            <form
+              className="w-full max-w-md space-y-4 rounded-2xl border border-slate-700 bg-slate-950 p-5 shadow-2xl"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const value = parseBrazilianCurrency(settlementDraft.amount, Number.NaN);
+                if (!Number.isFinite(value) || value <= 0) return;
+                void onSettleExpense(expense, value, settlementDraft.method, settlementDraft.date);
+                setSettlementDraft(null);
+              }}
+            >
+              <div>
+                <h3 className="text-lg font-black text-white">Registrar pagamento da fatura</h3>
+                <p className="mt-1 text-xs text-slate-400">O gasto original permanece na data da compra; este lançamento registra somente a saída de caixa.</p>
+              </div>
+              <label className="block space-y-1 text-xs text-slate-300">
+                Valor pago
+                <input required inputMode="decimal" value={settlementDraft.amount} onChange={(event) => setSettlementDraft((current) => current ? { ...current, amount: event.target.value } : current)} className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-white" />
+              </label>
+              <label className="block space-y-1 text-xs text-slate-300">
+                Meio usado para quitar
+                <select value={settlementDraft.method} onChange={(event) => setSettlementDraft((current) => current ? { ...current, method: event.target.value as CashPaymentMethod } : current)} className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-white">
+                  <option value="Pix">Pix</option><option value="Debito">Débito</option><option value="Dinheiro">Dinheiro</option><option value="Credito">Crédito</option>
+                </select>
+              </label>
+              <label className="block space-y-1 text-xs text-slate-300">
+                Data do pagamento
+                <DateInput value={settlementDraft.date} onChange={(value) => setSettlementDraft((current) => current ? { ...current, date: value } : current)} className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-white" />
+              </label>
+              <div className="flex justify-end gap-2">
+                <button type="button" onClick={() => setSettlementDraft(null)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300">Cancelar</button>
+                <button type="submit" className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white">Salvar pagamento</button>
+              </div>
+            </form>
+          </div>
+        );
+      })()}
 
       <section className="space-y-3 rounded-2xl border border-slate-800 bg-slate-900/35 p-4">
         <div className="flex items-center justify-between gap-3">

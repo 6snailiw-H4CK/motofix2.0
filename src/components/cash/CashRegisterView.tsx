@@ -31,6 +31,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import { parseBrazilianCurrency } from '../../lib/money';
+import { createPaymentEntries, getPaymentStatusForOrderStatus, validatePaymentAllocation } from '../../lib/financialLedger';
 import { DateInput } from '../DateInput';
 import { getCashPaymentStatus, getCashReceivableAmount, type CashPaymentStatus } from '../../lib/cashPayments';
 import { cn, safeFormat } from '../../lib/utils';
@@ -97,6 +98,7 @@ type CashRegisterLocalDraft = {
   valorPagoInput: string;
   isInvoiced: boolean;
   paymentMethod?: CashPaymentMethod | '';
+  paymentEntriesInput?: Array<{ method: CashPaymentMethod | ''; amount: string }>;
   openingDate: string;
   expectedDate: string;
   observation: string;
@@ -291,6 +293,12 @@ export const CashRegisterView = ({
   const [valorPagoInput, setValorPagoInput] = useState('');
   const [isInvoiced, setIsInvoiced] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<CashPaymentMethod | ''>('');
+  const [paymentEntriesInput, setPaymentEntriesInput] = useState<Array<{ method: CashPaymentMethod | ''; amount: string }>>([{ method: '', amount: '' }]);
+  const [isFinalizePaymentModalOpen, setIsFinalizePaymentModalOpen] = useState(false);
+  const previousStatusBeforeFinalize = useRef<CashRegisterLaunch['status']>('Em Lancamento');
+  const previousPaymentStatusBeforeFinalize = useRef<CashPaymentStatus>('Pendente');
+  const previousInvoicedBeforeFinalize = useRef(false);
+  const previousPaymentEntriesBeforeFinalize = useRef<Array<{ method: CashPaymentMethod | ''; amount: string }>>([{ method: '', amount: '' }]);
   const [openingDate, setOpeningDate] = useState(today());
   const [expectedDate, setExpectedDate] = useState(today());
   const [observation, setObservation] = useState('');
@@ -307,7 +315,7 @@ export const CashRegisterView = ({
   const [monitoringStatusFilter, setMonitoringStatusFilter] = useState<MonitoringStatusFilter>('all');
   const [monitoringDateFilter, setMonitoringDateFilter] = useState('');
   const [monitoringSearch, setMonitoringSearch] = useState('');
-  const [invoiceSuccess, setInvoiceSuccess] = useState<{ orderNumber: string; paymentMethod: CashPaymentMethod; total: number } | null>(null);
+  const [invoiceSuccess, setInvoiceSuccess] = useState<{ orderNumber: string; paymentMethods: CashPaymentMethod[]; total: number } | null>(null);
   const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [isQuickClientOpen, setIsQuickClientOpen] = useState(false);
   const [isSavingQuickClient, setIsSavingQuickClient] = useState(false);
@@ -333,6 +341,7 @@ export const CashRegisterView = ({
       setValorPagoInput(draft.data.valorPagoInput || '');
       setIsInvoiced(Boolean(draft.data.isInvoiced));
       setPaymentMethod(draft.data.paymentMethod || '');
+      setPaymentEntriesInput(draft.data.paymentEntriesInput?.length ? draft.data.paymentEntriesInput : [{ method: '', amount: '' }]);
       setOpeningDate(draft.data.openingDate || today());
       setExpectedDate(draft.data.expectedDate || today());
       setObservation(draft.data.observation || '');
@@ -436,6 +445,10 @@ export const CashRegisterView = ({
       .slice(0, 5)
   ), [cashLaunches]);
 
+  const editingStockShortages = editingLaunchId
+    ? cashLaunches.find((launch) => launch.id === editingLaunchId)?.stockShortageItems || []
+    : [];
+
   useEffect(() => {
     if (!invoiceSuccess) return undefined;
 
@@ -486,6 +499,10 @@ export const CashRegisterView = ({
 
     return { paid, balance: Math.max(0, total - paid) };
   }, [statusPagamento, totals.total, valorPagoInput]);
+
+  const amountToReceiveNow = Math.max(0, totals.total - (editingLaunchId
+    ? Math.max(0, Number(cashLaunches.find((launch) => launch.id === editingLaunchId)?.valorPago || 0))
+    : 0));
 
   const selectedClient = clients.find((client) => client.id === selectedClientId);
 
@@ -706,6 +723,7 @@ export const CashRegisterView = ({
     setValorPagoInput(launch.statusPagamento === 'Parcial' ? String(launch.valorPago || 0) : '');
     setIsInvoiced(launch.status === 'Finalizado' && Boolean(launch.invoiced));
     setPaymentMethod(launch.paymentMethod || '');
+    setPaymentEntriesInput([{ method: '', amount: '' }]);
     setOpeningDate(launch.openingDate || today());
     setExpectedDate(launch.expectedDate || today());
     setObservation(launch.observation || '');
@@ -739,6 +757,8 @@ export const CashRegisterView = ({
     setValorPagoInput('');
     setIsInvoiced(false);
     setPaymentMethod('');
+    setPaymentEntriesInput([{ method: '', amount: '' }]);
+    setIsFinalizePaymentModalOpen(false);
     setOpeningDate(today());
     setExpectedDate(today());
     setObservation('');
@@ -767,11 +787,44 @@ export const CashRegisterView = ({
     setInvoiceSuccess(null);
   };
 
+  const openFinalizePaymentModal = () => {
+    previousStatusBeforeFinalize.current = status;
+    previousPaymentStatusBeforeFinalize.current = statusPagamento;
+    previousInvoicedBeforeFinalize.current = isInvoiced;
+    previousPaymentEntriesBeforeFinalize.current = paymentEntriesInput;
+    setStatus('Finalizado');
+    setStatusPagamento('Pago');
+    setValorPagoInput('');
+    setIsInvoiced(true);
+    setPaymentEntriesInput([{ method: '', amount: amountToReceiveNow > 0 ? amountToReceiveNow.toFixed(2).replace('.', ',') : '' }]);
+    setIsFinalizePaymentModalOpen(true);
+  };
+
   const handleStatusChange = (nextStatus: CashRegisterLaunch['status']) => {
+    if (nextStatus === 'Finalizado' && status !== 'Finalizado') {
+      openFinalizePaymentModal();
+      return;
+    }
+
     setStatus(nextStatus);
+    const forcedPaymentStatus = getPaymentStatusForOrderStatus(nextStatus);
+    if (forcedPaymentStatus) {
+      setStatusPagamento(forcedPaymentStatus);
+      setValorPagoInput('');
+    }
     if (nextStatus !== 'Finalizado') {
       setIsInvoiced(false);
     }
+    if (nextStatus === 'Cancelado' || nextStatus === 'Pendente') setPaymentEntriesInput([{ method: '', amount: '' }]);
+  };
+
+  const cancelFinalizePayment = () => {
+    const priorStatus = previousStatusBeforeFinalize.current;
+    setStatus(priorStatus);
+    setStatusPagamento(previousPaymentStatusBeforeFinalize.current);
+    setIsInvoiced(previousInvoicedBeforeFinalize.current);
+    setPaymentEntriesInput(previousPaymentEntriesBeforeFinalize.current);
+    setIsFinalizePaymentModalOpen(false);
   };
 
   const handlePaymentStatusChange = (nextStatus: CashPaymentStatus) => {
@@ -789,6 +842,22 @@ export const CashRegisterView = ({
         ? paymentSummary.paid
         : 0;
     const finalBalance = Math.max(0, totals.total - finalPaid);
+    const previousPaid = editingLaunchId
+      ? Math.max(0, Number(cashLaunches.find((launch) => launch.id === editingLaunchId)?.valorPago || 0))
+      : 0;
+    const receiptDelta = finalStatus === 'Finalizado' ? Math.max(0, finalPaid - previousPaid) : 0;
+    const receiptAt = new Date().toISOString();
+    const allocationInputs = paymentEntriesInput.map((entry) => ({
+      method: entry.method,
+      amount: parseBrazilianCurrency(entry.amount, 0),
+    }));
+    const newPaymentEntries = receiptDelta > 0 && !validatePaymentAllocation(receiptDelta, allocationInputs)
+      ? createPaymentEntries(receiptDelta, paymentEntriesInput.map((entry) => ({
+          method: entry.method,
+          amount: parseBrazilianCurrency(entry.amount, 0),
+        })), receiptAt, makeId)
+      : [];
+    const previousPaymentEntries = cashLaunches.find((launch) => launch.id === editingLaunchId)?.paymentEntries || [];
 
     return {
       ...(selectedClientId ? { clientId: selectedClientId } : {}),
@@ -811,7 +880,11 @@ export const CashRegisterView = ({
       valorPago: finalPaid,
       saldoDevedor: finalBalance,
       invoiced: finalInvoiced,
-      ...((finalPaid > 0 && paymentMethod) ? { paymentMethod } : {}),
+      ...((finalPaid > 0 && (paymentEntriesInput[0]?.method || paymentMethod)) ? { paymentMethod: (paymentEntriesInput[0]?.method || paymentMethod) as CashPaymentMethod } : {}),
+      ...(previousPaymentEntries.length || newPaymentEntries.length ? {
+        accountingVersion: 1 as const,
+        paymentEntries: [...previousPaymentEntries, ...newPaymentEntries],
+      } : {}),
     };
   };
 
@@ -832,6 +905,7 @@ export const CashRegisterView = ({
       || statusPagamento !== 'Pendente'
       || valorPagoInput.trim()
       || paymentMethod
+      || paymentEntriesInput.some((entry) => entry.amount.trim() || entry.method)
     );
 
     if (!hasContent) {
@@ -850,6 +924,7 @@ export const CashRegisterView = ({
       valorPagoInput,
       isInvoiced,
       paymentMethod,
+      paymentEntriesInput,
       openingDate,
       expectedDate,
       observation,
@@ -859,7 +934,7 @@ export const CashRegisterView = ({
       orderDiscountValueInput,
       orderDiscountPercentInput,
     });
-  }, [bikeModel, clientName, draftStorageKey, editingLaunchId, editingOrderNumber, expectedDate, isDraftHydrated, isInvoiced, items, observation, openingDate, orderDiscountPercentInput, orderDiscountValueInput, paymentMethod, request, selectedClientId, servicesExecuted, status, statusPagamento, valorPagoInput]);
+  }, [bikeModel, clientName, draftStorageKey, editingLaunchId, editingOrderNumber, expectedDate, isDraftHydrated, isInvoiced, items, observation, openingDate, orderDiscountPercentInput, orderDiscountValueInput, paymentEntriesInput, paymentMethod, request, selectedClientId, servicesExecuted, status, statusPagamento, valorPagoInput]);
 
   const handleSave = async (statusOverride?: CashRegisterLaunch['status'], invoiced = false) => {
     const isInvoiceAction = statusOverride === 'Finalizado' && invoiced;
@@ -867,13 +942,26 @@ export const CashRegisterView = ({
     const finalInvoiced = finalStatus === 'Finalizado' && (invoiced || isInvoiced);
     const finalPaymentStatus = finalInvoiced ? 'Pago' : statusPagamento;
     const finalPaid = finalPaymentStatus === 'Pago' ? totals.total : paymentSummary.paid;
+    const previousPaid = editingLaunchId ? Math.max(0, Number(cashLaunches.find((launch) => launch.id === editingLaunchId)?.valorPago || 0)) : 0;
+    const newReceiptAmount = finalStatus === 'Finalizado' ? Math.max(0, finalPaid - previousPaid) : 0;
 
-    if (finalPaid > 0 && !paymentMethod) {
-      sonnerToast.error('Informe a forma de pagamento antes de salvar um pagamento na O.S.');
+    if (finalStatus === 'Finalizado' && finalPaid < previousPaid - 0.01) {
+      sonnerToast.error('O valor recebido anteriormente não pode ser reduzido. Registre um estorno separado para devolver pagamentos.');
       return;
     }
 
-    const invoicePaymentMethod = finalInvoiced && paymentMethod ? paymentMethod : null;
+    const allocationError = validatePaymentAllocation(newReceiptAmount, paymentEntriesInput.map((entry) => ({
+      method: entry.method,
+      amount: parseBrazilianCurrency(entry.amount, 0),
+    })));
+    if (newReceiptAmount > 0 && allocationError) {
+      sonnerToast.error(`Distribua exatamente ${compactCurrency(newReceiptAmount)} entre as formas de pagamento. ${allocationError}`);
+      return;
+    }
+
+    const invoicePaymentMethods = finalInvoiced
+      ? Array.from(new Set(paymentEntriesInput.map((entry) => entry.method).filter((method): method is CashPaymentMethod => Boolean(method))))
+      : [];
     const successOrderNumber = editingOrderNumber || 'Novo lancamento';
     const successTotal = totals.total;
     const shouldAutoIssueFiscal = Boolean(invoiced && statusOverride === 'Finalizado' && fiscalAutoIssueEnabled && editingLaunchId);
@@ -895,13 +983,14 @@ export const CashRegisterView = ({
         : isFinalizedAction
           ? 'O.S. salva com sucesso.'
           : 'O.S. salva com sucesso.');
-      if (isInvoiceAction && invoicePaymentMethod) {
+      if (isInvoiceAction && invoicePaymentMethods.length) {
         setInvoiceSuccess({
           orderNumber: successOrderNumber,
-          paymentMethod: invoicePaymentMethod,
+          paymentMethods: invoicePaymentMethods,
           total: successTotal,
         });
       }
+      if (isInvoiceAction) setIsFinalizePaymentModalOpen(false);
       if (shouldAutoIssueFiscal && editingLaunchId && !isOfflineSave) {
         await Promise.resolve(onAutoIssueFiscalFromCashLaunch?.(editingLaunchId));
       }
@@ -941,7 +1030,7 @@ export const CashRegisterView = ({
             <div>
               <p className="font-black text-white">Faturamento confirmado</p>
               <p className="mt-0.5 text-xs text-emerald-100/80">
-                {invoiceSuccess.orderNumber} foi faturada com sucesso no valor de {compactCurrency(invoiceSuccess.total)} via {invoiceSuccess.paymentMethod}.
+                {invoiceSuccess.orderNumber} foi faturada com sucesso no valor de {compactCurrency(invoiceSuccess.total)}. Formas: {invoiceSuccess.paymentMethods.join(' + ')}.
               </p>
             </div>
           </div>
@@ -1018,6 +1107,23 @@ export const CashRegisterView = ({
               </div>
             )}
 
+            {status === 'Finalizado' && editingStockShortages.length > 0 && (
+              <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-3 text-amber-50">
+                <p className="text-xs font-black uppercase tracking-wide">Baixa parcial de estoque</p>
+                <p className="mt-1 text-xs text-amber-100/80">A O.S. foi finalizada, mas estes itens ficaram sem baixa por falta de saldo:</p>
+                <ul className="mt-2 space-y-1 text-xs">
+                  {editingStockShortages.map((shortage, index) => (
+                    <li key={`${shortage.productId}:${shortage.variationId || ''}:${index}`}>
+                      {shortage.productDescription}{shortage.variation ? ` (${shortage.variation})` : ''}: disponível {shortage.availableQuantity}, solicitado {shortage.requestedQuantity}.
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 border-t border-amber-500/20 pt-2 text-xs font-semibold text-amber-100">
+                  Para tentar a baixa novamente depois de repor o estoque, mude o status para Pendente e salve. Isso devolve ao estoque somente o que já havia sido baixado. Depois, abra a O.S. novamente e finalize.
+                </p>
+              </div>
+            )}
+
             {workTab === 'opening' ? (
               <div className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)] 2xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
                 <div className="space-y-4 rounded-2xl border border-slate-700/60 bg-slate-950/35 p-4 shadow-inner shadow-black/10">
@@ -1070,23 +1176,71 @@ export const CashRegisterView = ({
                   <div className="grid gap-3 rounded-xl border border-slate-700/60 bg-slate-900/55 p-3 md:grid-cols-2 xl:grid-cols-5">
                     <div className="space-y-1">
                       <label className={labelClass}>Pagamento</label>
-                      <select value={statusPagamento} onChange={(event) => handlePaymentStatusChange(event.target.value as CashPaymentStatus)} className={fieldClass}>
-                        {cashPaymentStatusOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                      </select>
+                      {status === 'Em Lancamento' ? (
+                        <select value={statusPagamento} onChange={(event) => handlePaymentStatusChange(event.target.value as CashPaymentStatus)} className={fieldClass}>
+                          {cashPaymentStatusOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                        </select>
+                      ) : (
+                        <div className={cn(fieldClass, 'flex items-center font-bold', status === 'Finalizado' ? 'text-emerald-300' : status === 'Cancelado' ? 'text-slate-400' : 'text-amber-200')}>
+                          {status === 'Cancelado' ? 'Sem pagamento (cancelada)' : statusPagamento}
+                        </div>
+                      )}
                     </div>
-                    {statusPagamento === 'Parcial' && (
+                    {status === 'Em Lancamento' && statusPagamento === 'Parcial' && (
                       <div className="space-y-1">
                         <label className={labelClass}>Valor pago R$</label>
                         <input value={valorPagoInput} onChange={(event) => setValorPagoInput(event.target.value)} inputMode="decimal" placeholder="0,00" className={fieldClass} />
                       </div>
                     )}
-                    {paymentSummary.paid > 0 && (
-                      <div className="space-y-1">
-                        <label className={labelClass}>Forma</label>
-                        <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value as CashPaymentMethod | '')} className={fieldClass}>
-                          <option value="">Selecione</option>
-                          {cashPaymentMethodOptions.map((option) => <option key={option} value={option}>{option}</option>)}
-                        </select>
+                    {status === 'Em Lancamento' && paymentSummary.paid > 0 && (
+                      <div className="space-y-2 md:col-span-2 xl:col-span-5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <label className={labelClass}>Formas de pagamento desta O.S.</label>
+                            <p className="text-[10px] text-slate-500">Distribua somente o valor recebido agora entre os meios usados.</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setPaymentEntriesInput((current) => [...current, { method: '', amount: '' }])}
+                            className="rounded-lg border border-slate-700 px-2.5 py-1.5 text-[10px] font-bold text-slate-200 hover:border-primary/50"
+                          >
+                            + Adicionar forma
+                          </button>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {paymentEntriesInput.map((entry, index) => (
+                            <div key={`payment-${index}`} className="flex gap-2 rounded-lg border border-slate-700/60 bg-slate-950/45 p-2">
+                              <select
+                                aria-label={`Forma de pagamento ${index + 1}`}
+                                value={entry.method}
+                                onChange={(event) => setPaymentEntriesInput((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, method: event.target.value as CashPaymentMethod | '' } : item))}
+                                className={`${fieldClass} min-w-0 flex-1`}
+                              >
+                                <option value="">Forma</option>
+                                {cashPaymentMethodOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                              </select>
+                              <input
+                                aria-label={`Valor recebido na forma ${index + 1}`}
+                                value={entry.amount}
+                                onChange={(event) => setPaymentEntriesInput((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, amount: event.target.value } : item))}
+                                inputMode="decimal"
+                                placeholder="Valor R$"
+                                className={`${fieldClass} min-w-0 flex-1`}
+                              />
+                              {paymentEntriesInput.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => setPaymentEntriesInput((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                                  aria-label={`Remover forma de pagamento ${index + 1}`}
+                                  className="rounded-lg px-2 text-slate-400 hover:text-red-300"
+                                >×</button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-right text-[10px] font-bold text-slate-300">
+                          Distribuído agora: {compactCurrency(paymentEntriesInput.reduce((sum, entry) => sum + Math.max(0, parseBrazilianCurrency(entry.amount, 0)), 0))}
+                        </p>
                       </div>
                     )}
                     <div className="rounded-lg border border-slate-700/40 bg-slate-950/65 px-3 py-2">
@@ -1327,10 +1481,17 @@ export const CashRegisterView = ({
                       ? statusPagamento === 'Pago' ? 'Finalizar e faturar' : 'Finalizar O.S.'
                       : editingLaunchId ? 'Atualizar O.S.' : 'Salvar rascunho'}
                   icon={<Save className="h-4 w-4" />}
-                  onClick={() => void handleSave(
-                    status === 'Finalizado' ? 'Finalizado' : undefined,
-                    status === 'Finalizado' && statusPagamento === 'Pago'
-                  )}
+                  onClick={() => {
+                    if (status === 'Finalizado' && statusPagamento === 'Pago' && amountToReceiveNow > 0
+                      && validatePaymentAllocation(amountToReceiveNow, paymentEntriesInput.map((entry) => ({
+                        method: entry.method,
+                        amount: parseBrazilianCurrency(entry.amount, 0),
+                      })))) {
+                      openFinalizePaymentModal();
+                      return;
+                    }
+                    void handleSave(status === 'Finalizado' ? 'Finalizado' : undefined, status === 'Finalizado' && statusPagamento === 'Pago');
+                  }}
                   disabled={isSavingLaunch}
                   primary
                 />
@@ -1419,6 +1580,11 @@ export const CashRegisterView = ({
                         <td className="px-2.5 py-3 text-slate-300">{safeFormat(launch.expectedDate)}</td>
                         <td className="px-2.5 py-3">
                           <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-bold', getStatusBadgeClass(launch.status))}>{launch.status}</span>
+                          {(launch.stockShortageItems?.length || 0) > 0 && (
+                            <span className="mt-1 block text-[10px] font-bold text-amber-300" title={(launch.stockShortageItems || []).map((shortage) => `${shortage.productDescription}: ${shortage.availableQuantity}/${shortage.requestedQuantity}`).join('; ')}>
+                              Estoque parcial ({launch.stockShortageItems?.length})
+                            </span>
+                          )}
                         </td>
                         <td className="truncate px-2.5 py-3 text-slate-400">{launch.bikeModel || '-'}</td>
                         <td className="px-2.5 py-3 text-right font-black text-white">{compactCurrency(launch.total)}</td>
@@ -1688,6 +1854,73 @@ export const CashRegisterView = ({
           </div>
         )}
       </section>
+
+      {isFinalizePaymentModalOpen && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-3 backdrop-blur-sm" role="presentation">
+          <div role="dialog" aria-modal="true" aria-labelledby="finalize-payment-title" className="w-full max-w-xl rounded-2xl border border-slate-700 bg-slate-950 p-4 shadow-2xl shadow-black sm:p-5">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <p className={labelClass}>Finalização da O.S.</p>
+                <h3 id="finalize-payment-title" className="mt-1 text-lg font-black text-white">Pagamento: Pago</h3>
+                <p className="mt-1 text-xs text-slate-400">Selecione uma ou mais formas e distribua o valor recebido agora.</p>
+              </div>
+              <button type="button" onClick={cancelFinalizePayment} aria-label="Cancelar finalização" className="grid h-8 w-8 place-items-center rounded-lg bg-slate-900 text-slate-400 hover:text-white">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2.5">
+                <span className="text-xs font-semibold text-slate-400">Valor da O.S.</span>
+                <strong className="text-sm font-black text-white">{compactCurrency(totals.total)}</strong>
+              </div>
+              {amountToReceiveNow > 0 ? (
+                <>
+                  {paymentEntriesInput.map((entry, index) => (
+                    <div key={`finalize-payment-${index}`} className="flex gap-2 rounded-xl border border-slate-800 bg-slate-900/40 p-2">
+                      <select
+                        aria-label={`Forma de pagamento ${index + 1}`}
+                        value={entry.method}
+                        onChange={(event) => setPaymentEntriesInput((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, method: event.target.value as CashPaymentMethod | '' } : item))}
+                        className={`${fieldClass} min-w-0 flex-1`}
+                      >
+                        <option value="">Forma de pagamento</option>
+                        {cashPaymentMethodOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                      <input
+                        aria-label={`Valor na forma ${index + 1}`}
+                        value={entry.amount}
+                        onChange={(event) => setPaymentEntriesInput((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, amount: event.target.value } : item))}
+                        inputMode="decimal"
+                        placeholder="Valor R$"
+                        className={`${fieldClass} min-w-0 flex-1`}
+                      />
+                      {paymentEntriesInput.length > 1 && (
+                        <button type="button" aria-label={`Remover forma ${index + 1}`} onClick={() => setPaymentEntriesInput((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="rounded-lg px-2 text-slate-400 hover:text-red-300">×</button>
+                      )}
+                    </div>
+                  ))}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <button type="button" onClick={() => setPaymentEntriesInput((current) => [...current, { method: '', amount: '' }])} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-bold text-slate-200 hover:border-primary/50">+ Adicionar forma</button>
+                    <p className="text-xs font-bold text-slate-300">
+                      Receber agora: {compactCurrency(paymentEntriesInput.reduce((sum, entry) => sum + Math.max(0, parseBrazilianCurrency(entry.amount, 0)), 0))} / {compactCurrency(amountToReceiveNow)}
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <p className="rounded-xl border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-300">Não há valor adicional a receber. Os pagamentos existentes serão preservados.</p>
+              )}
+            </div>
+
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button type="button" onClick={cancelFinalizePayment} className="rounded-lg bg-slate-800 px-4 py-2.5 text-xs font-bold text-slate-200 hover:bg-slate-700">Voltar</button>
+              <button type="button" disabled={isSavingLaunch} onClick={() => void handleSave('Finalizado', true)} className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-xs font-black text-white hover:bg-primary/90 disabled:opacity-50">
+                <Check className="h-4 w-4" /> {isSavingLaunch ? 'Finalizando...' : 'Confirmar e finalizar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isQuickClientOpen && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm">

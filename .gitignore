@@ -62,4 +62,9 @@ storage/whatsapp-sessions/
 storage/**/_IGNORE_*/
 storage/**/*.data.json
 
+# Local Firebase diagnostics and temporary deployment builds
+firebase-auth-admin-diagnostic.json
+firebase.motofix-test-*.json
+dist-motofix-2-local-*/
+
 scripts/cliente-removido-test-token.json

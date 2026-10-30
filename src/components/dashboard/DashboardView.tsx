@@ -48,6 +48,7 @@ type DashboardViewProps = {
   cashFlowStats: CashFlowStats;
   dailyPendingAlerts: Client[];
   pendingPaymentCount: number;
+  pendingOrderCount: number;
   warranties: Warranty[];
   appointments: Appointment[];
   nextAppointment?: Appointment;
@@ -129,6 +130,7 @@ export const DashboardView = ({
   cashFlowStats,
   dailyPendingAlerts,
   pendingPaymentCount,
+  pendingOrderCount,
   warranties,
   appointments,
   nextAppointment,
@@ -161,9 +163,9 @@ export const DashboardView = ({
     .map((warranty) => ({ warranty, days: getDaysUntil(warranty.expiryDate) }))
     .filter(({ days }) => days >= 0 && days <= 30)
     .sort((a, b) => a.days - b.days);
-  const contactClients = [...overdueClients, ...dailyPendingAlerts].filter((client, index, list) => (
-    list.findIndex((item) => item.id === client.id) === index
-  ));
+  const contactClients = [...overdueClients, ...dailyPendingAlerts]
+    .filter((client) => !client.returnArchived)
+    .filter((client, index, list) => list.findIndex((item) => item.id === client.id) === index);
   const firstContact = contactClients[0];
   const firstAppointment = appointmentsToday[0] || nextAppointment;
 
@@ -230,7 +232,7 @@ export const DashboardView = ({
             accent="amber"
             actionLabel="Cobrar pendencias"
             count={pendingPaymentCount}
-            detail={`R$ ${currency(cashFlowStats.aReceber + cashFlowStats.parcialAReceber)} em aberto.`}
+            detail={`R$ ${currency(cashFlowStats.aReceber + cashFlowStats.parcialAReceber)} em cobranças finalizadas em aberto.${pendingOrderCount > 0 ? ` ${pendingOrderCount} O.S. aguardando conclusão.` : ''}`}
             icon={DollarSign}
             title="Clientes pendentes"
             onAction={() => onViewChange('pendencies')}

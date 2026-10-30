@@ -438,6 +438,27 @@ const persistQueueState = () => {
     });
 };
 
+const persistQueueStateAndWait = async () => {
+  if (!canUseWindow()) return;
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const snapshot = JSON.parse(JSON.stringify(persistedQueue)) as PersistedQueueSnapshot;
+    try {
+      window.localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(snapshot));
+      await writePersistedQueueToIndexedDb(snapshot);
+    } catch (error) {
+      markPersistenceFailed(getErrorMessage(error), error);
+      throw error;
+    }
+
+    // A new local write may arrive while IndexedDB is committing. Persist the
+    // newest snapshot too, so cleanup never overwrites a concurrent write.
+    if (JSON.stringify(persistedQueue) === JSON.stringify(snapshot)) return;
+  }
+
+  throw new Error('A fila mudou durante a limpeza. Tente novamente.');
+};
+
 const createWriteId = () => {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -696,6 +717,82 @@ export const getFailedWrites = (currentUserId?: string | null): FailedFirestoreW
       canRetry: Boolean(write.replay) && !requiresManualWriteReview(write.errorMessage),
     };
   });
+
+/** Returns a serializable copy of the durable queue for local recovery archives. */
+export const exportFirestoreOfflineQueueSnapshot = async (userId: string) => {
+  await firestoreOfflineQueueReady;
+  const belongsToUser = (write: PersistedWrite) => {
+    if (write.ownerId === userId) return true;
+    const mutations = write.replay
+      ? (write.replay.operation === 'batch' ? write.replay.writes : [write.replay])
+      : [];
+    return mutations.some((mutation) => mutation.path[1] === userId);
+  };
+  return JSON.parse(JSON.stringify({
+    writes: persistedQueue.writes.filter(belongsToUser),
+    lastQueuedAt: persistedQueue.lastQueuedAt,
+    lastSettledAt: persistedQueue.lastSettledAt,
+    lastError: persistedQueue.lastError,
+    failureCount: persistedQueue.failureCount,
+    confirmedCount: persistedQueue.confirmedCount,
+    retryCount: persistedQueue.retryCount,
+    persistenceFailureCount: persistedQueue.persistenceFailureCount,
+    lastPersistenceError: persistedQueue.lastPersistenceError,
+  })) as PersistedQueueSnapshot;
+};
+
+export const discardFailedFirestoreWrites = async (
+  writeIds: string[],
+  currentUserId: string | null,
+): Promise<number> => {
+  await firestoreOfflineQueueReady;
+  if (!currentUserId) throw new Error('Entre na conta da oficina para limpar as falhas locais.');
+
+  const requestedIds = new Set(writeIds.filter((writeId) => typeof writeId === 'string' && writeId.length > 0));
+  const removedWrites = persistedQueue.writes.filter((write) => (
+    requestedIds.has(write.id)
+    && write.status === 'failed'
+    && write.ownerId === currentUserId
+  ));
+  if (removedWrites.length === 0) return 0;
+
+  const removedIds = new Set(removedWrites.map((write) => write.id));
+  persistedQueue = {
+    ...persistedQueue,
+    writes: persistedQueue.writes.filter((write) => !removedIds.has(write.id)),
+  };
+  refreshCounts();
+  queueState = {
+    ...queueState,
+    lastError: getActiveWriteError(persistedQueue.writes),
+  };
+
+  try {
+    await persistQueueStateAndWait();
+  } catch (error) {
+    // Restore only the failed entries this action removed, preserving any
+    // other queue writes that may have appeared while persistence was pending.
+    const restoredWrites = new Map(persistedQueue.writes.map((write) => [write.id, write]));
+    removedWrites.forEach((write) => {
+      if (!restoredWrites.has(write.id)) restoredWrites.set(write.id, write);
+    });
+    persistedQueue = {
+      ...persistedQueue,
+      writes: Array.from(restoredWrites.values()),
+    };
+    refreshCounts();
+    queueState = {
+      ...queueState,
+      lastError: getActiveWriteError(persistedQueue.writes),
+    };
+    persistQueueState();
+    emitQueueState();
+    throw new Error('Não foi possível salvar a limpeza no armazenamento local. As falhas foram restauradas na fila.');
+  }
+
+  emitQueueState();
+  return removedWrites.length;
+};
 
 const validateReplayPath = (path: string[]) => {
   const validDocumentPath = path.length >= 2 && path.length % 2 === 0;

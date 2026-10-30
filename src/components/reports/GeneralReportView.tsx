@@ -18,6 +18,7 @@ import { toast as sonnerToast } from 'sonner';
 import { DEFAULT_SERVICE_TYPES } from '../../constants/appDefaults';
 import { DateInput } from '../DateInput';
 import { getServiceTypeKey, getServiceTypeLabel, normalizeServiceTypeOptions } from '../../lib/serviceTypes';
+import { getOpenPayableAmount, sumExpenseSettlements } from '../../lib/financialLedger';
 import { cn } from '../../lib/utils';
 import { getCashPaidAmount, getCashPaymentStatus, getCashReceivableAmount, isCashLaunchFinancial } from '../../lib/cashPayments';
 import type { AppView, Appointment, CashPaymentMethod, CashRegisterLaunch, Client, ExpenseRecord, MaintenanceRecord, Settings, Warranty } from '../../types';
@@ -37,6 +38,7 @@ type GeneralReportViewProps = {
   settings: Settings;
   onBack: () => void;
   onViewChange: (view: AppView) => void;
+  onSettleCardReceipt?: (launch: CashRegisterLaunch, paymentEntryId: string, date: string) => Promise<boolean> | boolean;
 };
 
 const currencyFormatter = new Intl.NumberFormat('pt-BR', {
@@ -99,6 +101,13 @@ const getReceivableAmount = (maintenance: MaintenanceRecord) => {
 const getCashLaunchDate = (launch: CashRegisterLaunch) => launch.openingDate || launch.createdAt;
 const getCashLaunchPaymentDate = (launch: CashRegisterLaunch) => launch.paidAt || getCashLaunchDate(launch);
 
+const getExpenseSettledAmount = (expense: ExpenseRecord) => (
+  sumExpenseSettlements(expense.settlementEntries || []));
+
+const getExpensePayableAmount = (expense: ExpenseRecord) => expense.accountingVersion === 1
+  ? getOpenPayableAmount(expense.amount, expense.settlementEntries || [])
+  : 0;
+
 const cashPaymentMethodOptions: CashPaymentMethod[] = ['Pix', 'Dinheiro', 'Debito', 'Credito'];
 
 const getCashPaymentMethodLabel = (launch: CashRegisterLaunch) => launch.paymentMethod || 'Nao informado';
@@ -118,6 +127,7 @@ export const GeneralReportView = ({
   settings,
   onBack,
   onViewChange,
+  onSettleCardReceipt,
 }: GeneralReportViewProps) => {
   const [startDate, setStartDate] = useState(() => format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [endDate, setEndDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
@@ -233,6 +243,25 @@ export const GeneralReportView = ({
       const expiryDate = parseDate(warranty.expiryDate);
       return expiryDate ? isAfter(expiryDate, new Date()) : false;
     }).length;
+    const allNewReceiptEntries = cashLaunches
+      .filter((launch) => launch.status === 'Finalizado' && !launch.deletedAt)
+      .flatMap((launch) => launch.paymentEntries || [])
+      .filter((entry) => entry.receivedAt <= `${endDate}T23:59:59`);
+    const settledReceiptEntries = allNewReceiptEntries
+      .filter((entry) => entry.settledAt && isDateInRange(entry.settledAt, startDate, endDate));
+    const pendingCardReceivable = allNewReceiptEntries
+      .filter((entry) => ['Debito', 'Credito'].includes(entry.method) && !entry.settledAt)
+      .reduce((sum, entry) => sum + Math.max(0, toNumber(entry.amount)), 0);
+    const newSettlementEntries = expenses
+      .filter((expense) => expense.accountingVersion === 1 && !expense.deletedAt)
+      .flatMap((expense) => expense.settlementEntries || [])
+      .filter((entry) => isDateInRange(entry.settledAt, startDate, endDate));
+    const newCashIn = settledReceiptEntries.reduce((sum, entry) => sum + Math.max(0, toNumber(entry.amount)), 0);
+    const newCashOut = newSettlementEntries.reduce((sum, entry) => sum + Math.max(0, toNumber(entry.amount)), 0);
+    const newCashBalance = newCashIn - newCashOut;
+    const openPayables = expenses
+      .filter((expense) => expense.accountingVersion === 1 && !expense.deletedAt && expense.date <= endDate)
+      .reduce((sum, expense) => sum + getExpensePayableAmount(expense), 0);
 
     return {
       cashGrossRevenue,
@@ -256,8 +285,14 @@ export const GeneralReportView = ({
         : 0,
       appointmentValue,
       activeWarrantyCount,
+      newCashIn,
+      newCashOut,
+      newCashBalance,
+      openPayables,
+      pendingCardReceivable,
+      projectedFreeBalance: newCashBalance + pendingCardReceivable - openPayables,
     };
-  }, [cashLaunches, filteredAppointments, filteredCashLaunches, filteredExpenses, filteredMaintenances, filteredWarranties, maintenances, receivedCashLaunches]);
+  }, [cashLaunches, endDate, expenses, filteredAppointments, filteredCashLaunches, filteredExpenses, filteredMaintenances, filteredWarranties, maintenances, receivedCashLaunches, startDate]);
 
   const receivableRows = useMemo(() => {
     return maintenances
@@ -279,6 +314,12 @@ export const GeneralReportView = ({
       .filter(row => row.receivable > 0)
       .sort((a, b) => b.receivable - a.receivable);
   }, [cashLaunches]);
+
+  const pendingCardReceivableRows = useMemo(() => cashLaunches
+    .filter((launch) => launch.status === 'Finalizado' && !launch.deletedAt)
+    .flatMap((launch) => (launch.paymentEntries || [])
+      .filter((entry) => ['Debito', 'Credito'].includes(entry.method) && !entry.settledAt && entry.receivedAt <= `${endDate}T23:59:59`)
+      .map((entry) => ({ launch, entry }))), [cashLaunches, endDate]);
 
   const serviceBreakdown = useMemo(() => {
     const map = new Map<string, { count: number; gross: number; received: number; receivable: number }>();
@@ -458,15 +499,24 @@ export const GeneralReportView = ({
     cashPaymentMethodOptions.forEach((option) => rows.set(option, { count: 0, total: 0 }));
     rows.set('missing', { count: 0, total: 0 });
 
-    receivedCashLaunches
-      .forEach((launch) => {
-        if (getCashPaidAmount(launch) <= 0) return;
-        const method = launch.paymentMethod || 'missing';
-        const current = rows.get(method) || { count: 0, total: 0 };
-        current.count += 1;
-        current.total += getCashPaidAmount(launch);
-        rows.set(method, current);
-      });
+    matchingCashLaunches.forEach((launch) => {
+      const entries = (launch.paymentEntries || []).filter((entry) => isDateInRange(entry.receivedAt, startDate, endDate));
+      if (entries.length) {
+        entries.forEach((entry) => {
+          const current = rows.get(entry.method) || { count: 0, total: 0 };
+          current.count += 1;
+          current.total += Math.max(0, toNumber(entry.amount));
+          rows.set(entry.method, current);
+        });
+        return;
+      }
+      if (!isDateInRange(getCashLaunchPaymentDate(launch), startDate, endDate) || getCashPaidAmount(launch) <= 0) return;
+      const method = launch.paymentMethod || 'missing';
+      const current = rows.get(method) || { count: 0, total: 0 };
+      current.count += 1;
+      current.total += getCashPaidAmount(launch);
+      rows.set(method, current);
+    });
 
     return Array.from(rows.entries())
       .filter(([method, values]) => method !== 'missing' || values.count > 0)
@@ -475,7 +525,7 @@ export const GeneralReportView = ({
         label: method === 'missing' ? 'Nao informado' : method,
         ...values,
       }));
-  }, [receivedCashLaunches]);
+  }, [endDate, matchingCashLaunches, startDate]);
 
   const financialTrend = useMemo(() => {
     const rows = new Map<string, { date: string; sold: number; received: number; expenses: number }>();
@@ -498,9 +548,17 @@ export const GeneralReportView = ({
       const row = getRow(getCashLaunchDate(launch));
       if (row) row.sold += toNumber(launch.total);
     });
-    receivedCashLaunches.forEach((launch) => {
+    matchingCashLaunches.forEach((launch) => {
+      const entries = (launch.paymentEntries || []).filter((entry) => isDateInRange(entry.receivedAt, startDate, endDate));
+      if (entries.length) {
+        entries.forEach((entry) => {
+          const row = getRow(entry.receivedAt);
+          if (row) row.received += Math.max(0, toNumber(entry.amount));
+        });
+        return;
+      }
       const row = getRow(getCashLaunchPaymentDate(launch));
-      if (row) row.received += getCashPaidAmount(launch);
+      if (row && isDateInRange(getCashLaunchPaymentDate(launch), startDate, endDate)) row.received += getCashPaidAmount(launch);
     });
     filteredExpenses.forEach((expense) => {
       const row = getRow(expense.date);
@@ -510,7 +568,7 @@ export const GeneralReportView = ({
     return Array.from(rows.values())
       .sort((a, b) => a.date.localeCompare(b.date))
       .map(row => ({ ...row, label: format(parseISO(row.date), 'dd/MM') }));
-  }, [filteredCashLaunches, filteredExpenses, filteredMaintenances, receivedCashLaunches]);
+  }, [endDate, filteredCashLaunches, filteredExpenses, filteredMaintenances, matchingCashLaunches, receivedCashLaunches, startDate]);
 
   const orderStatusBreakdown = useMemo(() => {
     const counts = new Map<string, number>();
@@ -632,6 +690,14 @@ export const GeneralReportView = ({
             rows: [
               ['Resultado de caixa (recebido - gastos)', toCurrency(summary.netResult)],
               ['Resultado previsto (vendido - gastos)', toCurrency(summary.projectedResult)],
+              ['Saldo inicial do modelo novo (todo mês)', toCurrency(0)],
+              ['Recebimentos registrados no período (modelo novo)', toCurrency(summary.newCashIn)],
+              ['Pagamentos de contas no período (modelo novo)', toCurrency(summary.newCashOut)],
+              ['Saldo de caixa do modelo novo no período', toCurrency(summary.newCashBalance)],
+              ['Contas a pagar em aberto (modelo novo)', toCurrency(summary.openPayables)],
+              ['A repassar pelas operadoras (modelo novo)', toCurrency(summary.pendingCardReceivable)],
+              ['Saldo livre projetado (modelo novo)', toCurrency(summary.projectedFreeBalance)],
+              ['Observação', 'Valores antigos permanecem preservados e não foram reconstruídos.'],
               ['Ticket médio', toCurrency(summary.averageTicket)],
               ['Atendimentos e lançamentos', String(summary.operationsCount)],
               ['Receita recorrente', toCurrency(summary.recurringRevenue)],
@@ -643,6 +709,20 @@ export const GeneralReportView = ({
             title: 'Recebimentos por forma de pagamento',
             headers: ['Forma', 'Lançamentos', 'Total recebido'],
             rows: cashPaymentMethodBreakdown.map(row => [row.label, String(row.count), toCurrency(row.total)]),
+          },
+          {
+            title: 'Recebimentos detalhados por data e forma (modelo novo)',
+            headers: ['Data recebida', 'O.S.', 'Cliente', 'Meio', 'Valor'],
+            rows: cashLaunches
+              .filter((launch) => launch.status === 'Finalizado' && !launch.deletedAt)
+              .flatMap((launch) => (launch.paymentEntries || [])
+                .filter((entry) => isDateInRange(entry.receivedAt, startDate, endDate))
+                .map((entry) => [formatDate(entry.receivedAt), launch.orderNumber || '-', launch.clientName || 'Consumidor final', entry.method, toCurrency(entry.amount)])),
+          },
+          {
+            title: 'Valores de cartão aguardando repasse (modelo novo)',
+            headers: ['Data recebida', 'O.S.', 'Cliente', 'Meio', 'Valor'],
+            rows: pendingCardReceivableRows.map(({ launch, entry }) => [formatDate(entry.receivedAt), launch.orderNumber || '-', launch.clientName || 'Consumidor final', entry.method, toCurrency(entry.amount)]),
           },
           {
             title: 'Status dos serviços',
@@ -670,6 +750,21 @@ export const GeneralReportView = ({
             rows: receivables,
           },
           {
+            title: 'Contas a pagar (somente registros do novo modelo)',
+            headers: ['Fornecedor', 'Descrição', 'Compra', 'Vencimento', 'Valor original', 'Pago', 'Saldo'],
+            rows: expenses
+              .filter((expense) => expense.accountingVersion === 1 && !expense.deletedAt && expense.date <= endDate && getExpensePayableAmount(expense) > 0)
+              .map((expense) => [
+                expense.supplier || '-',
+                expense.description,
+                formatDate(expense.date),
+                formatDate(expense.dueDate),
+                toCurrency(expense.amount),
+                toCurrency(getExpenseSettledAmount(expense)),
+                toCurrency(getExpensePayableAmount(expense)),
+              ]),
+          },
+          {
             title: 'Gastos no período',
             headers: ['Descrição', 'Fornecedor', 'Data', 'Forma de pagamento', 'Valor'],
             rows: filteredExpenses.map(expense => [
@@ -679,6 +774,15 @@ export const GeneralReportView = ({
               expense.paymentMethod,
               toCurrency(toNumber(expense.amount)),
             ]),
+          },
+          {
+            title: 'Pagamentos de contas por data efetiva (modelo novo)',
+            headers: ['Data do pagamento', 'Fornecedor', 'Descrição', 'Meio usado', 'Valor pago'],
+            rows: expenses
+              .filter((expense) => expense.accountingVersion === 1 && !expense.deletedAt)
+              .flatMap((expense) => (expense.settlementEntries || [])
+                .filter((entry) => isDateInRange(entry.settledAt, startDate, endDate))
+                .map((entry) => [formatDate(entry.settledAt), expense.supplier || '-', expense.description, entry.method, toCurrency(entry.amount)])),
           },
           {
             title: 'Serviços detalhados',
@@ -942,6 +1046,38 @@ export const GeneralReportView = ({
             <p className="text-[11px] text-slate-500">Vendido menos gastos</p>
           </button>
         </div>
+      </section>
+
+      <section id="report-cash-accounting" className="space-y-3">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">Caixa e obrigações</p>
+          <h3 className="text-lg font-black text-white">Controle iniciado com esta versão</h3>
+          <p className="text-xs text-slate-500">Saldo inicial mensal zero. Registros antigos seguem preservados e ficam fora deste cálculo novo.</p>
+        </div>
+        <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Metric title="Caixa realizado no período" value={toCurrency(summary.newCashBalance)} tone={summary.newCashBalance >= 0 ? 'text-emerald-300' : 'text-red-300'} compact />
+          <Metric title="Cartões a repassar" value={toCurrency(summary.pendingCardReceivable)} tone="text-sky-300" compact onClick={() => scrollToSection('report-card-settlements')} />
+          <Metric title="Contas a pagar" value={toCurrency(summary.openPayables)} tone="text-amber-300" compact onClick={() => scrollToSection('report-expenses')} />
+          <Metric title="Saldo livre projetado" value={toCurrency(summary.projectedFreeBalance)} tone={summary.projectedFreeBalance >= 0 ? 'text-white' : 'text-red-300'} compact />
+        </div>
+        <Panel id="report-card-settlements" title="Cartões aguardando repasse" icon={WalletCards}>
+          <p className="mb-3 text-xs text-slate-500">Débito e crédito só entram no caixa realizado quando você registrar a data do repasse da operadora.</p>
+          <div className="max-w-full overflow-x-auto">
+            <table className="w-full min-w-[650px] text-left text-xs">
+              <thead className="text-[10px] uppercase tracking-widest text-slate-500"><tr><th className="py-2">Recebido</th><th>O.S.</th><th>Cliente</th><th>Meio</th><th className="text-right">Valor</th><th className="text-right">Ação</th></tr></thead>
+              <tbody className="divide-y divide-slate-800">
+                {pendingCardReceivableRows.map(({ launch, entry }) => (
+                  <tr key={`${launch.id}-${entry.id}`} className="text-slate-300">
+                    <td className="py-2">{formatDate(entry.receivedAt)}</td><td>{launch.orderNumber}</td><td>{launch.clientName}</td><td>{entry.method}</td>
+                    <td className="text-right font-semibold">{toCurrency(entry.amount)}</td>
+                    <td className="text-right"><button type="button" disabled={!onSettleCardReceipt} onClick={() => void onSettleCardReceipt?.(launch, entry.id, format(new Date(), 'yyyy-MM-dd'))} className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-2.5 py-1.5 text-[10px] font-bold text-sky-200 disabled:opacity-50">Registrar repasse</button></td>
+                  </tr>
+                ))}
+                {!pendingCardReceivableRows.length && <tr><td colSpan={6} className="py-5 text-center text-slate-500">Nenhum repasse pendente até {formatDate(endDate)}.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
       </section>
 
       <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(280px,0.8fr)]">

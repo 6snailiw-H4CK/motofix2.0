@@ -6,7 +6,7 @@ import { clientRepository } from '../services/clientRepository';
 import { downloadClientsWorkbook, parseClientsWorkbook, type ClientBackupRow } from '../services/clientSpreadsheet';
 import { handleFirestoreError, OperationType } from '../services/firestoreError';
 import { getFirestoreSaveResultMessage } from '../services/firestoreSaveStatus';
-import { recordOperationalLog } from '../services/operationalLogRepository';
+import { getOperationalChangedFields, recordOperationalLog } from '../services/operationalLogRepository';
 import type { Client, MaintenanceRecord, MaintenanceStatus } from '../types';
 
 type UseClientActionsParams = {
@@ -111,6 +111,7 @@ export const useClientActions = ({
 }: UseClientActionsParams) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isImportingClients, setIsImportingClients] = useState(false);
+  const [archivingReturnId, setArchivingReturnId] = useState<string | null>(null);
 
   const quickCreateClient = useCallback(async (clientData: Pick<Client, 'name'> & Partial<Pick<Client, 'contact' | 'bikeModel'>>) => {
     if (!user) return null;
@@ -157,7 +158,7 @@ export const useClientActions = ({
         oficina: workshopName,
         acao: 'cliente_criado',
         targetId: id,
-        details: { name, source: 'quick_create' },
+        details: { module: 'Clientes', source: 'cadastro rápido', fields: ['name', 'contact', 'bikeModel'] },
       });
       sonnerToast.success(getFirestoreSaveResultMessage('Cliente cadastrado rapidamente.'));
       return createdClient;
@@ -205,8 +206,24 @@ export const useClientActions = ({
         oficina: workshopName,
         acao: result.operation === 'created' ? 'cliente_criado' : 'cliente_editado',
         targetId: result.clientId,
-        details: { name: clientData.name || effectiveEditingClient?.name || '' },
+        details: {
+          module: 'Clientes',
+          fields: getOperationalChangedFields(
+            effectiveEditingClient as unknown as Record<string, unknown> | null,
+            clientData as unknown as Record<string, unknown>,
+          ),
+        },
       });
+      if (isCreatingService && effectiveEditingClient) {
+        recordOperationalLog({
+          userId: user.uid,
+          usuario: user.email,
+          oficina: workshopName,
+          acao: 'manutencao_criada',
+          targetId: result.clientId,
+          details: { module: 'Clientes', fields: ['data do serviço', 'tipo de serviço', 'valor do serviço'] },
+        });
+      }
       if (result.operation === 'created' && Number(clientData.serviceValue || 0) > 0) {
         recordOperationalLog({
           userId: user.uid,
@@ -240,12 +257,20 @@ export const useClientActions = ({
         oficina: workshopName,
         acao: 'cliente_removido',
         targetId: id,
+        details: { module: 'Clientes' },
       });
       onDeleted();
       sonnerToast.success(getFirestoreSaveResultMessage('Cliente e histórico movidos para a lixeira.'), {
         action: {
           label: 'Desfazer',
-          onClick: () => void clientRepository.restoreWithMaintenances(user.uid, id),
+          onClick: () => void clientRepository.restoreWithMaintenances(user.uid, id).then(() => recordOperationalLog({
+            userId: user.uid,
+            usuario: user.email,
+            oficina: workshopName,
+            acao: 'cliente_restaurado',
+            targetId: id,
+            details: { module: 'Clientes' },
+          })),
         },
       });
     } catch (error) {
@@ -253,6 +278,55 @@ export const useClientActions = ({
       sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel excluir o cliente.');
     }
   }, [onDeleted, user, workshopName]);
+
+  const archiveReturn = useCallback(async (client: Client) => {
+    if (!user?.uid || !client.id || archivingReturnId) return false;
+
+    setArchivingReturnId(client.id);
+    try {
+      await clientRepository.update(user.uid, client.id, { returnArchived: true });
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName,
+        acao: 'retorno_arquivado',
+        targetId: client.id,
+        details: { module: 'Retornos', fields: ['returnArchived'] },
+      });
+      onDeleted();
+      sonnerToast.success(getFirestoreSaveResultMessage('Lançamento removido da fila de retornos. O cadastro do cliente foi preservado.'), {
+        action: {
+          label: 'Desfazer',
+          onClick: () => {
+            void clientRepository.update(user.uid, client.id, { returnArchived: false })
+              .then(() => {
+                recordOperationalLog({
+                  userId: user.uid,
+                  usuario: user.email,
+                  oficina: workshopName,
+                  acao: 'retorno_restaurado',
+                  targetId: client.id,
+                  details: { module: 'Retornos', fields: ['returnArchived'] },
+                });
+                onDeleted();
+                sonnerToast.success(getFirestoreSaveResultMessage('Retorno restaurado à fila.'));
+              })
+              .catch((error) => {
+                handleFirestoreError(error, OperationType.UPDATE, 'clients');
+                sonnerToast.error('Nao foi possivel restaurar o retorno.');
+              });
+          },
+        },
+      });
+      return true;
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, 'clients');
+      sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel remover o retorno.');
+      return false;
+    } finally {
+      setArchivingReturnId(null);
+    }
+  }, [archivingReturnId, onDeleted, user, workshopName]);
 
   const exportClientsBackup = useCallback(() => {
     if (clients.length === 0) {
@@ -353,15 +427,26 @@ export const useClientActions = ({
       }
 
       sonnerToast.success(getFirestoreSaveResultMessage(`Importação concluída: ${created} novo(s), ${updated} atualizado(s), ${ignored} ignorado(s).`));
+      if (created + updated > 0) {
+        recordOperationalLog({
+          userId: user.uid,
+          usuario: user.email,
+          oficina: workshopName,
+          acao: 'importacao_concluida',
+          details: { module: 'Clientes', created, updated, ignored },
+        });
+      }
     } catch (error) {
       console.error(error);
       sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel importar a planilha.');
     } finally {
       setIsImportingClients(false);
     }
-  }, [clients, getStatus, user]);
+  }, [clients, getStatus, user, workshopName]);
 
   return {
+    archiveReturn,
+    archivingReturnId,
     deleteClient,
     exportClientsBackup,
     importClientsBackup,

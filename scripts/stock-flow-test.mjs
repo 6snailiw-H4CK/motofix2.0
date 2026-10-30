@@ -21,6 +21,7 @@ const USER_ID = 'stock-owner-001';
 const OTHER_USER_ID = 'stock-other-001';
 const PRODUCT_ID = 'produto-teste-estoque';
 const SECOND_PRODUCT_ID = 'produto-teste-estoque-2';
+const VARIATION_PRODUCT_ID = 'produto-teste-variacao';
 const LAUNCH_ID = 'cash-launch-stock-001';
 const LOW_STOCK_LAUNCH_ID = 'cash-launch-stock-low';
 
@@ -32,6 +33,7 @@ const fail = (message) => {
 
 const productPath = (db) => doc(db, 'users', USER_ID, 'products', PRODUCT_ID);
 const secondProductPath = (db) => doc(db, 'users', USER_ID, 'products', SECOND_PRODUCT_ID);
+const variationProductPath = (db) => doc(db, 'users', USER_ID, 'products', VARIATION_PRODUCT_ID);
 const launchPath = (db, launchId = LAUNCH_ID) => doc(db, 'users', USER_ID, 'cash_launches', launchId);
 const stockMovementsPath = (db) => collection(db, 'users', USER_ID, 'stock_movements');
 
@@ -81,6 +83,7 @@ const applyStockChange = ({
     ...(cashLaunchOrderNumber ? { cashLaunchOrderNumber } : {}),
     ...(itemIds ? { itemIds } : {}),
   });
+  return movementId;
 };
 
 const makeItem = (quantity) => ({
@@ -146,6 +149,8 @@ const baseLaunch = (launchId, quantity) => ({
   stockDeducted: false,
   stockDeductedAt: null,
   stockMovementBatchId: null,
+  stockMovementId: null,
+  stockShortageItems: [],
   createdAt: now(),
   updatedAt: now(),
   deletedAt: null,
@@ -164,6 +169,13 @@ async function setupTestData(testEnv) {
       id: SECOND_PRODUCT_ID,
       description: 'Segundo produto teste estoque',
       stockQuantity: 3,
+    });
+    await setDoc(variationProductPath(db), {
+      ...baseProduct(),
+      id: VARIATION_PRODUCT_ID,
+      description: 'Produto com variacao para teste de regras',
+      stockQuantity: 2,
+      variations: [{ id: 'variant-1', name: 'Azul', salePrice: 25, stockQuantity: 2 }],
     });
     await setDoc(launchPath(db), baseLaunch(LAUNCH_ID, 2));
     await setDoc(launchPath(db, LOW_STOCK_LAUNCH_ID), baseLaunch(LOW_STOCK_LAUNCH_ID, 2));
@@ -188,11 +200,25 @@ async function finalizeLaunch(db, launchId, batchId) {
     const previousQuantity = Number(product.stockQuantity || 0);
     const nextQuantity = previousQuantity - quantity;
     if (nextQuantity < 0) {
-      throw new Error(`Estoque insuficiente: disponivel ${previousQuantity}, solicitado ${quantity}.`);
+      transaction.update(launchRef, {
+        status: 'Finalizado',
+        stockDeducted: false,
+        stockDeductedAt: null,
+        stockMovementBatchId: null,
+        stockMovementId: null,
+        stockShortageItems: [{
+          productId: PRODUCT_ID,
+          productDescription: product.description,
+          availableQuantity: previousQuantity,
+          requestedQuantity: quantity,
+        }],
+        updatedAt: now(),
+      });
+      return;
     }
 
     const timestamp = now();
-    applyStockChange({
+    const movementId = applyStockChange({
       transaction,
       db,
       productRef,
@@ -211,6 +237,8 @@ async function finalizeLaunch(db, launchId, batchId) {
       stockDeducted: true,
       stockDeductedAt: timestamp,
       stockMovementBatchId: batchId,
+      stockMovementId: movementId,
+      stockShortageItems: [],
       updatedAt: timestamp,
     });
   });
@@ -230,12 +258,21 @@ async function reopenLaunch(db, launchId, batchId, nextStatus = 'Em Lancamento')
     const launch = launchSnapshot.data();
     if (launch.stockDeducted !== true) return;
 
-    const quantity = launch.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    const originalMovementId = launch.stockMovementId;
+    if (!originalMovementId) fail('O.S. nao possui o ID exato da baixa para estornar.');
+    const originalMovementSnapshot = await transaction.get(doc(stockMovementsPath(db), originalMovementId));
+    if (!originalMovementSnapshot.exists()) fail('Movimento original nao encontrado para estorno.');
+    const originalMovement = originalMovementSnapshot.data();
+    if (originalMovement.type !== 'saida_os' || originalMovement.cashLaunchId !== launchId) {
+      fail('Movimento original nao pertence a esta O.S.');
+    }
+    const quantity = Number(originalMovement.changes?.[PRODUCT_ID]?.quantity || 0);
+    if (quantity <= 0) fail('Movimento original nao tem quantidade efetiva para estornar.');
     const previousQuantity = Number(product.stockQuantity || 0);
     const nextQuantity = previousQuantity + quantity;
     const timestamp = now();
 
-    applyStockChange({
+    const reversalMovementId = applyStockChange({
       transaction,
       db,
       productRef,
@@ -253,7 +290,8 @@ async function reopenLaunch(db, launchId, batchId, nextStatus = 'Em Lancamento')
       status: nextStatus,
       stockDeducted: false,
       stockDeductedAt: null,
-      stockMovementBatchId: null,
+      stockMovementBatchId: batchId,
+      stockMovementId: reversalMovementId,
       updatedAt: timestamp,
     });
   });
@@ -282,6 +320,85 @@ async function assertLaunchStatus(db, launchId, expected, label) {
   if (snapshot.data().status !== expected) {
     fail(`${label}: status esperado ${expected}, encontrado ${snapshot.data().status}.`);
   }
+}
+
+async function assertUnlinkedFinalizationBlocked(db) {
+  let blocked = false;
+  try {
+    await updateDoc(launchPath(db), {
+      status: 'Finalizado',
+      stockDeducted: true,
+      stockDeductedAt: now(),
+      stockMovementBatchId: 'batch-without-movement',
+      stockMovementId: 'movement-without-document',
+      updatedAt: now(),
+    });
+  } catch (error) {
+    blocked = error?.code === 'permission-denied';
+  }
+  if (!blocked) fail('A O.S. aceitou baixa sem movimento de estoque correspondente.');
+  await assertLaunchDeducted(db, LAUNCH_ID, false, 'O.S. sem movimento');
+  await assertLaunchStatus(db, LAUNCH_ID, 'Em Lancamento', 'O.S. sem movimento');
+}
+
+async function assertInflatedReversalBlocked(db) {
+  const productRef = productPath(db);
+  const launchRef = launchPath(db);
+  const movementId = 'stock-op-forged-inflated-reversal';
+  const batchId = 'forged-inflated-reversal';
+  const timestamp = now();
+  let blocked = false;
+  try {
+    await runTransaction(db, async (transaction) => {
+      const [productSnapshot, launchSnapshot] = await Promise.all([
+        transaction.get(productRef),
+        transaction.get(launchRef),
+      ]);
+      const product = productSnapshot.data();
+      const launch = launchSnapshot.data();
+      const nextQuantity = product.stockQuantity + 3;
+      transaction.update(productRef, {
+        stockQuantity: nextQuantity,
+        variations: product.variations || [],
+        stockMovementId: movementId,
+        updatedAt: timestamp,
+      });
+      transaction.set(doc(stockMovementsPath(db), movementId), {
+        userId: USER_ID,
+        type: 'estorno_os',
+        batchId,
+        createdAt: timestamp,
+        productIds: [PRODUCT_ID],
+        cashLaunchId: LAUNCH_ID,
+        changes: {
+          [PRODUCT_ID]: {
+            productId: PRODUCT_ID,
+            productDescription: product.description,
+            previousQuantity: product.stockQuantity,
+            nextQuantity,
+            quantity: 3,
+            previousVariations: product.variations || [],
+            nextVariations: product.variations || [],
+          },
+        },
+      });
+      transaction.update(launchRef, {
+        status: 'Cancelado',
+        stockDeducted: false,
+        stockDeductedAt: null,
+        stockMovementBatchId: batchId,
+        stockMovementId: movementId,
+        updatedAt: timestamp,
+      });
+      if (!launch.stockDeducted) fail('Fixture da O.S. deveria ter baixa ativa.');
+    });
+  } catch (error) {
+    blocked = error?.code === 'permission-denied';
+  }
+  if (!blocked) fail('A Rules aceitaram estorno de mais unidades do que a baixa original.');
+  await assertProductStock(db, 8, 'Estorno direto acima da quantidade original');
+  await assertLaunchDeducted(db, LAUNCH_ID, true, 'Estorno direto acima da quantidade original');
+  if (await countMovements(db) !== 1) fail('A tentativa de estorno inválida criou uma movimentacao.');
 }
 
 async function countMovements(db) {
@@ -334,6 +451,47 @@ async function applyMultipleProductStockChange(db) {
   });
 }
 
+async function assertNegativeVariationWriteBlocked(db) {
+  const productRef = variationProductPath(db);
+  const snapshot = await getDoc(productRef);
+  const product = snapshot.data();
+  const movementId = 'stock-op-negative-variation-direct-write';
+  const timestamp = now();
+  const nextVariations = [{ ...product.variations[0], stockQuantity: -1 }];
+  let blocked = false;
+  try {
+    await runTransaction(db, async (transaction) => {
+      transaction.update(productRef, {
+        stockQuantity: 0,
+        variations: nextVariations,
+        stockMovementId: movementId,
+        updatedAt: timestamp,
+      });
+      transaction.set(doc(stockMovementsPath(db), movementId), {
+        userId: USER_ID,
+        type: 'ajuste_manual',
+        batchId: movementId,
+        createdAt: timestamp,
+        productIds: [VARIATION_PRODUCT_ID],
+        changes: {
+          [VARIATION_PRODUCT_ID]: {
+            productId: VARIATION_PRODUCT_ID,
+            productDescription: product.description,
+            previousQuantity: 2,
+            nextQuantity: 0,
+            quantity: 3,
+            previousVariations: product.variations,
+            nextVariations,
+          },
+        },
+      });
+    });
+  } catch (error) {
+    blocked = error?.code === 'permission-denied';
+  }
+  if (!blocked) fail('Gravacao direta criou estoque negativo em uma variacao.');
+}
+
 async function runTests() {
   console.log('Iniciando teste automatizado do fluxo de estoque...');
   const testEnv = await initializeTestEnvironment({
@@ -349,12 +507,20 @@ async function runTests() {
     await setupTestData(testEnv);
     const db = testEnv.authenticatedContext(USER_ID).firestore();
 
+    console.log('0) Rules bloqueiam marcar O.S. baixada sem movimento vinculado');
+    await assertUnlinkedFinalizationBlocked(db);
+    console.log('   OK escrita direta da O.S. sem par de estoque foi negada');
+
     console.log('1) Finalizar O.S. baixa estoque e registra movimento');
     await finalizeLaunch(db, LAUNCH_ID, 'stock-batch-finalizar');
     await assertProductStock(db, 8, 'Finalizacao');
     await assertLaunchDeducted(db, LAUNCH_ID, true, 'Finalizacao');
     if (await countMovements(db) !== 1) fail('Finalizacao: movimento de saida nao foi registrado.');
     console.log('   OK estoque 10 -> 8, O.S. marcada e movimento criado');
+
+    console.log('   Verificando que Rules rejeitam estorno direto acima da quantidade efetivamente baixada');
+    await assertInflatedReversalBlocked(db);
+    console.log('   OK estorno inflado foi negado e os dados permaneceram intactos');
 
     console.log('2) Repetir finalizacao nao baixa estoque duplicado');
     await finalizeLaunch(db, LAUNCH_ID, 'stock-batch-duplicado');
@@ -378,7 +544,7 @@ async function runTests() {
     if (await countMovements(db) !== 4) fail('Cancelamento: movimento de estorno nao foi registrado.');
     console.log('   OK cancelamento devolveu estoque e marcou O.S. como Cancelado');
 
-    console.log('5) Estoque insuficiente bloqueia finalizacao e preserva dados');
+    console.log('5) Estoque insuficiente permite finalizacao parcial e persiste a pendencia');
     let directStockWriteBlocked = false;
     try {
       await updateDoc(productPath(db), { stockQuantity: 1, updatedAt: now() });
@@ -403,16 +569,26 @@ async function runTests() {
         timestamp: now(),
       });
     });
-    let blocked = false;
-    try {
-      await finalizeLaunch(db, LOW_STOCK_LAUNCH_ID, 'stock-batch-insuficiente');
-    } catch (error) {
-      blocked = /Estoque insuficiente/.test(String(error?.message || error));
-    }
-    if (!blocked) fail('Finalizacao com estoque insuficiente nao foi bloqueada.');
+    await finalizeLaunch(db, LOW_STOCK_LAUNCH_ID, 'stock-batch-insuficiente');
     await assertProductStock(db, 1, 'Estoque insuficiente');
     await assertLaunchDeducted(db, LOW_STOCK_LAUNCH_ID, false, 'Estoque insuficiente');
-    console.log('   OK estoque insuficiente foi bloqueado sem alterar O.S.');
+    const shortageLaunch = await getDoc(launchPath(db, LOW_STOCK_LAUNCH_ID));
+    if (!shortageLaunch.exists() || shortageLaunch.data().status !== 'Finalizado') {
+      fail('O.S. com estoque insuficiente nao foi finalizada.');
+    }
+    if (shortageLaunch.data().stockShortageItems?.[0]?.availableQuantity !== 1
+      || shortageLaunch.data().stockShortageItems?.[0]?.requestedQuantity !== 2) {
+      fail('Insuficiencia nao foi persistida com quantidades disponivel e solicitada.');
+    }
+    console.log('   OK O.S. finalizada sem baixar o item insuficiente; pendencia ficou registrada');
+
+    console.log('   Verificando gravacao direta de variacao com saldo negativo');
+    await assertNegativeVariationWriteBlocked(db);
+    const variationProduct = await getDoc(variationProductPath(db));
+    if (variationProduct.data().variations[0].stockQuantity !== 2) {
+      fail('A tentativa negada alterou o saldo da variacao.');
+    }
+    console.log('   OK gravacao direta da variacao negativa foi negada pelas Rules');
 
     console.log('6) Repor o estoque permite finalizar a O.S. e registra os dois movimentos');
     await runTransaction(db, async (transaction) => {

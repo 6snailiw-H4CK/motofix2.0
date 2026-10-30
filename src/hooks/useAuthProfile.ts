@@ -49,6 +49,19 @@ const areUserProfilesEqual = (currentProfile: UserProfile | null, nextProfile: U
   );
 };
 
+const profileAccessClaimsDiffer = (
+  profile: UserProfile,
+  claims: Record<string, unknown>,
+) => {
+  const isActive = profile.isActive === true;
+  const isAdmin = isActive && (profile.role === 'admin' || profile.role === 'master_admin');
+  const isMasterAdmin = isActive && profile.role === 'master_admin';
+
+  return (claims.admin === true) !== isAdmin
+    || (claims.master_admin === true) !== isMasterAdmin
+    || (claims.isActive === true) !== isActive;
+};
+
 export function useAuthProfile() {
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -68,11 +81,14 @@ export function useAuthProfile() {
         // Custom admin claims may be added after a browser session was created.
         // Refresh the ID token before Firestore rules evaluate the profile and
         // operational listeners for this authenticated session.
+        let authClaims: Record<string, unknown> | null = null;
         try {
           if (typeof navigator !== 'undefined' && navigator.onLine === false) {
             await firebaseUser.getIdToken();
+            authClaims = (await firebaseUser.getIdTokenResult()).claims;
           } else {
             await firebaseUser.getIdToken(true);
+            authClaims = (await firebaseUser.getIdTokenResult()).claims;
           }
         } catch (tokenRefreshError) {
           // Keep an existing Auth session usable offline or during a transient
@@ -83,8 +99,10 @@ export function useAuthProfile() {
         if (!isMounted || generation !== authGeneration || auth.currentUser?.uid !== firebaseUser.uid) return;
         const userDoc = doc(db, 'users', firebaseUser.uid);
         let userSnap;
+        let loadedFromCache = false;
         try {
           userSnap = await getDocFromCache(userDoc);
+          loadedFromCache = true;
         } catch {
           // A fresh browser has no cached profile yet. Open one short bootstrap
           // session so Firebase can determine whether this account is allowed.
@@ -96,6 +114,34 @@ export function useAuthProfile() {
             getDocFromServer(userDoc),
             new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout carregando perfil remoto')), 5000)),
           ]));
+        }
+
+        // Firestore stays offline outside explicit sync sessions. If an Auth
+        // claim changed while this browser was closed, its cached profile can
+        // disagree with the freshly refreshed token and keep access stale.
+        // Refresh only this user's profile in that narrow case, and only when
+        // there is no local write queue to protect.
+        if (
+          loadedFromCache
+          && userSnap.exists()
+          && authClaims
+          && typeof navigator !== 'undefined'
+          && navigator.onLine !== false
+          && profileAccessClaimsDiffer(userSnap.data() as UserProfile, authClaims)
+        ) {
+          await firestoreOfflineQueueReady;
+          if (getPendingWriteCheckpoint().length === 0) {
+            try {
+              userSnap = await withFirestoreNetworkSession(firebaseUser.uid, () => Promise.race([
+                getDocFromServer(userDoc),
+                new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Timeout atualizando o perfil remoto')), 5000)),
+              ]));
+            } catch (profileRefreshError) {
+              // Keep the cache usable offline; Firestore Rules remain the final
+              // authority for any privileged reads or writes.
+              console.warn('Não foi possível atualizar o perfil após mudança nas claims; usando o cache local:', profileRefreshError);
+            }
+          }
         }
         recordFirestoreReadResult('profile:getDoc', userSnap);
 

@@ -48,6 +48,7 @@ const clientFields: Record<string, FieldRule> = {
   recurrenceDays: { type: 'number', min: 0, max: 3650 },
   status: { type: 'string', values: ['OK', 'WARNING', 'OVERDUE'] },
   isRecurringRevenue: { type: 'boolean' },
+  returnArchived: { type: 'boolean' },
   notificacao_enviada: { type: 'boolean' },
   notificacaoStatus: { type: 'string', maxLength: 40 },
   lastServiceType: { type: 'string', maxLength: 120 },

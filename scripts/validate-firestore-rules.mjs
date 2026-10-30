@@ -35,8 +35,15 @@ const checks = [
     && rules.includes('function hasMasterAdminClaim()')
     && !rules.includes('function isMasterAdmin()')],
   ['operational authorization requires own active profile and a trusted entitlement', ownerFunctionBody.includes('isOwner(userId)')
-    && ownerFunctionBody.includes('userProfileIsActive(userId)')
-    && ownerFunctionBody.includes('userProfileHasAllowedBillingStatus(userId)')
+    && ownerFunctionBody.includes('exists(profilePath)')
+    && ownerFunctionBody.includes('profile.isActive == true')
+    && ownerFunctionBody.includes("profile.role == 'master_admin'")
+    && ownerFunctionBody.includes('ownerAccess.enabled == true')
+    && ownerFunctionBody.includes('ownerAccess.permanent == true')
+    && ownerFunctionBody.includes('isActiveMasterAdmin()')
+    && ownerFunctionBody.includes('request.auth.uid == userId')
+    && ownerFunctionBody.includes("projection.source == 'manual'")
+    && ownerFunctionBody.includes('request.time < manualAccess.expiresAt')
     && !ownerFunctionBody.includes('isWorkshopAdmin()')
     && projectionFunctionBody.includes("profile.keys().hasAny(['accessProjection'])")
     && projectionFunctionBody.includes('profile.accessProjection.allowed == true')
@@ -99,14 +106,19 @@ const checks = [
     && !profileCreateFunctionBody.includes("\n          'accessProjection',")
     && !profileCreateFunctionBody.includes("\n          'manualAccess',")
     && !profileCreateFunctionBody.includes("\n          'ownerAccess',")],
-  ['owner entitlement is UID-bound, permanent, active, and role-bound', rules.includes('function hasPermanentOwnerEntitlement(userId)')
+  ['owner entitlement is UID-bound, permanent, active, and role-bound while active Master Admins are scoped to their own UID', rules.includes('function hasPermanentOwnerEntitlement(userId)')
     && rules.includes("get(profilePath).data.role == 'master_admin'")
     && rules.includes('get(profilePath).data.ownerAccess.enabled == true')
     && rules.includes('get(profilePath).data.ownerAccess.permanent == true')
     && rules.includes("profile.accessProjection.source == 'owner'")
     && projectionFunctionBody.includes('hasPermanentOwnerEntitlement(userId)')
     && !projectionFunctionBody.includes("request.auth.token.motofix_owner == true")
-    && !ownerFunctionBody.includes("profile.role == 'master_admin'")],
+    && ownerFunctionBody.includes("userId == 'o5XNtNFwKMQzZj28WfTEiGSFN0A3'")
+    && ownerFunctionBody.includes("profile.role == 'master_admin'")
+    && ownerFunctionBody.includes('ownerAccess.permanent == true')
+    && ownerFunctionBody.includes('isActiveMasterAdmin()')
+    && ownerFunctionBody.includes('request.auth.uid == userId')
+    && !ownerFunctionBody.includes("profile.role == 'admin'")],
   ['manual access decisions require an active claimed Master Admin and atomic audit', rules.includes('function isActiveMasterAdmin()')
     && rules.includes('function validAccessDecisionBundle(userId, auditId)')
     && userRootRules.includes('allow update: if isActiveMasterAdmin() && validAccessProfileDecision(userId);')
@@ -137,8 +149,17 @@ const checks = [
     && rules.includes('function validStockOperationPair(userId, productId, productData, isCreate)')
     && rules.includes('stockOperationDataPair(userId, productId, productData, isCreate)')
     && rules.includes('validOwnerStockMovementCreate(userId, movementId)')
-    && rules.includes('product.stockMovementId == movementId')
+    && rules.includes("product.get('stockMovementId', '') == movementId")
     && rules.includes('function validOwnerProductDataUpdate(userId)')],
+  ['O.S. links its exact sale or reversal movement atomically', rules.includes('function cashLaunchMovementLinkValid(userId, launchId, launchData, expectedType)')
+    && rules.includes('movementAfter.cashLaunchId == launchId')
+    && rules.includes('function stockMovementCashLaunchLinkValid(userId, movementId, movementData)')
+    && rules.includes('cashLaunchStockTransitionValid(userId, launchId)')
+    && rules.includes("'stockMovementId'")],
+  ['variation stock quantities reject negative direct SDK writes', rules.includes('function validVariationStocks(variations)')
+    && rules.includes('function validVariationStockAt(variations, index)')
+    && rules.includes('variations[index].stockQuantity >= 0')
+    && rules.includes('validVariationStocks(request.resource.data.get(\'variations\', []))')],
   ['physical deletes are denied', !rules.split(/\r?\n/).some(line => line.trim().startsWith('allow delete:') && line.trim() !== 'allow delete: if false;')],
 ];
 

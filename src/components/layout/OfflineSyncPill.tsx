@@ -53,15 +53,11 @@ const buildSyncView = (status: OfflineSyncStatus): PillView => {
     };
   }
 
-  if (status.pendingWrites > 0 || status.localDraftCount > 0) {
-    const details = [
-      status.pendingWrites > 0 ? `${status.pendingWrites} gravação(ões)` : '',
-      status.localDraftCount > 0 ? `${status.localDraftCount} rascunho(s)` : '',
-    ].filter(Boolean).join(' e ');
+  if (status.pendingWrites > 0) {
     return {
       icon: CloudUpload,
-      label: status.pendingWrites > 0 ? `${status.pendingWrites} NÃO ENVIADO${status.pendingWrites === 1 ? '' : 'S'}` : `${status.localDraftCount} rascunho(s) local`,
-      title: `${details} estão guardados neste aparelho e ainda não foram confirmados no Firebase. Estar Online não significa que foram sincronizados. Use Sincronizar para enviá-los.`,
+      label: `${status.pendingWrites} NÃO ENVIADO${status.pendingWrites === 1 ? '' : 'S'}`,
+      title: `${status.pendingWrites} gravação(ões) estão aguardando confirmação do Firebase. Estar Online não significa que foram sincronizadas. Use Sincronizar para enviá-las.`,
       className: 'border-amber-500/35 bg-amber-500/10 text-amber-100',
     };
   }
@@ -89,8 +85,8 @@ export const OfflineSyncPill = ({ compact = false, status }: OfflineSyncPillProp
   const ConnectionIcon = status.isOnline ? Wifi : WifiOff;
   const connectionTitle = status.isOnline
     ? 'O navegador detecta uma conexão de rede. Isso, sozinho, não confirma que as alterações já foram enviadas ao Firebase; confira o estado de sincronização ao lado.'
-    : status.pendingWrites > 0 || status.localDraftCount > 0
-      ? 'Sem conexão de rede. Alterações pendentes e rascunhos continuam guardados neste aparelho e ainda precisam ser sincronizados quando a conexão voltar.'
+    : status.pendingWrites > 0
+      ? 'Sem conexão de rede. Alterações pendentes continuam guardadas neste aparelho e ainda precisam ser sincronizadas quando a conexão voltar.'
       : 'O navegador informa que não há conexão de rede. O aplicativo está usando os dados disponíveis neste aparelho.';
 
   return (

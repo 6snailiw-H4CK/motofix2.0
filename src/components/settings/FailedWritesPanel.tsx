@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import { Trash2 } from 'lucide-react';
 import { toast as sonnerToast } from 'sonner';
 import {
+  discardFailedFirestoreWrites,
   FIRESTORE_OFFLINE_QUEUE_EVENT,
   getFailedWrites,
   retryFailedWrite,
@@ -15,6 +17,7 @@ export const FailedWritesPanel: React.FC<FailedWritesPanelProps> = ({ currentUse
   const [failed, setFailed] = useState<FailedFirestoreWrite[]>([]);
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [isClearing, setIsClearing] = useState(false);
 
   useEffect(() => {
     const refresh = () => setFailed(getFailedWrites(currentUserId));
@@ -42,6 +45,37 @@ export const FailedWritesPanel: React.FC<FailedWritesPanelProps> = ({ currentUse
     }
   };
 
+  const clearableFailed = failed.filter((write) => (
+    currentUserId !== null && write.ownerId === currentUserId
+  ));
+
+  const handleClearFailed = async () => {
+    if (!currentUserId || clearableFailed.length === 0 || isClearing || retryingId !== null) return;
+    const confirmed = window.confirm(
+      `Remover ${clearableFailed.length} falha(s) local(is) desta conta neste navegador? `
+      + 'Isso descarta somente tentativas recusadas que ainda estão na fila local; não altera o Firestore. '
+      + 'Pendências locais e gravações confirmadas serão preservadas. As falhas removidas não poderão ser recuperadas pelo app.'
+    );
+    if (!confirmed) return;
+
+    setIsClearing(true);
+    try {
+      const removed = await discardFailedFirestoreWrites(
+        clearableFailed.map((write) => write.id),
+        currentUserId,
+      );
+      if (removed > 0) {
+        sonnerToast.success(`${removed} falha(s) local(is) removida(s). Dados do Firebase preservados.`);
+      } else {
+        sonnerToast.message('A fila mudou. Nenhuma falha desta conta foi removida.');
+      }
+    } catch (error) {
+      sonnerToast.error(error instanceof Error ? error.message : 'Não foi possível limpar as falhas locais.');
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
   if (failed.length === 0) return null;
 
   return (
@@ -51,7 +85,21 @@ export const FailedWritesPanel: React.FC<FailedWritesPanelProps> = ({ currentUse
           <p className="text-[10px] font-bold uppercase tracking-widest text-amber-200">Falhas na fila</p>
           <h4 className="mt-1 text-sm font-bold text-white">Alteracoes que precisam de atencao</h4>
         </div>
-        <div className="text-xs text-amber-200">{failed.length} item(s)</div>
+        <div className="flex items-center gap-3">
+          <div className="text-xs text-amber-200">{failed.length} item(s)</div>
+          {clearableFailed.length > 0 ? (
+            <button
+              type="button"
+              disabled={isClearing || retryingId !== null}
+              onClick={() => void handleClearFailed()}
+              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-amber-500/30 px-3 text-xs font-bold text-amber-100 hover:bg-amber-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+              title="Remove somente falhas desta conta do armazenamento local deste navegador"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {isClearing ? 'Limpando...' : `Limpar falhas locais (${clearableFailed.length})`}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="mt-3 space-y-2">

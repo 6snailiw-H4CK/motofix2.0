@@ -65,6 +65,8 @@ export interface Client extends SoftDeletable {
   recurrenceDays: number;
   status: MaintenanceStatus;
   isRecurringRevenue?: boolean;
+  /** Hides only this customer from the returns queue; the customer remains active elsewhere. */
+  returnArchived?: boolean;
   notificacao_enviada?: boolean;
   notificacaoStatus?: 'pendente' | 'concluido';
   lastServiceType?: string;
@@ -110,10 +112,41 @@ export type OperationalLogAction =
   | 'cliente_criado'
   | 'cliente_editado'
   | 'cliente_removido'
+  | 'cliente_restaurado'
+  | 'retorno_arquivado'
+  | 'retorno_restaurado'
   | 'os_criada'
+  | 'os_atualizada'
+  | 'os_finalizada'
+  | 'os_cancelada'
+  | 'os_status_alterado'
+  | 'os_removida'
+  | 'os_restaurada'
+  | 'agendamento_criado'
+  | 'agendamento_concluido'
+  | 'agendamento_removido'
+  | 'agendamento_restaurado'
+  | 'manutencao_criada'
+  | 'manutencao_removida'
+  | 'pagamento_confirmado'
+  | 'aviso_removido'
+  | 'aviso_restaurado'
+  | 'mercadoria_criada'
+  | 'mercadoria_atualizada'
+  | 'mercadoria_removida'
+  | 'mercadoria_restaurada'
+  | 'estoque_alterado'
   | 'garantia_criada'
+  | 'garantia_atualizada'
+  | 'garantia_removida'
+  | 'garantia_restaurada'
   | 'despesa_criada'
-  | 'receita_criada';
+  | 'despesa_removida'
+  | 'despesa_restaurada'
+  | 'conta_paga'
+  | 'receita_criada'
+  | 'importacao_concluida'
+  | 'configuracoes_atualizadas';
 
 export type OperationalLogResult = 'sucesso' | 'salvo_offline' | 'erro';
 
@@ -125,6 +158,8 @@ export interface OperationalLog {
   oficina: string;
   acao: OperationalLogAction;
   resultado: OperationalLogResult;
+  /** Client-only delivery state inferred from server-confirmed snapshots. */
+  syncStatus?: 'sincronizado' | 'pendente' | 'offline' | 'nao_verificado';
   targetId?: string;
   details?: Record<string, unknown>;
 }
@@ -157,6 +192,16 @@ export interface ExpenseRecord extends SoftDeletable {
   note?: string;
   userId: string;
   createdAt: string;
+  /** Present only on new records using the prospective cash/payables model. */
+  accountingVersion?: 1;
+  dueDate?: string | null;
+  /** Actual settlements; a credit purchase starts with no settlement entry. */
+  settlementEntries?: Array<{
+    id: string;
+    amount: number;
+    method: CashPaymentMethod;
+    settledAt: string;
+  }>;
 }
 
 export interface ProductCatalogItem extends SoftDeletable {
@@ -205,6 +250,16 @@ export interface CashRegisterItem {
 }
 
 export type CashPaymentMethod = 'Debito' | 'Credito' | 'Pix' | 'Dinheiro';
+
+/** Individual payment received for a new O.S.; legacy totals remain untouched. */
+export interface CashPaymentEntry {
+  id: string;
+  amount: number;
+  method: CashPaymentMethod;
+  receivedAt: string;
+  /** Card receivables are settled separately when the acquirer pays out. */
+  settledAt?: string | null;
+}
 
 export type ManualFiscalDocumentStatus = 'Nao emitida' | 'Emitida' | 'Cancelada';
 
@@ -259,6 +314,9 @@ export interface CashRegisterLaunch extends SoftDeletable {
   paidAt?: string | null;
   invoiced?: boolean;
   paymentMethod?: CashPaymentMethod;
+  /** Incremental receipt history, populated for transactions created after accounting cutover. */
+  accountingVersion?: 1;
+  paymentEntries?: CashPaymentEntry[];
   fiscalInvoiceId?: string;
   fiscalReference?: string;
   fiscalIssuedAt?: string;
@@ -266,6 +324,8 @@ export interface CashRegisterLaunch extends SoftDeletable {
   stockDeducted?: boolean;
   stockDeductedAt?: string | null;
   stockMovementBatchId?: string | null;
+  /** Exact stock_movements document that records the effective O.S. debit. */
+  stockMovementId?: string | null;
   stockShortageItems?: Array<{
     productId: string;
     productDescription: string;

@@ -103,6 +103,7 @@ export const useMaintenanceActions = ({
             valorPago: serviceValue,
             saldoDevedor: 0,
             lastServiceNotes: quickMaintenanceNotes,
+            returnArchived: false,
           },
         },
         {
@@ -134,7 +135,15 @@ export const useMaintenanceActions = ({
         oficina: workshopName,
         acao: 'receita_criada',
         targetId: maintenanceId,
-        details: { clientName: client.name, serviceType, value: serviceValue },
+        details: { module: 'Retornos', source: 'manutenção registrada' },
+      });
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName,
+        acao: 'manutencao_criada',
+        targetId: maintenanceId,
+        details: { module: 'Retornos', fields: ['data', 'tipo de serviço', 'pagamento'] },
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.WRITE, 'maintenances/clients');
@@ -158,6 +167,14 @@ export const useMaintenanceActions = ({
     try {
       setProcessingId(id);
       await maintenanceRepository.remove(user.uid, id);
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName,
+        acao: 'manutencao_removida',
+        targetId: id,
+        details: { module: 'Clientes' },
+      });
 
       if (targetMaintenance?.clientId) {
         const client = clients.find((item) => item.id === targetMaintenance.clientId);
@@ -222,7 +239,7 @@ export const useMaintenanceActions = ({
     } finally {
       setProcessingId(null);
     }
-  }, [clients, defaultServiceType, getStatus, maintenances, onDeleted, user]);
+  }, [clients, defaultServiceType, getStatus, maintenances, onDeleted, user, workshopName]);
 
   const deleteLegacyService = useCallback(async (client: Client) => {
     if (!user?.uid || !client.id) return;
@@ -244,6 +261,15 @@ export const useMaintenanceActions = ({
         saldoDevedor: 0,
       });
 
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName,
+        acao: 'manutencao_removida',
+        targetId: client.id,
+        details: { module: 'Clientes', fields: ['histórico de manutenção'] },
+      });
+
       sonnerToast.success(getFirestoreSaveResultMessage('Registro antigo removido. Cadastro do cliente preservado.'));
       onDeleted();
     } catch (error) {
@@ -252,7 +278,7 @@ export const useMaintenanceActions = ({
     } finally {
       setProcessingId(null);
     }
-  }, [onDeleted, user]);
+  }, [onDeleted, user, workshopName]);
 
   const confirmPayment = useCallback(async (
     maintenanceId: string | undefined,
@@ -270,6 +296,14 @@ export const useMaintenanceActions = ({
         valorPago: maintenance.serviceValue || 0,
         saldoDevedor: 0,
       });
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName,
+        acao: 'pagamento_confirmado',
+        targetId: maintenanceId,
+        details: { module: 'Pendências', fields: ['status do pagamento', 'valor pago', 'saldo pendente'] },
+      });
       sonnerToast.success(getFirestoreSaveResultMessage('Pagamento confirmado!'));
     } catch (error) {
       console.error('confirmPayment error:', error);
@@ -277,7 +311,7 @@ export const useMaintenanceActions = ({
     } finally {
       setProcessingId(null);
     }
-  }, [user]);
+  }, [user, workshopName]);
 
   const settleDebt = useCallback(async (
     maintenanceId: string | undefined,
@@ -300,6 +334,14 @@ export const useMaintenanceActions = ({
         valorPago: newValorPago,
         saldoDevedor: Math.max(0, (maintenance.serviceValue || 0) - newValorPago),
       });
+      recordOperationalLog({
+        userId: user.uid,
+        usuario: user.email,
+        oficina: workshopName,
+        acao: 'pagamento_confirmado',
+        targetId: maintenanceId,
+        details: { module: 'Pendências', fields: ['status do pagamento', 'valor pago', 'saldo pendente'] },
+      });
       sonnerToast.success(getFirestoreSaveResultMessage('Débito quitado com sucesso!'));
     } catch (error) {
       console.error('settleDebt error:', error);
@@ -307,7 +349,7 @@ export const useMaintenanceActions = ({
     } finally {
       setProcessingId(null);
     }
-  }, [user]);
+  }, [user, workshopName]);
 
   return {
     addMaintenance,

@@ -158,6 +158,7 @@ type AppViewRendererUi = {
   setSettings: Dispatch<SetStateAction<Settings>>;
   setView: Dispatch<SetStateAction<AppView>>;
   onColorModeChange: (mode: ColorMode) => void;
+  onSyncForBackup: () => Promise<{ updatedDocuments: number }>;
   view: AppView;
 };
 
@@ -255,27 +256,81 @@ export const AppViewRenderer = ({
   const pendingCashLaunches = cashLaunches.filter((launch) => (
     getCashReceivableAmount(launch) > 0
   ));
-  const pendingPaymentCount = pendingPaymentClients.length + pendingCashLaunches.length;
+  const pendingOrders = cashLaunches.filter((launch) => launch.status === 'Pendente');
+  const clientIdsByName = new Map(
+    clients.map((client) => [client.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase('pt-BR'), client.id])
+  );
+  const pendingPaymentClientKeys = new Set<string>();
+  const addPendingPaymentClient = (clientId: string | undefined, clientName: string, fallbackId: string) => {
+    const normalizedName = clientName.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase('pt-BR');
+    const resolvedClientId = clientId || clientIdsByName.get(normalizedName);
+    if (resolvedClientId) {
+      pendingPaymentClientKeys.add(`client:${resolvedClientId}`);
+      return;
+    }
+    pendingPaymentClientKeys.add(normalizedName && normalizedName !== 'consumidor final'
+      ? `name:${normalizedName}`
+      : `record:${fallbackId}`);
+  };
+  pendingPaymentClients.forEach((client) => addPendingPaymentClient(client.id, client.name, client.id));
+  pendingCashLaunches.forEach((launch) => addPendingPaymentClient(launch.clientId, launch.clientName, launch.id));
+  pendingOrders.forEach((launch) => addPendingPaymentClient(launch.clientId, launch.clientName, launch.id));
+  const pendingPaymentCount = pendingPaymentClientKeys.size;
   const [cashLaunchToOpenId, setCashLaunchToOpenId] = useState<string | null>(null);
 
-  const exportFullBackup = async () => {
+  const exportFullBackup = async (password: string, onProgress: (progress: { stage: string; completed?: number; total?: number }) => void, allowIncomplete = false) => {
     try {
-      const result = await systemBackupApi.downloadFullBackup();
-      sonnerToast.success(`Backup geral exportado: ${result.filename}`);
+      const result = await systemBackupApi.downloadFullBackup(password, onProgress, allowIncomplete);
+      if (result.complete) sonnerToast.success(`Backup geral conferido: ${result.filename}`);
+      else sonnerToast.warning(`Cópia parcial exportada: ${result.filename}`, { description: result.incompleteReasons.join('; ') });
+      return result;
     } catch (error) {
       sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel exportar o backup geral.');
+      throw error;
     }
   };
 
-  const importFullBackup = async (file: File) => {
+  const validateFullBackup = async (file: File, password: string) => {
     try {
-      const result = await systemBackupApi.restoreFullBackup(file);
-      sonnerToast.success(`Backup geral restaurado: ${result.restoredTotal} item(ns).`);
-      if (result.skippedDocuments > 0) {
-        sonnerToast.warning(`${result.skippedDocuments} documento(s) foram ignorados por ID invalido.`);
-      }
+      const inspected = await systemBackupApi.inspectFullBackup(file, password);
+      const preflight = await systemBackupApi.preflightFullBackup(inspected.payload);
+      return { summary: inspected.summary, preflight };
+    } catch (error) {
+      sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel validar o backup geral.');
+      throw error;
+    }
+  };
+
+  const prepareRestoreSafetyBackup = async (
+    file: File,
+    password: string,
+    onProgress: (progress: { stage: string; completed?: number; total?: number }) => void,
+  ) => {
+    try {
+      const result = await systemBackupApi.prepareRestoreSafetyBackup(file, password, onProgress);
+      sonnerToast.success(`Cópia de segurança do destino baixada: ${result.filename}`);
+      return result;
+    } catch (error) {
+      sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel criar a copia anterior a restauracao.');
+      throw error;
+    }
+  };
+
+  const importFullBackup = async (
+    file: File,
+    password: string,
+    confirmation: string,
+    safetyBackupFilename: string | null,
+    onProgress: (progress: { stage: string; completed?: number; total?: number }) => void,
+  ) => {
+    try {
+      const result = await systemBackupApi.restoreFullBackup(file, password, confirmation, safetyBackupFilename, onProgress);
+      if (result.verified) sonnerToast.success(`Backup restaurado e verificado: ${result.restoredTotal} registro(s).`);
+      else sonnerToast.warning('A restauração teve divergências na verificação final.');
+      return result;
     } catch (error) {
       sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel restaurar o backup geral.');
+      throw error;
     }
   };
 
@@ -286,6 +341,7 @@ export const AppViewRenderer = ({
           cashFlowStats={cashFlowStats}
           dailyPendingAlerts={dailyPendingAlerts}
           pendingPaymentCount={pendingPaymentCount}
+          pendingOrderCount={pendingOrders.length}
           warranties={warranties}
           appointments={appointments}
           nextAppointment={nextAppointment}
@@ -315,9 +371,11 @@ export const AppViewRenderer = ({
     if (view === 'returns') {
       return (
         <ReturnsView
-          clients={clientsSortedByBalance}
-          dailyPendingAlerts={dailyPendingAlerts}
+          clients={clientsSortedByBalance.filter((client) => !client.returnArchived)}
+          dailyPendingAlerts={dailyPendingAlerts.filter((client) => !client.returnArchived)}
           processingId={maintenanceActions.processingId}
+          deleteConfirmId={getDeleteConfirmId('return')}
+          deletingReturnId={clientActions.archivingReturnId}
           onBack={() => setView('dashboard')}
           onEditClient={(client) => {
             clientForm.startEditClient(client);
@@ -333,6 +391,11 @@ export const AppViewRenderer = ({
             setView('new-client');
           }}
           onRegisterReturn={maintenanceActions.addMaintenance}
+          onDeleteReturn={(client) => confirmOrRequestDelete(
+            'return',
+            client.id,
+            () => clientActions.archiveReturn(client)
+          )}
           onSendWhatsApp={sendWhatsApp}
         />
       );
@@ -609,6 +672,7 @@ export const AppViewRenderer = ({
           amount={expenseActions.amount}
           paymentMethod={expenseActions.paymentMethod}
           date={expenseActions.date}
+          dueDate={expenseActions.dueDate}
           note={expenseActions.note}
           isSaving={expenseActions.isSaving}
           onBack={() => setView('dashboard')}
@@ -617,9 +681,11 @@ export const AppViewRenderer = ({
           onAmountChange={expenseActions.setAmount}
           onPaymentMethodChange={expenseActions.setPaymentMethod}
           onDateChange={expenseActions.setDate}
+          onDueDateChange={expenseActions.setDueDate}
           onNoteChange={expenseActions.setNote}
           onSaveExpense={expenseActions.saveExpense}
           onDeleteExpense={expenseActions.deleteExpense}
+          onSettleExpense={expenseActions.settleExpense}
           onResetForm={expenseActions.resetForm}
         />
       );
@@ -651,6 +717,7 @@ export const AppViewRenderer = ({
           settings={settings}
           onBack={() => setView('dashboard')}
           onViewChange={setView}
+          onSettleCardReceipt={cashRegisterActions.settleCardReceipt}
         />
       );
     }
@@ -693,6 +760,7 @@ export const AppViewRenderer = ({
     if (view === 'settings') {
       return (
         <SettingsView
+          currentUserId={currentUserId}
           userEmail={userEmail}
           userProfile={userProfile}
           settings={settings}
@@ -705,6 +773,8 @@ export const AppViewRenderer = ({
           onSaveSettingsPatch={settingsActions.saveSettingsPatch}
           onExportClientsBackup={clientActions.exportClientsBackup}
           onExportFullBackup={exportFullBackup}
+          onValidateFullBackup={validateFullBackup}
+          onPrepareRestoreBackup={prepareRestoreSafetyBackup}
           onImportFullBackup={importFullBackup}
           onImportClientsBackup={clientActions.importClientsBackup}
           isImportingClients={clientActions.isImportingClients}
@@ -715,6 +785,7 @@ export const AppViewRenderer = ({
           isResettingOperationalData={settingsActions.isResettingOperationalData}
           offlineSyncStatus={offlineSyncStatus}
           operationalLogs={operationalLogs}
+          onSyncForBackup={ui.onSyncForBackup}
         />
       );
     }
