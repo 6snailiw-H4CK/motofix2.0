@@ -1,7 +1,12 @@
 import { auth } from '../firebase';
-import { exportFirestoreOfflineQueueSnapshot, firestoreOfflineQueueReady, getFirestoreOfflineQueueState, getPendingWriteOwners } from './firestoreOfflineQueue';
+import {
+  readAuditedFirestoreOfflineQueueSnapshot,
+  firestoreOfflineQueueReady,
+  getFirestoreOfflineQueueState,
+} from './firestoreOfflineQueue';
 import { inspectLocalDraftStorage } from './localDrafts';
 import { inspectLocalOperationalStorage } from './localCashLaunchRepository';
+import { resolveBackupApiBaseUrl } from './backupEndpoint';
 import {
   decryptPortableBackup,
   summarizePortableBackup,
@@ -9,6 +14,7 @@ import {
   type PortableBackupSummary,
 } from './portableBackup';
 import { createStableBackupArchive, readPortableBackupSource } from './portableBackupExport';
+import { withCompleteBackupStateLock } from './backupLocalStateLock';
 
 type ApiResponse<T> = T & { error?: string };
 
@@ -52,6 +58,7 @@ export type LocalBackupInventory = {
   localCashLaunches: number;
   localProducts: number;
   persistenceIssue: boolean;
+  queueAuditStatus: string;
   storageReadable: boolean;
   incompleteReasons: string[];
 };
@@ -61,15 +68,12 @@ export type FullBackupInspection = {
   summary: PortableBackupSummary;
 };
 
-const backupBaseUrl = (
-  import.meta.env.VITE_BACKUP_API_URL
-  || import.meta.env.VITE_DATA_RESET_API_URL
-  || import.meta.env.VITE_FISCAL_API_URL
-  || import.meta.env.VITE_WHATSAPP_API_URL
-  || ''
-);
+const backupBaseUrl = () => resolveBackupApiBaseUrl({
+  backupApiUrl: import.meta.env.VITE_BACKUP_API_URL,
+  environment: import.meta.env.MODE === 'production' ? 'production' : 'development',
+});
 
-const buildUrl = (path: string) => `${backupBaseUrl}${path}`;
+const buildUrl = (path: string) => `${backupBaseUrl()}${path}`;
 const MAX_RESTORE_REQUEST_BYTES = 4 * 1024 * 1024;
 const appVersion = import.meta.env.VITE_APP_VERSION || '2.1.0';
 
@@ -118,9 +122,16 @@ const authenticatedGet = async (path: string) => fetch(buildUrl(path), {
 
 const readLocalRecovery = async (userId: string) => {
   await firestoreOfflineQueueReady;
-  const queue = await exportFirestoreOfflineQueueSnapshot(userId);
+  const auditedQueue = await readAuditedFirestoreOfflineQueueSnapshot(userId);
+  const queueAudit = auditedQueue.audit;
+  const queue = auditedQueue.queue || { writes: [], lastQueuedAt: null, lastSettledAt: null, lastError: null, failureCount: 0, confirmedCount: 0, retryCount: 0, persistenceFailureCount: 0, lastPersistenceError: null };
   const queueState = getFirestoreOfflineQueueState();
-  const pendingOwners = getPendingWriteOwners();
+  const allWrites = auditedQueue.allWrites;
+  const pendingOwners = {
+    userIds: Array.from(new Set(allWrites.filter((write) => write.status === 'pending').map((write) => write.ownerId).filter((ownerId): ownerId is string => Boolean(ownerId)))),
+    unknownCount: allWrites.filter((write) => write.status === 'pending' && !write.ownerId).length,
+  };
+  const failedWritesAcrossOwners = allWrites.filter((write) => write.status === 'failed');
   const draftAudit = inspectLocalDraftStorage();
   const operationalAudit = inspectLocalOperationalStorage();
   const drafts = draftAudit.records.filter((draft) => draft.key.startsWith(`${userId}:`));
@@ -133,10 +144,19 @@ const readLocalRecovery = async (userId: string) => {
     .filter((item) => Boolean(item.userId) && item.userId !== userId).length;
   const pendingWrites = queue.writes.filter((write) => write.status === 'pending').length;
   const failedWrites = queue.writes.filter((write) => write.status === 'failed').length;
+  const otherOwnerPendingOwners = pendingOwners.userIds.filter((ownerId) => ownerId !== userId).length;
+  const otherOwnerFailedWrites = failedWritesAcrossOwners.filter((write) => Boolean(write.ownerId) && write.ownerId !== userId).length;
+  const unknownOwnerFailedWrites = failedWritesAcrossOwners.filter((write) => !write.ownerId).length;
   const incompleteReasons: string[] = [];
+  if (!queueAudit.safeToUse) {
+    incompleteReasons.push(`a fila offline não passou na auditoria bruta (${queueAudit.status}); os armazenamentos originais foram preservados`);
+  }
   if (pendingWrites > 0) incompleteReasons.push(`${pendingWrites} gravação(ões) pendente(s) na fila offline`);
   if (failedWrites > 0) incompleteReasons.push(`${failedWrites} gravação(ões) recusada(s) na fila offline`);
   if (pendingOwners.unknownCount > 0) incompleteReasons.push(`${pendingOwners.unknownCount} gravação(ões) pendente(s) sem oficina identificada`);
+  if (otherOwnerPendingOwners > 0) incompleteReasons.push(`há operações pendentes de ${otherOwnerPendingOwners} outra(s) oficina(s) neste navegador`);
+  if (otherOwnerFailedWrites > 0) incompleteReasons.push(`${otherOwnerFailedWrites} falha(s) na fila pertencem a outra oficina neste navegador`);
+  if (unknownOwnerFailedWrites > 0) incompleteReasons.push(`${unknownOwnerFailedWrites} falha(s) na fila não têm oficina identificada`);
   if (unownedLocalRecords > 0) incompleteReasons.push(`${unownedLocalRecords} registro(s) local(is) sem oficina identificada`);
   if (otherOwnerLocalRecords > 0) incompleteReasons.push(`${otherOwnerLocalRecords} registro(s) local(is) pertencem a outra oficina neste navegador`);
   if (drafts.length > 0) incompleteReasons.push(`${drafts.length} rascunho(s) local(is) não sincronizado(s)`);
@@ -149,17 +169,22 @@ const readLocalRecovery = async (userId: string) => {
   if (!operationalAudit.readable) incompleteReasons.push('dados locais de O.S./estoque estão ilegíveis ou malformados');
   const localStorageAvailable = typeof window !== 'undefined' && (() => { try { return Boolean(window.localStorage); } catch { return false; } })();
   if (!localStorageAvailable) incompleteReasons.push('localStorage indisponível para conferir rascunhos e registros locais');
-  const storageReadable = draftAudit.readable && operationalAudit.readable && localStorageAvailable && !persistenceIssue;
+  const storageReadable = queueAudit.safeToUse && draftAudit.readable && operationalAudit.readable && localStorageAvailable && !persistenceIssue;
   const evidence = {
     sourceStorage: {
-      offlineQueue: 'snapshot serializado após hidratação do IndexedDB e espelho localStorage',
-      queuePersistenceHealthy: !persistenceIssue,
+      offlineQueue: 'auditoria bruta read-only do IndexedDB e espelho localStorage antes de qualquer normalização',
+      queuePersistenceHealthy: !persistenceIssue && queueAudit.safeToUse,
+      queueAudit,
       draftsReadable: draftAudit.readable,
       malformedDraftCount: draftAudit.malformedCount,
       otherOwnerDraftCount: otherOwnerDrafts,
       malformedOperationalRecordCount: operationalAudit.malformedCount,
       unownedLocalRecordCount: unownedLocalRecords,
       otherOwnerLocalRecordCount: otherOwnerLocalRecords,
+      unknownPendingWriteCount: pendingOwners.unknownCount,
+      otherOwnerPendingOwnerCount: otherOwnerPendingOwners,
+      otherOwnerFailedWriteCount: otherOwnerFailedWrites,
+      unknownOwnerFailedWriteCount: unknownOwnerFailedWrites,
       localStorageAvailable,
       indexedDbAvailable: typeof window !== 'undefined' && typeof window.indexedDB !== 'undefined',
     },
@@ -184,22 +209,24 @@ const buildEncryptedArchive = async (
   filenamePrefix = 'motofix-backup',
   allowIncompleteLocalRecovery = false,
 ) => {
+  await firestoreOfflineQueueReady;
   const userId = auth.currentUser?.uid;
   if (!userId) throw new Error('Entre na conta da oficina antes de criar o backup.');
-  return createStableBackupArchive({
+  return withCompleteBackupStateLock(() => createStableBackupArchive({
     password,
     appVersion,
     filenamePrefix,
     allowIncompleteLocalRecovery,
     readRemoteSignature,
     readRemoteSnapshot: () => readPortableBackupSource({
-      apiBaseUrl: backupBaseUrl,
+      apiBaseUrl: backupBaseUrl(),
+      expectedProjectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
       getAuthHeaders: () => getAuthHeaders(false),
       onProgress,
     }),
     readLocalRecovery: () => readLocalRecovery(userId),
     onProgress,
-  });
+  }));
 };
 
 const parseBackupFile = async (file: File, password: string) => {
@@ -287,11 +314,13 @@ export const systemBackupApi = {
     return {
       pendingWrites: queue.filter((write) => write.status === 'pending').length,
       failedWrites: queue.filter((write) => write.status === 'failed').length,
-      unknownPendingWrites: getPendingWriteOwners().unknownCount,
+      unknownPendingWrites: typeof storage.unknownPendingWriteCount === 'number' ? storage.unknownPendingWriteCount : 0,
       localDrafts: drafts.length,
       localCashLaunches: localCashLaunches.length,
       localProducts: localProducts.length,
       persistenceIssue: storage.queuePersistenceHealthy !== true,
+      queueAuditStatus: typeof (storage.queueAudit as Record<string, unknown> | undefined)?.status === 'string'
+        ? String((storage.queueAudit as Record<string, unknown>).status) : 'unavailable',
       storageReadable: !snapshot.unsafeToExport,
       incompleteReasons: snapshot.incompleteReasons,
     };

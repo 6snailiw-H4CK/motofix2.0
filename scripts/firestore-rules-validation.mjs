@@ -1230,7 +1230,26 @@ async function runTests() {
     }
 
     console.log('10b) Movimento de estoque isolado deve ser negado');
-    await setDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'stock_movements', stockMovementId), stockMovementData)
+    const isolatedMovementId = `stock-move-isolated-${randomUUID()}`;
+    await setDoc(doc(ownerDb, 'users', TEST_USER_OWNER, 'stock_movements', isolatedMovementId), {
+      userId: TEST_USER_OWNER,
+      type: 'ajuste_manual',
+      batchId: `stock-batch-isolated-${randomUUID()}`,
+      note: 'Movimento isolado de teste',
+      createdAt: now(),
+      productIds: [PRODUCT_ID],
+      changes: {
+        [PRODUCT_ID]: {
+          productId: PRODUCT_ID,
+          productDescription: 'Produto com estoque',
+          previousQuantity: 4,
+          nextQuantity: 4,
+          quantity: 0,
+          previousVariations: [],
+          nextVariations: [],
+        },
+      },
+    })
       .then(() => fail('Owner conseguiu criar movimento sem alterar estoque'))
       .catch((error) => {
         if (error?.code !== 'permission-denied') fail(`Criacao isolada de movimento falhou inesperadamente: ${error?.code || error}`);

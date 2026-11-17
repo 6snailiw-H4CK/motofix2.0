@@ -1,4 +1,5 @@
 export const LOCAL_DRAFTS_EVENT = 'motofix:local-drafts';
+import { withLocalStateMutation } from './backupLocalStateLock';
 
 const DRAFT_PREFIX = 'motofix:draft:';
 
@@ -68,32 +69,34 @@ const emitDraftsChanged = () => {
 
 const storageKey = (key: string) => `${DRAFT_PREFIX}${key}`;
 
-export const saveLocalDraft = <T,>(key: string, label: string, scope: string, data: T) => {
-  if (!canUseStorage()) return;
+export const saveLocalDraft = async <T,>(key: string, label: string, scope: string, data: T) => (
+  withLocalStateMutation(() => {
+    if (!canUseStorage()) return;
 
-  const existing = loadLocalDraft<T>(key);
-  const now = new Date().toISOString();
-  const changedFields = Array.from(new Set([
-    ...(existing?.changedFields || (existing ? changedDataFields(null, existing.data) : [])),
-    ...changedDataFields(existing?.data, data),
-  ]));
-  const record: LocalDraftRecord<T> = {
-    key,
-    label,
-    scope,
-    createdAt: existing?.createdAt || now,
-    updatedAt: now,
-    changedFields,
-    data,
-  };
+    const existing = loadLocalDraft<T>(key);
+    const now = new Date().toISOString();
+    const changedFields = Array.from(new Set([
+      ...(existing?.changedFields || (existing ? changedDataFields(null, existing.data) : [])),
+      ...changedDataFields(existing?.data, data),
+    ]));
+    const record: LocalDraftRecord<T> = {
+      key,
+      label,
+      scope,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+      changedFields,
+      data,
+    };
 
-  try {
-    window.localStorage.setItem(storageKey(key), JSON.stringify(record));
-    emitDraftsChanged();
-  } catch (error) {
-    console.warn('Nao foi possivel salvar o draft local:', error);
-  }
-};
+    try {
+      window.localStorage.setItem(storageKey(key), JSON.stringify(record));
+      emitDraftsChanged();
+    } catch (error) {
+      console.warn('Nao foi possivel salvar o draft local:', error);
+    }
+  })
+);
 
 export const loadLocalDraft = <T,>(key: string): LocalDraftRecord<T> | null => {
   if (!canUseStorage()) return null;
@@ -109,13 +112,12 @@ export const loadLocalDraft = <T,>(key: string): LocalDraftRecord<T> | null => {
   try {
     return JSON.parse(raw) as LocalDraftRecord<T>;
   } catch {
-    window.localStorage.removeItem(storageKey(key));
-    emitDraftsChanged();
+    // Preserve malformed bytes for the backup preflight/manual recovery audit.
     return null;
   }
 };
 
-export const clearLocalDraft = (key: string) => {
+export const clearLocalDraft = async (key: string) => withLocalStateMutation(() => {
   if (!canUseStorage()) return;
   try {
     window.localStorage.removeItem(storageKey(key));
@@ -123,7 +125,7 @@ export const clearLocalDraft = (key: string) => {
   } catch (error) {
     console.warn('Nao foi possivel remover o draft local:', error);
   }
-};
+});
 
 export const listLocalDrafts = () => {
   if (!canUseStorage()) return [] as LocalDraftRecord[];

@@ -127,10 +127,10 @@ export const FailedWritesPanel: React.FC<FailedWritesPanelProps> = ({ currentUse
                     className="mt-2 rounded-md border border-slate-600/50 bg-slate-950/40 p-2 text-[10px] text-slate-200"
                   >
                     <summary className="cursor-pointer font-bold text-slate-100">
-                      Diagnóstico seguro: campos, tipos e regras
+                      Diagnóstico do registro: identificação, campos e regras locais
                     </summary>
                     <p className="mt-1 text-slate-300/80">
-                      Exibe apenas nomes, tipos e limites; nenhum valor pessoal é mostrado. A comparação é local e não substitui a avaliação do Firebase.
+                      Mostra a identificação necessária para localizar o cadastro, incluindo nome do cliente e descrição da mercadoria quando disponíveis. Não exibe telefone, e-mail, documento, observações nem mensagens. As verificações são locais e não revelam qual cláusula remota o Firebase recusou.
                     </p>
                     <div className="mt-2 space-y-2">
                       {write.diagnostics.map((diagnostic, targetIndex) => (
@@ -141,6 +141,16 @@ export const FailedWritesPanel: React.FC<FailedWritesPanelProps> = ({ currentUse
                           <div className="font-semibold text-slate-100">
                             {diagnostic.operation.toUpperCase()} {diagnostic.path.split('/')[2] || 'destino desconhecido'}
                           </div>
+                          {diagnostic.recordContext.length > 0 ? (
+                            <dl className="mt-2 grid gap-x-3 gap-y-1 rounded bg-slate-900/70 p-2 sm:grid-cols-[max-content_1fr]">
+                              {diagnostic.recordContext.map((item, contextIndex) => (
+                                <React.Fragment key={`${targetIndex}-context-${contextIndex}`}>
+                                  <dt className="font-semibold text-slate-400">{item.label}</dt>
+                                  <dd className="break-words text-slate-100">{item.value}</dd>
+                                </React.Fragment>
+                              ))}
+                            </dl>
+                          ) : null}
                           <div className="mt-1 break-words leading-relaxed text-slate-300">
                             Campos ({diagnostic.fields.length}):{' '}
                             {diagnostic.fields.length > 0
@@ -173,7 +183,7 @@ export const FailedWritesPanel: React.FC<FailedWritesPanelProps> = ({ currentUse
                 ) : null}
                 {permissionDenied ? (
                   <div className="mt-2 rounded-md border border-red-500/20 bg-red-950/20 p-2 text-[10px] leading-relaxed text-red-100/90">
-                    Esta mensagem indica rejeição pelas regras do Firestore, não erro de cota. Em um lote, a recusa de qualquer documento cancela todas as gravações do lote. O diagnóstico acima aponta incompatibilidades de campos detectáveis neste aparelho; o Firebase ainda confere o perfil e o estado atual dos documentos.
+                    O Firestore recusou a gravação por permissão; isso não é erro de cota. Se for um lote, a recusa de um documento cancela todas as gravações. O resumo acima identifica os cadastros relacionados e as incompatibilidades que este aparelho consegue verificar. Se nenhuma violação local aparecer, isso não prova que as regras remotas aceitaram os dados: o Firebase não informa à aplicação qual cláusula específica recusou a operação.
                   </div>
                 ) : null}
                 <div className="mt-1 text-[10px] text-amber-100/60">

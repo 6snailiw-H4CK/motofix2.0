@@ -42,7 +42,7 @@ import { validateCashLaunchData } from './cashRegisterValidation';
 import { applyStockOperation } from './stockTransaction';
 import { notifyFirestoreLocalCollectionsChanged } from './firestoreCollectionSync';
 import { withFirestoreSyncTimestamp } from './firestoreSyncFields';
-import { isFirestoreNetworkEnabled } from './firestoreNetworkControl';
+import { isFirestoreNetworkEnabled, withFirestoreNetworkSession } from './firestoreNetworkControl';
 
 export type CashRegisterWriteData = Omit<CashRegisterLaunch, 'id'>;
 export type CashRegisterUpdateData = Partial<Omit<CashRegisterLaunch, 'id' | 'orderNumber' | 'userId' | 'createdAt'>>;
@@ -741,39 +741,21 @@ const finalizeWithStockTransaction = async (
   launchId: string,
   data: CashRegisterWriteData
 ): Promise<{ stockShortageItems: CashRegisterLaunch['stockShortageItems']; savedOffline: boolean }> => {
+  if (!isFirestoreNetworkEnabled()) {
+    if (!isBrowserOnline()) {
+      throw new Error('A O.S. nao foi finalizada: a baixa de estoque exige conexao com o Firebase. Conecte-se e tente novamente.');
+    }
+
+    // A finalizacao precisa calcular a baixa sobre o saldo atual do servidor.
+    // O cache local pode estar desatualizado e regras do Firestore corretamente
+    // recusariam um lote criado a partir desse saldo antigo.
+    return withFirestoreNetworkSession(userId, () => (
+      finalizeWithStockTransaction(userId, launchRef, launchId, data)
+    ));
+  }
+
   const now = data.updatedAt || new Date().toISOString();
   const batchId = createId(`stock-${launchId}`);
-
-  if (!isFirestoreNetworkEnabled()) {
-    const { adjustments, shortages } = await collectStockAdjustments(
-      null,
-      userId,
-      data.items,
-      'deduct',
-      launchId,
-      data.orderNumber,
-    );
-    const batch = writeBatch(db);
-    const launch = toLaunch(launchId, data);
-    const operation = applyStockAdjustments(batch, userId, launch, adjustments, 'deduct', now, batchId);
-    const launchData = {
-      ...data,
-      ...stockMetadata(adjustments.length > 0, now, batchId, operation?.id || null),
-      stockShortageItems: toPersistedStockShortages(shortages),
-    };
-    batch.set(launchRef, launchData);
-    const replayWrites: FirestoreReplayMutation[] = [
-      ...stockOperationReplayMutations(userId, operation, adjustments, now),
-      { operation: 'set', path: cashLaunchReplayPath(userId, launchId), data: launchData },
-    ];
-    const result = await queueFirestoreVoidWrite(
-      () => batch.commit(),
-      'Finalizar O.S. localmente',
-      createFirestoreBatchReplayDescriptor(replayWrites)
-    );
-    notifyFirestoreLocalCollectionsChanged(userId, ['cash_launches', 'products', 'stock_movements']);
-    return { stockShortageItems: toPersistedStockShortages(shortages), savedOffline: result.status === 'queued' };
-  }
 
   requireOnlineStockSync();
 

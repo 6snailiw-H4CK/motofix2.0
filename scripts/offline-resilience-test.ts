@@ -37,10 +37,108 @@ class FakeWindow extends EventTarget {
 
   constructor(public readonly localStorage: MemoryStorage) {
     super();
+    Object.assign(this, { indexedDB: memoryIndexedDb });
   }
 }
 
+// The queue now requires an auditable IndexedDB mirror as well as LocalStorage.
+// This small test-only implementation models the single snapshot store used by
+// firestoreOfflineQueue.ts, so this emulator test exercises the real dual-store
+// safety checks instead of accidentally treating Node's missing IndexedDB as a
+// production storage failure.
+const memoryIndexedDb = (() => {
+  type StoreState = Map<string, unknown>;
+  type DatabaseState = Map<string, StoreState>;
+  const databases = new Map<string, DatabaseState>();
+
+  const createDatabaseHandle = (name: string, state: DatabaseState): any => ({
+    name,
+    version: 1,
+    objectStoreNames: {
+      contains: (storeName: string) => state.has(storeName),
+      item: (index: number) => Array.from(state.keys())[index] ?? null,
+      get length() { return state.size; },
+      [Symbol.iterator]: function* () { yield* state.keys(); },
+    },
+    createObjectStore: (storeName: string) => {
+      state.set(storeName, new Map());
+      return {};
+    },
+    transaction: (storeName: string) => {
+      const transaction: any = {
+        objectStore: () => ({
+          get: (key: string) => {
+            const request: any = {};
+            setTimeout(() => {
+              request.result = state.get(storeName)?.get(key);
+              request.onsuccess?.call(request, new Event('success'));
+              queueMicrotask(() => transaction.oncomplete?.call(transaction, new Event('complete')));
+            }, 0);
+            return request;
+          },
+          put: (value: unknown, key: string) => {
+            const request: any = {};
+            setTimeout(() => {
+              state.get(storeName)?.set(key, structuredClone(value));
+              request.onsuccess?.call(request, new Event('success'));
+              queueMicrotask(() => transaction.oncomplete?.call(transaction, new Event('complete')));
+            }, 0);
+            return request;
+          },
+        }),
+      };
+      return transaction;
+    },
+    close: () => {},
+  });
+
+  const factory = {
+    databases: async () => Array.from(databases.keys(), (name) => ({ name, version: 1 })),
+    open: (name: string) => {
+      const request: any = {};
+      setTimeout(() => {
+        let state = databases.get(name);
+        const isNew = !state;
+        if (!state) {
+          state = new Map();
+          databases.set(name, state);
+        }
+        const database = createDatabaseHandle(name, state);
+        request.result = database;
+        if (isNew) {
+          let aborted = false;
+          request.transaction = { abort: () => { aborted = true; } };
+          request.onupgradeneeded?.call(request, new Event('upgradeneeded'));
+          if (aborted) {
+            request.onerror?.call(request, new Event('error'));
+            return;
+          }
+        }
+        request.onsuccess?.call(request, new Event('success'));
+      }, 0);
+      return request;
+    },
+  };
+  return factory as unknown as IDBFactory & { databases: () => Promise<Array<{ name?: string }>> };
+})();
+
+let localStateLockTail = Promise.resolve();
+const memoryLockManager = {
+  request: async (_name: string, _options: LockOptions, callback: () => unknown) => {
+    const previous = localStateLockTail;
+    let release!: () => void;
+    localStateLockTail = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try { return await callback(); } finally { release(); }
+  },
+};
+
 const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const waitUntil = async (predicate: () => boolean, message: string) => {
+  const deadline = Date.now() + 3000;
+  while (!predicate() && Date.now() < deadline) await delay(10);
+  assert.ok(predicate(), message);
+};
 
 const deferred = () => {
   let resolve!: () => void;
@@ -64,7 +162,7 @@ Object.assign(process.env, {
 const installBrowserEnvironment = (online: boolean) => {
   const fakeWindow = new FakeWindow(new MemoryStorage(sharedStorageValues));
   Object.defineProperty(globalThis, 'window', { configurable: true, value: fakeWindow });
-  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { onLine: online } });
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { onLine: online, locks: memoryLockManager } });
   return fakeWindow;
 };
 
@@ -109,7 +207,7 @@ assert.equal(networkControl.canMarkFirestoreSyncCompleted({
   failedWrites: 1,
 }), false, 'nao deve concluir o ciclo com gravacoes recusadas');
 
-drafts.saveLocalDraft('test:cash', 'O.S. em andamento', 'cash-register', {
+await drafts.saveLocalDraft('test:cash', 'O.S. em andamento', 'cash-register', {
   clientName: 'Cliente offline',
   items: [{ description: 'Oleo' }],
 });
@@ -119,8 +217,8 @@ installBrowserEnvironment(false);
 const reopenedDraft = drafts.loadLocalDraft<{ clientName: string }>('test:cash');
 assert.equal(reopenedDraft?.data.clientName, 'Cliente offline', 'deve restaurar draft apos reabrir');
 
-drafts.saveLocalDraft('test:expense', 'Gasto em andamento', 'expenses', { amount: '150,00' });
-drafts.saveLocalDraft('test:warranty', 'Garantia em andamento', 'warranties', { clientName: 'Maria' });
+await drafts.saveLocalDraft('test:expense', 'Gasto em andamento', 'expenses', { amount: '150,00' });
+await drafts.saveLocalDraft('test:warranty', 'Garantia em andamento', 'warranties', { clientName: 'Maria' });
 assert.equal(drafts.getLocalDraftCount(), 3, 'deve manter multiplos drafts offline');
 
 const firstWrite = deferred();
@@ -132,8 +230,9 @@ installBrowserEnvironment(true);
 const reconnectCheckpoint = queue.getPendingWriteCheckpoint();
 assert.equal(reconnectCheckpoint.length, 1, 'deve recuperar write pendente ao reconectar');
 firstWrite.resolve();
-await delay(10);
-queue.confirmPendingWriteCheckpoint(reconnectCheckpoint);
+await waitUntil(() => queue.getFirestoreOfflineQueueState().pendingWrites === 0,
+  'a primeira gravação deve concluir e persistir antes da confirmação');
+await queue.confirmPendingWriteCheckpoint(reconnectCheckpoint);
 assert.equal(queue.getFirestoreOfflineQueueState().pendingWrites, 0, 'deve zerar pendencias depois da sincronizacao');
 
 installBrowserEnvironment(false);
@@ -145,22 +244,34 @@ assert.equal(queue.getFirestoreOfflineQueueState().pendingWrites, 3, 'deve enfil
 
 installBrowserEnvironment(true);
 multipleWrites.forEach((entry) => entry.resolve());
-await delay(10);
+await waitUntil(() => queue.getFirestoreOfflineQueueState().pendingWrites === 0,
+  'as gravações devem concluir e persistir depois da reconexão');
 assert.equal(queue.getFirestoreOfflineQueueState().pendingWrites, 0, 'deve sincronizar multiplos registros posteriormente');
 
 const failedWrite = deferred();
-const failedPromise = queue.queueFirestoreVoidWrite(() => failedWrite.promise, 'Teste falha sincronizacao');
+let failedOperationStarted = false;
+const failedPromise = queue.queueFirestoreVoidWrite(() => {
+  failedOperationStarted = true;
+  return failedWrite.promise;
+}, 'Teste falha sincronizacao');
+await waitUntil(() => failedOperationStarted,
+  'a operação recusada precisa começar antes de simular sua rejeição');
 failedWrite.reject(new Error('permission-denied simulado'));
 await assert.rejects(failedPromise, /permission-denied simulado/);
-await delay(10);
+await waitUntil(() => queue.getFailedWrites().some((write) => write.context === 'Teste falha sincronizacao'),
+  'a falha precisa ser persistida antes das verificações seguintes');
 const failedState = queue.getFirestoreOfflineQueueState();
 assert.equal(failedState.pendingWrites, 0, 'falha nao pode ficar presa como pendencia eterna');
 assert.ok(failedState.failureCount >= 1, 'deve contabilizar falha de sincronizacao');
 assert.match(failedState.lastError || '', /permission-denied simulado/, 'deve preservar mensagem da falha');
 
 const replayableWrite = deferred();
+let replayableOperationStarted = false;
 const replayablePromise = queue.queueFirestoreVoidWrite(
-  () => replayableWrite.promise,
+  () => {
+    replayableOperationStarted = true;
+    return replayableWrite.promise;
+  },
   'Teste retry seguro',
   queue.createFirestoreReplayDescriptor(
     'set',
@@ -168,9 +279,12 @@ const replayablePromise = queue.queueFirestoreVoidWrite(
     { userId: 'test-user', clientName: 'Cliente de teste' }
   )
 );
+await waitUntil(() => replayableOperationStarted,
+  'a operação recuperável precisa começar antes de simular sua rejeição');
 replayableWrite.reject(new Error('falha corrigivel simulada'));
 await assert.rejects(replayablePromise, /falha corrigivel simulada/);
-await delay(10);
+await waitUntil(() => queue.getFailedWrites().some((write) => write.context === 'Teste retry seguro'),
+  'a falha recuperável precisa ser persistida antes da verificação');
 assert.equal(
   queue.getFailedWrites().find((write) => write.context === 'Teste retry seguro')?.canRetry,
   true,
@@ -178,8 +292,12 @@ assert.equal(
 );
 
 const replayableBatchWrite = deferred();
+let replayableBatchOperationStarted = false;
 const replayableBatchPromise = queue.queueFirestoreVoidWrite(
-  () => replayableBatchWrite.promise,
+  () => {
+    replayableBatchOperationStarted = true;
+    return replayableBatchWrite.promise;
+  },
   'Teste retry batch seguro',
   queue.createFirestoreBatchReplayDescriptor([
     {
@@ -195,9 +313,12 @@ const replayableBatchPromise = queue.queueFirestoreVoidWrite(
     },
   ])
 );
+await waitUntil(() => replayableBatchOperationStarted,
+  'o lote recuperável precisa começar antes de simular sua rejeição');
 replayableBatchWrite.reject(new Error('falha batch corrigivel simulada'));
 await assert.rejects(replayableBatchPromise, /falha batch corrigivel simulada/);
-await delay(10);
+await waitUntil(() => queue.getFailedWrites().some((write) => write.context === 'Teste retry batch seguro'),
+  'a falha do lote precisa ser persistida antes da verificação');
 assert.equal(
   queue.getFailedWrites().find((write) => write.context === 'Teste retry batch seguro')?.canRetry,
   true,
@@ -217,7 +338,25 @@ const { productRepository } = await import('../src/services/productRepository.ts
 const { expenseRepository } = await import('../src/services/expenseRepository.ts');
 const { warrantyRepository } = await import('../src/services/warrantyRepository.ts');
 const { settingsRepository } = await import('../src/services/settingsRepository.ts');
-const firestore = await import('firebase/firestore');
+const firestoreModule = await import('firebase/firestore');
+const firestore = new Proxy(firestoreModule, {
+  get(target, property, receiver) {
+    const value = Reflect.get(target, property, receiver);
+    if (property !== 'getDocFromCache') return value;
+    return async (reference: { path?: string }, ...args: unknown[]) => {
+      try {
+        return await (value as (...callArgs: unknown[]) => Promise<unknown>)(reference, ...args);
+      } catch (error) {
+        const path = reference?.path ?? '(caminho indisponível)';
+        throw new Error(`Leitura offline do cache falhou para ${path}.`, { cause: error });
+      }
+    };
+  },
+});
+// Keep the application-level browser status offline for CRUD below. The
+// Firestore SDK network gate alone is insufficient: repositories deliberately
+// open a server session when navigator.onLine is true.
+installBrowserEnvironment(false);
 const offlineOwnerId = 'offline-workflow-owner';
 const offlineProductId = 'offline-workflow-product';
 const offlineUntrackedProductId = 'offline-untracked-product';
@@ -712,6 +851,7 @@ assert.equal((await firestore.getDocFromServer(remoteOrderRef)).exists(), false,
 assert.equal((await firestore.getDocFromServer(remoteUntrackedOrderRef)).exists(), false,
   'reconectar o navegador sem iniciar sync nao deve enviar a segunda O.S.');
 
+installBrowserEnvironment(true);
 await networkControl.withFirestoreNetworkSession(offlineOwnerId, async () => {
   assert.equal((await firestore.getDocFromServer(remoteClientRef)).data()?.deletedAt != null, true,
     'sincronizacao manual deve enviar criacao e exclusao do cliente');
@@ -893,15 +1033,18 @@ sharedStorageValues.set('motofix:firestore-offline-queue-state', JSON.stringify(
 const storageEvent = new Event('storage');
 Object.defineProperty(storageEvent, 'key', { value: 'motofix:firestore-offline-queue-state' });
 queueListenerWindow.dispatchEvent(storageEvent);
-assert.ok(
-  queue.getPendingWriteCheckpoint().includes('external-tab-write'),
-  'deve reaplicar a fila quando outra aba altera o localStorage'
-);
-queue.confirmPendingWriteCheckpoint(['external-tab-write']);
+await waitUntil(() => queue.getFirestoreOfflineQueueStorageAudit().status === 'divergent',
+  'deve identificar o espelho LocalStorage divergente após evento de outra aba');
+assert.equal(queue.getPendingWriteCheckpoint().includes('external-tab-write'), false,
+  'não deve importar automaticamente uma entrada que só existe em um dos espelhos');
+assert.equal(sharedStorageValues.has('motofix:firestore-offline-queue-state'), true,
+  'deve preservar os bytes originais do LocalStorage para investigação');
+assert.equal(queue.getFirestoreOfflineQueueStorageAudit().safeToUse, false,
+  'deve bloquear reenvio até a divergência ser resolvida manualmente');
 
-drafts.clearLocalDraft('test:cash');
-drafts.clearLocalDraft('test:expense');
-drafts.clearLocalDraft('test:warranty');
+await drafts.clearLocalDraft('test:cash');
+await drafts.clearLocalDraft('test:expense');
+await drafts.clearLocalDraft('test:warranty');
 assert.equal(drafts.getLocalDraftCount(), 0, 'deve limpar drafts apos conclusao segura');
 
 await firestore.terminate(observerDb);

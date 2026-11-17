@@ -95,7 +95,6 @@ export default function App() {
     operationalLogs,
     collectionListenerIssues,
     refreshCurrentView,
-    refreshAllCollections,
     isRefreshingCollections,
     lastCollectionsSyncedAt,
   } = useUserCollections({ user, userProfile, isNewUser, hasAccountAccess: subscriptionActive, view });
@@ -162,13 +161,6 @@ export default function App() {
       });
     }
   }, [refreshCurrentView]);
-  const handleBackupPreExportSync = useCallback(async () => {
-    const result = await refreshAllCollections();
-    if (result.failedCollections.length > 0) {
-      throw new Error(`A sincronização deixou pendências: ${result.failedCollections.join(', ')}.`);
-    }
-    return result;
-  }, [refreshAllCollections]);
   const handleExpenseSaved = useCallback(() => setView('expenses'), [setView]);
   const openWarrantyForm = useCallback(() => setView('new-warranty'), [setView]);
   const handleWarrantySaved = useCallback(() => setView('warranties'), [setView]);
@@ -458,7 +450,6 @@ export default function App() {
             setView: handleViewChange,
             onColorModeChange: setColorMode,
             view,
-            onSyncForBackup: handleBackupPreExportSync,
           }}
         />
       </AppShell>

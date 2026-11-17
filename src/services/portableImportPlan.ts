@@ -1,4 +1,5 @@
 import {
+  isSensitivePortableBackupField,
   validatePortableBackupPayload,
   type PortableBackupPayload,
 } from './portableBackup';
@@ -295,21 +296,22 @@ export const createPortableImportPlan = async (
   }
 
   for (const document of documents) {
-    const inspectForbidden = (value: unknown, path: string) => {
+    const inspectForbidden = (value: unknown, path: string, pathSegments: string[] = []) => {
       if (Array.isArray(value)) {
-        value.forEach((child, index) => inspectForbidden(child, `${path}[${index}]`));
+        value.forEach((child, index) => inspectForbidden(child, `${path}[${index}]`, pathSegments));
         return;
       }
       if (!isObject(value)) return;
       for (const [key, child] of Object.entries(value)) {
-        if (['role', 'admin', 'master_admin', 'isAdmin', 'isMasterAdmin', 'claims', 'customClaims', 'accessProjection', 'manualAccess', 'ownerAccess', 'billing', 'stripeCustomerId', 'stripeSubscriptionId', 'paymentMethodId'].includes(key)) {
-        issues.push({
-          severity: 'error', code: 'privileged_field', collection: document.collection,
-          documentId: document.id, field: `${path}.${key}`,
-          message: 'O documento contém um campo de identidade, permissão ou cobrança que não é transferido por este fluxo.',
-        });
+        const nextPath = [...pathSegments, key];
+        if (isSensitivePortableBackupField(document.collection, nextPath)) {
+          issues.push({
+            severity: 'error', code: 'privileged_field', collection: document.collection,
+            documentId: document.id, field: `${path}.${key}`,
+            message: 'O documento contém um campo de credencial, privilégio ou cobrança que não é transferido por este fluxo.',
+          });
         } else {
-          inspectForbidden(child, `${path}.${key}`);
+          inspectForbidden(child, `${path}.${key}`, nextPath);
         }
       }
     };

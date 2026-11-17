@@ -12,7 +12,7 @@ const runPhase = (projectId, config, script) => {
   console.log(`\n=== Firebase Emulator phase: ${projectId} ===`);
   return spawnSync(process.execPath, [firebaseCli,
     'emulators:exec', '--project', projectId,
-    '--config', config, '--only', 'auth,firestore,functions', command,
+    '--config', config, '--only', 'auth,firestore,functions:backupApi', command,
   ], {
     cwd: workspace,
     env: { ...process.env, MOTOFIX_BACKUP_E2E_DIR: root, FIREBASE_CLI_DISABLE_UPDATE_CHECK: 'true' },

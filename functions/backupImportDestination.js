@@ -1,5 +1,6 @@
 const crypto = require('node:crypto');
 const { FieldPath, GeoPoint, Timestamp } = require('firebase-admin/firestore');
+const backupFieldPolicy = require('../src/services/portableBackupFieldPolicy.json');
 
 const IMPORT_COLLECTIONS = [
   'clients', 'products', 'settings', 'cash_launches', 'maintenances', 'warranties',
@@ -11,11 +12,12 @@ const MAX_CHUNK_DOCUMENTS = 150;
 const MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 const MAX_DOCUMENT_BYTES = 900 * 1024;
 const IMPORT_LOCK_LEASE_MS = 5 * 60 * 1000;
-const FORBIDDEN_FIELDS = new Set([
-  'role', 'admin', 'master_admin', 'isAdmin', 'isMasterAdmin', 'claims', 'customClaims',
-  'accessProjection', 'manualAccess', 'ownerAccess', 'billing', 'stripeCustomerId',
-  'stripeSubscriptionId', 'paymentMethodId',
-]);
+const normalizePolicySegment = (value) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+const FORBIDDEN_FIELDS = new Set(backupFieldPolicy.sensitiveFieldNames.map(normalizePolicySegment));
+const FORBIDDEN_PATHS = Object.fromEntries(Object.entries(backupFieldPolicy.sensitivePathsByCollection)
+  .map(([collection, paths]) => [collection, new Set(paths.map((path) => path.split('.').map(normalizePolicySegment).join('.')))]));
+const isForbiddenImportField = (collection, pathSegments) => FORBIDDEN_FIELDS.has(normalizePolicySegment(pathSegments.at(-1) || ''))
+  || Boolean(FORBIDDEN_PATHS[collection]?.has(pathSegments.map(normalizePolicySegment).join('.')));
 const LOCK_DOCUMENT_ID = '_active';
 
 const stableJson = (value) => {
@@ -49,8 +51,6 @@ const hasActiveWorkshopAccess = (profile, now = Date.now()) => {
     && projection?.source === 'manual'
     && projectedExpiry === expiry;
 };
-
-const containsForbiddenTopLevelField = (document) => Object.keys(document).some((key) => FORBIDDEN_FIELDS.has(key));
 
 const inspectRemappedDocument = (value, targetUid, path, issues) => {
   if (Array.isArray(value)) {
@@ -129,7 +129,7 @@ const validateImportDocument = (document, collectionName, targetUid) => {
   if (Buffer.byteLength(stableJson(document), 'utf8') > MAX_DOCUMENT_BYTES) return 'Um documento excede o limite seguro de tamanho para restauração.';
 
   let visited = 0;
-  const inspect = (value, path, depth) => {
+  const inspect = (value, path, depth, pathSegments = []) => {
     visited += 1;
     if (visited > 50000 || depth > 30) return 'A estrutura do documento excede o limite de segurança.';
     if (value === null || typeof value === 'string' || typeof value === 'boolean') return null;
@@ -137,7 +137,7 @@ const validateImportDocument = (document, collectionName, targetUid) => {
     if (typeof value !== 'object') return `Tipo de valor não suportado em ${path}.`;
     if (Array.isArray(value)) {
       for (let index = 0; index < value.length; index += 1) {
-        const issue = inspect(value[index], `${path}[${index}]`, depth + 1);
+        const issue = inspect(value[index], `${path}[${index}]`, depth + 1, pathSegments);
         if (issue) return issue;
       }
       return null;
@@ -168,10 +168,11 @@ const validateImportDocument = (document, collectionName, targetUid) => {
     }
     if (!isObject(value)) return `Estrutura inválida em ${path}.`;
     for (const [key, child] of Object.entries(value)) {
-      if (FORBIDDEN_FIELDS.has(key)) return `Campo de identidade, privilégio ou cobrança bloqueado em ${path}.${key}.`;
+      const nextPath = [...pathSegments, key];
+      if (isForbiddenImportField(collectionName, nextPath)) return `Campo de credencial, privilégio ou cobrança bloqueado em ${path}.${key}.`;
       if (['__proto__', 'prototype', 'constructor'].includes(key)) return `Chave incompatível em ${path}.`;
       if (Buffer.byteLength(key, 'utf8') > 1500) return `Nome de campo excede o limite em ${path}.`;
-      const issue = inspect(child, `${path}.${key}`, depth + 1);
+      const issue = inspect(child, `${path}.${key}`, depth + 1, nextPath);
       if (issue) return issue;
     }
     return null;

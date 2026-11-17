@@ -33,6 +33,16 @@ const signUp = async () => {
   return body;
 };
 
+const signInWithCustomToken = async (customToken) => {
+  const response = await fetch(`${authBase}/accounts:signInWithCustomToken?key=fake-api-key`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: customToken, returnSecureToken: true }),
+  });
+  const body = await response.json();
+  assert.equal(response.ok, true, JSON.stringify(body));
+  return body;
+};
+
 const guardedSourceFetch = async (url, init) => {
   const parsed = new URL(url);
   assert.equal(parsed.origin, 'http://127.0.0.1:5001', 'Export may contact only the source Functions emulator.');
@@ -109,6 +119,7 @@ const run = async () => {
   await Promise.all([
     userRef.collection('settings').doc('config').set({ id: 'config', userId: sourceUid, businessName: 'Oficina E2E', businessPhone: '5511999990000', oilTypes: ['10W40'], serviceTypes: ['Revisão'] }),
     userRef.collection('clients').doc('client-1').set({ id: 'client-1', userId: sourceUid, name: 'Cliente Fictício E2E', contact: '11999990000', bikeModel: 'Moto E2E', vehiclePlate: 'ABC1D23', createdAt: stamp(1), recurrenceDays: 90, status: 'OK', notes: 'fixture para teste de recuperação' }),
+    userRef.collection('clients').doc('client-1').collection('unlisted-private-subcollection').doc('should-not-export').set({ id: 'should-not-export', note: 'subcoleção fora do inventário explícito' }),
     userRef.collection('clients').doc('client-archived').set({ id: 'client-archived', userId: sourceUid, name: 'Cliente Arquivado E2E', createdAt: stamp(2), deletedAt: stamp(20), returnArchived: true }),
     userRef.collection('products').doc('product-1').set({ id: 'product-1', userId: sourceUid, description: 'Óleo 10W40 E2E', salePrice: 42.5, stockQuantity: 8, trackStock: true, variations: [{ id: 'var-1', name: '1 litro', stockQuantity: 8 }] }),
     userRef.collection('cash_launches').doc('os-pending').set({ id: 'os-pending', userId: sourceUid, clientId: 'client-1', clientName: 'Cliente Fictício E2E', status: 'Pendente', openingDate: '2026-10-22', expectedDate: '2026-10-24', merchandiseTotal: 42.5, servicesTotal: 75, total: 117.5, statusPagamento: 'Pendente', items: [{ productId: 'product-1', variationId: 'var-1', quantity: 1, unitPrice: 42.5 }] }),
@@ -117,7 +128,9 @@ const run = async () => {
     userRef.collection('stock_movements').doc('movement-1').set({ id: 'movement-1', userId: sourceUid, cashLaunchId: 'os-paid', batchId: 'batch-1', quantity: 2, productId: 'product-1', sourceRef: userRef.collection('cash_launches').doc('os-paid') }),
     userRef.collection('maintenances').doc('maintenance-1').set({ id: 'maintenance-1', userId: sourceUid, clientId: 'client-1', serviceType: 'Revisão', serviceValue: 75, date: stamp(21), nextMaintenanceDate: stamp(30), createdAt: stamp(21) }),
     userRef.collection('appointments').doc('appointment-1').set({ id: 'appointment-1', userId: sourceUid, clientId: 'client-1', clientName: 'Cliente Fictício E2E', date: stamp(25), status: 'Agendado', service: 'Revisão' }),
-    userRef.collection('expenses').doc('expense-1').set({ id: 'expense-1', userId: sourceUid, supplier: 'Fornecedor E2E', description: 'Compra teste crédito', amount: 53.4, paymentMethod: 'Crédito', date: stamp(22), dueDate: stamp(30), paid: false }),
+    userRef.collection('expenses').doc('expense-1').set({ id: 'expense-1', userId: sourceUid, supplier: 'Fornecedor E2E', description: 'Compra teste ainda em aberto', amount: 53.4, paymentMethod: 'Crédito', accountingVersion: 1, date: stamp(22), dueDate: stamp(30), settlementEntries: [] }),
+    userRef.collection('expenses').doc('expense-partial').set({ id: 'expense-partial', userId: sourceUid, supplier: 'Fornecedor E2E', description: 'Compra teste parcialmente liquidada', amount: 150.75, paymentMethod: 'Credito', accountingVersion: 1, date: stamp(22), dueDate: stamp(30), settlementEntries: [{ id: 'settlement-partial-1', amount: 60.25, method: 'Debito', settledAt: stamp(25) }] }),
+    userRef.collection('expenses').doc('expense-settled').set({ id: 'expense-settled', userId: sourceUid, supplier: 'Fornecedor E2E', description: 'Compra teste totalmente liquidada', amount: 89.9, paymentMethod: 'Credito', accountingVersion: 1, date: stamp(22), dueDate: stamp(30), settlementEntries: [{ id: 'settlement-paid-1', amount: 55.5, method: 'Pix', settledAt: stamp(25) }, { id: 'settlement-paid-2', amount: 34.4, method: 'Dinheiro', settledAt: stamp(26) }] }),
     userRef.collection('warranties').doc('warranty-1').set({ id: 'warranty-1', userId: sourceUid, clientId: 'client-1', cashLaunchId: 'os-paid', startsAt: stamp(21), endsAt: stamp(30), status: 'Ativa' }),
     userRef.collection('message_logs').doc('message-1').set({ id: 'message-1', userId: sourceUid, clientId: 'client-1', sentAt: stamp(22), status: 'sent', template: 'retorno' }),
     userRef.collection('operational_logs').doc('log-1').set({ id: 'log-1', userId: sourceUid, action: 'O.S. finalizada', createdAt: stamp(21), fields: ['status', 'paymentEntries'] }),
@@ -128,13 +141,12 @@ const run = async () => {
     userRef.collection('whatsapp_sessions').doc('wa-session-1').set({ id: 'wa-session-1', userId: sourceUid, state: 'disconnected' }),
     userRef.collection('whatsapp_messages').doc('wa-message-1').set({ id: 'wa-message-1', userId: sourceUid, clientId: 'client-1', sentAt: stamp(22), content: 'mensagem fictícia' }),
     userRef.collection('whatsapp_contacts').doc('wa-contact-1').set({ id: 'wa-contact-1', userId: sourceUid, clientId: 'client-1', name: 'Cliente Fictício E2E' }),
-    userRef.collection('whatsapp_automations').doc('wa-auto-1').set({ id: 'wa-auto-1', userId: sourceUid, enabled: false, template: 'retorno' }),
   ]);
 
-  const idToken = signedUp.idToken;
+  const idToken = (await signInWithCustomToken(await auth.createCustomToken(sourceUid, { admin: true }))).idToken;
   const headers = async () => ({ Authorization: `Bearer ${idToken}` });
   const readRemoteSnapshot = async () => {
-    const snapshot = await readPortableBackupSource({ apiBaseUrl: apiBase, getAuthHeaders: headers, fetchImpl: guardedSourceFetch, pageSize: 7 });
+    const snapshot = await readPortableBackupSource({ apiBaseUrl: apiBase, expectedProjectId: projectId, getAuthHeaders: headers, fetchImpl: guardedSourceFetch, pageSize: 7 });
     const direct = await readAdminSnapshot(userRef, sourceUid, email);
     for (const name of collectionNames) assert.deepEqual(snapshot.data.collections[name], direct.collections[name], `API page content differs from direct source read in ${name}`);
     assert.deepEqual(snapshot.data.settings, direct.settings, 'Settings returned from API must match the source document.');
@@ -154,6 +166,11 @@ const run = async () => {
     readLocalRecovery: makeLocalEvidence,
   });
   assert.equal(archive.complete, true);
+  assert.equal(archive.payload.manifest.coverage.temporalConsistency.globalTransaction, false);
+  assert.equal(archive.payload.manifest.coverage.temporalConsistency.method, 'before-after-source-signatures');
+  assert.equal(archive.payload.manifest.coverage.excludedComponents.some((item) => item.id === 'arbitrary-firestore-subcollections'), true);
+  assert.equal(archive.payload.data.collections.whatsapp_automations.length, 0, 'An empty logical collection must remain explicitly covered.');
+  assert.equal(JSON.stringify(archive.payload).includes('should-not-export'), false, 'Unlisted Firestore subcollections must not be traversed or packaged.');
   const archivePath = join(root, 'motofix-recovery-e2e.motofix');
   await writeFile(archivePath, archive.encrypted, { encoding: 'utf8', flag: 'wx' });
   const fileHash = createHash('sha256').update(await readFile(archivePath)).digest('hex');
@@ -172,6 +189,7 @@ const run = async () => {
     sourceUid,
     generatedAt: reopened.manifest.generatedAt,
     counts: reopened.manifest.counts,
+    temporalConsistency: reopened.manifest.coverage.temporalConsistency,
     remoteSnapshotHash: await hashPortableBackupSourceSnapshot({
       profileSnapshot: reopened.data.profileSnapshot,
       settings: reopened.data.settings,
@@ -179,7 +197,7 @@ const run = async () => {
     }),
   };
   await writeFile(join(root, 'e2e-manifest.json'), JSON.stringify(manifest, null, 2), { encoding: 'utf8', flag: 'wx' });
-  console.log(`PASS origem: exportação autenticada pelas páginas reais, arquivo em disco, SHA-256 ${fileHash}, ${Object.values(manifest.counts).reduce((sum, value) => sum + value, 0)} documentos esperados.`);
+  console.log(`PASS origem: exportação autenticada pelas páginas reais, arquivo em disco, SHA-256 ${fileHash}, ${Object.values(manifest.counts).reduce((sum, value) => sum + value, 0)} documentos esperados, coleção vazia e subcoleção arbitrária excluída.`);
 };
 
 try {

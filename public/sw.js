@@ -3,6 +3,7 @@ const CACHE_VERSION = APP_VERSION.includes('MOTOFIX_BUILD_VERSION') ? 'dev' : AP
 const APP_SHELL_CACHE = `motofix-app-shell-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `motofix-runtime-${CACHE_VERSION}`;
 const OFFLINE_ASSET_MANIFEST_URL = `/offline-assets.json?v=${CACHE_VERSION}`;
+const BACKUP_PEER_PROTOCOL_VERSION = 1;
 const PRECACHE_URLS = [
   '/',
   '/index.html',
@@ -93,6 +94,59 @@ self.addEventListener('activate', (event) => {
       ))
       .then(() => self.clients.claim())
   );
+});
+
+self.addEventListener('message', (event) => {
+  const message = event.data;
+  if (message?.type !== 'motofix:backup-peer-audit') return;
+  const replyPort = event.ports?.[0];
+  if (!replyPort) return;
+
+  event.waitUntil((async () => {
+    const peers = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    if (peers.length === 0) {
+      replyPort.postMessage({ ok: false, message: 'Nenhuma aba do MotoFix confirmou o protocolo de backup.' });
+      replyPort.close();
+      return;
+    }
+
+    const results = await Promise.all(peers.map((peer) => new Promise((resolve) => {
+      const channel = new MessageChannel();
+      const timeout = setTimeout(() => {
+        channel.port1.close();
+        resolve(false);
+      }, 1800);
+      channel.port1.onmessage = (probeEvent) => {
+        clearTimeout(timeout);
+        channel.port1.close();
+        resolve(probeEvent.data?.ok === true
+          && probeEvent.data?.protocolVersion === BACKUP_PEER_PROTOCOL_VERSION);
+      };
+      channel.port1.onmessageerror = () => {
+        clearTimeout(timeout);
+        channel.port1.close();
+        resolve(false);
+      };
+      try {
+        peer.postMessage({
+          type: 'motofix:backup-peer-audit',
+          requestId: message.requestId,
+          protocolVersion: BACKUP_PEER_PROTOCOL_VERSION,
+        }, [channel.port2]);
+      } catch {
+        clearTimeout(timeout);
+        channel.port1.close();
+        resolve(false);
+      }
+    })));
+
+    const ok = results.every(Boolean);
+    replyPort.postMessage({
+      ok,
+      message: ok ? undefined : 'Uma ou mais abas abertas estão desatualizadas ou não confirmaram a proteção do backup. Feche-as ou atualize-as e tente novamente.',
+    });
+    replyPort.close();
+  })());
 });
 
 const cacheResponse = async (cacheName, request, response) => {

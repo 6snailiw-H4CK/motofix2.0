@@ -1,4 +1,5 @@
 import type { CashRegisterLaunch, ProductCatalogItem } from '../types';
+import { withLocalStateMutation } from './backupLocalStateLock';
 
 const LOCAL_CASH_LAUNCHES_STORAGE_KEY = 'motofix:local-cash-launches';
 const LOCAL_PRODUCTS_STORAGE_KEY = 'motofix:local-products';
@@ -90,7 +91,7 @@ export const getLocalCashLaunches = (): CashRegisterLaunch[] => {
   return sortLaunches(launches.filter((launch) => Boolean(launch?.id)));
 };
 
-export const upsertLocalCashLaunch = (launch: CashRegisterLaunch) => {
+export const upsertLocalCashLaunch = async (launch: CashRegisterLaunch) => withLocalStateMutation(() => {
   const launches = getLocalCashLaunches();
   const nextLaunches = launches.filter((existing) => existing.id !== launch.id);
   nextLaunches.push(launch);
@@ -98,34 +99,38 @@ export const upsertLocalCashLaunch = (launch: CashRegisterLaunch) => {
   writeStorageItem(LOCAL_CASH_LAUNCHES_STORAGE_KEY, sortedLaunches);
   notifyLocalCashLaunchesUpdated();
   return sortedLaunches;
-};
+});
 
-export const deleteLocalCashLaunch = (launchId: string) => {
+export const deleteLocalCashLaunch = async (launchId: string) => withLocalStateMutation(() => {
   const launches = getLocalCashLaunches().filter((launch) => launch.id !== launchId);
   writeStorageItem(LOCAL_CASH_LAUNCHES_STORAGE_KEY, launches);
   notifyLocalCashLaunchesUpdated();
   return launches;
-};
+});
 
-export const overwriteLocalCashLaunches = (launches: CashRegisterLaunch[]) => {
+export const overwriteLocalCashLaunches = async (launches: CashRegisterLaunch[]) => withLocalStateMutation(() => {
   const sortedLaunches = sortLaunches(launches);
   writeStorageItem(LOCAL_CASH_LAUNCHES_STORAGE_KEY, sortedLaunches);
   notifyLocalCashLaunchesUpdated();
   return sortedLaunches;
-};
+});
 
 export const getLocalProducts = (): ProductCatalogItem[] => {
   return readStorageItem<ProductCatalogItem>(LOCAL_PRODUCTS_STORAGE_KEY);
 };
 
-export const upsertLocalProduct = (product: ProductCatalogItem) => {
+const upsertLocalProductUnlocked = (product: ProductCatalogItem) => {
   const products = getLocalProducts().filter((existing) => existing.id !== product.id);
   products.push(product);
   writeStorageItem(LOCAL_PRODUCTS_STORAGE_KEY, products);
   return products;
 };
 
-export const applyLocalStockAdjustment = ({
+export const upsertLocalProduct = async (product: ProductCatalogItem) => withLocalStateMutation(() => (
+  upsertLocalProductUnlocked(product)
+));
+
+export const applyLocalStockAdjustment = async ({
   productId,
   previousQuantity,
   nextQuantity,
@@ -133,7 +138,7 @@ export const applyLocalStockAdjustment = ({
   productId: string;
   previousQuantity: number;
   nextQuantity: number;
-}) => {
+}) => withLocalStateMutation(() => {
   const products = getLocalProducts();
   const product = products.find((candidate) => candidate.id === productId);
 
@@ -145,9 +150,9 @@ export const applyLocalStockAdjustment = ({
     updatedAt: new Date().toISOString(),
   };
 
-  upsertLocalProduct(updatedProduct);
+  upsertLocalProductUnlocked(updatedProduct);
   return updatedProduct;
-};
+});
 
 const adjustLocalStock = (
   items: Array<{ productId?: string; variationId?: string; quantity?: number; description?: string }>,
@@ -233,10 +238,12 @@ const adjustLocalStock = (
   return nextProducts;
 };
 
-export const applyLocalStockDeduction = (items: Array<{ productId?: string; variationId?: string; quantity?: number; description?: string }>, products: ProductCatalogItem[] = getLocalProducts()) => (
-  adjustLocalStock(items, products, 'deduct')
-);
+export const applyLocalStockDeduction = async (
+  items: Array<{ productId?: string; variationId?: string; quantity?: number; description?: string }>,
+  products?: ProductCatalogItem[],
+) => withLocalStateMutation(() => adjustLocalStock(items, products || getLocalProducts(), 'deduct'));
 
-export const applyLocalStockRestore = (items: Array<{ productId?: string; variationId?: string; quantity?: number; description?: string }>, products: ProductCatalogItem[] = getLocalProducts()) => (
-  adjustLocalStock(items, products, 'restore')
-);
+export const applyLocalStockRestore = async (
+  items: Array<{ productId?: string; variationId?: string; quantity?: number; description?: string }>,
+  products?: ProductCatalogItem[],
+) => withLocalStateMutation(() => adjustLocalStock(items, products || getLocalProducts(), 'restore'));

@@ -1,12 +1,15 @@
 import {
+  assertBackupSizeWithinLimit,
   createPortableBackupPayload,
   encryptPortableBackup,
   hashPortableBackupSourceSnapshot,
+  portableBackupFormat,
   summarizePortableBackup,
   type PortableBackupData,
   type PortableBackupPayload,
   type PortableBackupSummary,
 } from './portableBackup';
+import { validateBackupSourceProject } from './backupEndpoint';
 
 export type RemoteBackupSnapshot = {
   data: Omit<PortableBackupData, 'localRecovery'>;
@@ -17,6 +20,7 @@ export type RemoteBackupSnapshot = {
 
 export type ReadPortableBackupSourceOptions = {
   apiBaseUrl: string;
+  expectedProjectId: string;
   getAuthHeaders: () => Promise<Record<string, string>>;
   fetchImpl?: typeof fetch;
   pageSize?: number;
@@ -66,6 +70,19 @@ const assertSha256 = (value: string) => {
   if (!/^[a-f0-9]{64}$/i.test(value)) throw new Error('O servidor não forneceu uma assinatura válida do estado do Firebase.');
 };
 
+const EXPECTED_EXPORT_COLLECTIONS = portableBackupFormat.includedCollections
+  .filter((name) => name !== 'settings')
+  .sort();
+
+function assertCompleteCollectionList(collectionNames: unknown): asserts collectionNames is string[] {
+  if (!Array.isArray(collectionNames)
+    || collectionNames.some((name) => typeof name !== 'string')
+    || new Set(collectionNames).size !== collectionNames.length
+    || JSON.stringify([...collectionNames].sort()) !== JSON.stringify(EXPECTED_EXPORT_COLLECTIONS)) {
+    throw new Error('A API de backup não informou exatamente todas as coleções comerciais suportadas. Exportação interrompida para evitar um arquivo incompleto.');
+  }
+}
+
 const readJsonResponse = async <T,>(response: Response): Promise<T> => {
   const contentType = response.headers.get('Content-Type') || '';
   if (!contentType.toLowerCase().includes('application/json')) {
@@ -81,11 +98,15 @@ const readJsonResponse = async <T,>(response: Response): Promise<T> => {
 /** Reads the paginated source data through the actual authenticated backup API contract. */
 export const readPortableBackupSource = async ({
   apiBaseUrl,
+  expectedProjectId,
   getAuthHeaders,
   fetchImpl = fetch,
   pageSize = 20,
   onProgress,
 }: ReadPortableBackupSourceOptions): Promise<RemoteBackupSnapshot> => {
+  if (!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(expectedProjectId || '')) {
+    throw new Error('O ID do projeto Firebase do aplicativo não está configurado corretamente. Nenhum backup foi solicitado.');
+  }
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     throw new Error('O backup geral precisa de conexão para ler todas as coleções confirmadas no Firebase.');
   }
@@ -102,6 +123,11 @@ export const readPortableBackupSource = async ({
     || !meta.owner || typeof meta.owner.uid !== 'string') {
     throw new Error('A resposta do servidor não corresponde ao contrato de backup esperado.');
   }
+  assertCompleteCollectionList(meta.collections);
+  validateBackupSourceProject(meta.sourceProjectId, expectedProjectId);
+  if (!Array.isArray(meta.excludedCollections) || !meta.excludedCollections.includes('fiscal_private')) {
+    throw new Error('A API não confirmou a exclusão da coleção de credenciais fiscais. Exportação interrompida.');
+  }
 
   const collections: PortableBackupData['collections'] = {};
   let completedCollections = 0;
@@ -116,6 +142,15 @@ export const readPortableBackupSource = async ({
       );
       if (page.collection !== collectionName || !Array.isArray(page.documents)) {
         throw new Error(`A API retornou uma página inválida da coleção ${collectionName}.`);
+      }
+      if (page.documents.some((document) => !document || typeof document !== 'object' || Array.isArray(document))) {
+        throw new Error(`A API retornou documentos inválidos na coleção ${collectionName}.`);
+      }
+      if (page.nextCursor !== null && (typeof page.nextCursor !== 'string' || !page.nextCursor)) {
+        throw new Error(`A API retornou um cursor inválido na coleção ${collectionName}.`);
+      }
+      if (page.nextCursor && (page.nextCursor === cursor || records.length === 0 && page.documents.length === 0)) {
+        throw new Error(`A paginação da coleção ${collectionName} não avançou. Exportação interrompida para evitar repetição ou omissão de documentos.`);
       }
       records.push(...page.documents);
       cursor = page.nextCursor;
@@ -161,9 +196,16 @@ export const createStableBackupArchive = async ({
   if (localBefore.unsafeToExport) {
     throw new Error('Não foi possível ler com segurança toda a fila e os rascunhos locais. Corrija o armazenamento do navegador antes de gerar o arquivo.');
   }
+  if (typeof localBefore.evidence !== 'object' || localBefore.evidence === null) {
+    throw new Error('Não foi possível identificar os dados locais pendentes com segurança. Nenhum arquivo foi gerado.');
+  }
 
   onProgress?.({ stage: 'Lendo os dados confirmados do Firebase.' });
   const remote = await readRemoteSnapshot();
+  assertCompleteCollectionList(Object.keys(remote.data.collections));
+  if (typeof remote.sourceProjectId !== 'string' || !/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(remote.sourceProjectId)) {
+    throw new Error('Não foi possível confirmar o projeto Firebase de origem. Nenhum backup foi gerado.');
+  }
   onProgress?.({ stage: 'Conferindo novamente a estabilidade dos dados.' });
   const [sourceSignatureAfter, localAfter] = await Promise.all([
     readRemoteSignature(),
@@ -172,6 +214,9 @@ export const createStableBackupArchive = async ({
   assertSha256(sourceSignatureAfter);
   if (localAfter.unsafeToExport) {
     throw new Error('O armazenamento local deixou de ser legível durante a exportação. Nenhum arquivo foi gerado.');
+  }
+  if (typeof localAfter.evidence !== 'object' || localAfter.evidence === null) {
+    throw new Error('Não foi possível confirmar o estado local após a leitura. Nenhum arquivo foi gerado.');
   }
 
   const exportedSourceSignature = await hashPortableBackupSourceSnapshot(remote.data);
@@ -189,7 +234,7 @@ export const createStableBackupArchive = async ({
     ...localAfter.incompleteReasons,
   ]));
   if (incompleteReasons.length > 0 && !allowIncompleteLocalRecovery) {
-    throw new Error(`Há alterações locais que não estão confirmadas no Firebase: ${incompleteReasons.join('; ')}. Sincronize e confira a fila; se não for possível, gere somente uma cópia parcial com confirmação explícita.`);
+    throw new Error(`Backup completo bloqueado: há alterações locais que não estão confirmadas no Firebase (${incompleteReasons.join('; ')}). Nenhuma fila foi sincronizada ou apagada. Resolva as pendências; se não for possível, escolha explicitamente gerar uma cópia parcial de recuperação.`);
   }
 
   const localRecovery = {
@@ -210,6 +255,7 @@ export const createStableBackupArchive = async ({
         ? [`COBERTURA PARCIAL: ${incompleteReasons.join('; ')}. O arquivo não representa todas as alterações locais confirmadas.`]
         : []),
       'A fila offline e os rascunhos foram incluídos apenas como material de recuperação; não são reexecutados na restauração.',
+      'Contas de autenticação, tokens, credenciais, privilégios administrativos, estado de cobrança e dados de projeto são excluídos.',
     ],
   };
   onProgress?.({ stage: 'Validando e criptografando o arquivo portátil.' });
@@ -221,13 +267,15 @@ export const createStableBackupArchive = async ({
     remote.sourceProjectId,
   );
   const encrypted = await encryptPortableBackup(payload, password);
+  assertBackupSizeWithinLimit(new TextEncoder().encode(encrypted).byteLength);
   const date = new Date().toISOString().slice(0, 10);
+  const effectiveComplete = incompleteReasons.length === 0;
   return {
-    filename: `${filenamePrefix}-${date}.motofix`,
+    filename: `${filenamePrefix}${effectiveComplete ? '' : '-parcial'}-${date}.motofix`,
     encrypted,
     payload,
     summary: summarizePortableBackup(payload),
-    complete: incompleteReasons.length === 0,
+    complete: effectiveComplete,
     incompleteReasons,
   };
 };

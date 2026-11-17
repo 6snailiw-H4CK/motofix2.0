@@ -2,6 +2,13 @@ import { recordFirestoreReadResult } from '../debug/firestoreDebug';
 import { notifyFirestoreReplayMutation } from './firestoreCollectionSync';
 import { withFirestoreNetworkSession } from './firestoreNetworkControl';
 import { diagnoseFirestoreReplay, type ReplayMutationDiagnostic } from './firestoreReplayDiagnostics';
+import {
+  auditRawFirestoreOfflineQueue,
+  type IndexedDbQueueRead,
+  type LocalStorageQueueRead,
+  type OfflineQueueStorageAudit,
+} from './firestoreOfflineQueueIntegrity';
+import { withLocalStateMutation } from './backupLocalStateLock';
 
 export const FIRESTORE_OFFLINE_QUEUE_EVENT = 'motofix:firestore-offline-queue';
 export const FIRESTORE_OFFLINE_WRITE_ERROR_EVENT = 'motofix:firestore-offline-write-error';
@@ -195,20 +202,72 @@ const openQueueDatabase = () => {
   return queueDatabasePromise;
 };
 
-const readPersistedQueueFromIndexedDb = async () => {
-  if (!canUseIndexedDb()) return null;
-  const database = await openQueueDatabase();
+const readRawQueueFromLocalStorage = (): LocalStorageQueueRead => {
+  if (!canUseWindow()) return { status: 'unavailable' };
+  try {
+    return { status: 'available', raw: window.localStorage.getItem(QUEUE_STORAGE_KEY) };
+  } catch {
+    return { status: 'unreadable' };
+  }
+};
 
-  return new Promise<PersistedQueueSnapshot | null>((resolve, reject) => {
-    const transaction = database.transaction(QUEUE_INDEXED_DB_STORE, 'readonly');
-    const store = transaction.objectStore(QUEUE_INDEXED_DB_STORE);
-    const request = store.get(QUEUE_INDEXED_DB_STATE_KEY);
+/** Reads an existing IndexedDB database using a readonly transaction; never creates/upgrades one. */
+const readRawQueueFromIndexedDb = async (): Promise<IndexedDbQueueRead> => {
+  if (!canUseIndexedDb()) return { status: 'unavailable' };
+  const databasesApi = (window.indexedDB as IDBFactory & { databases?: () => Promise<Array<{ name?: string }>> }).databases;
+  if (typeof databasesApi !== 'function') return { status: 'unavailable' };
 
-    request.onsuccess = () => {
-      resolve(request.result ? normalizePersistedSnapshot(request.result) : null);
+  let databases: Array<{ name?: string }>;
+  try {
+    databases = await databasesApi.call(window.indexedDB);
+  } catch {
+    return { status: 'unreadable' };
+  }
+  if (!databases.some((database) => database.name === QUEUE_INDEXED_DB_NAME)) {
+    return { status: 'available', databaseExists: false, raw: null };
+  }
+
+  return new Promise<IndexedDbQueueRead>((resolve) => {
+    let settled = false;
+    let sawUpgrade = false;
+    const finish = (result: IndexedDbQueueRead, database?: IDBDatabase) => {
+      if (settled) return;
+      settled = true;
+      database?.close();
+      resolve(result);
     };
-    request.onerror = () => reject(request.error || new Error('Falha ao ler fila offline no IndexedDB.'));
-    transaction.onabort = () => reject(transaction.error || new Error('Leitura da fila offline abortada.'));
+    let request: IDBOpenDBRequest;
+    try {
+      request = window.indexedDB.open(QUEUE_INDEXED_DB_NAME);
+    } catch {
+      finish({ status: 'unreadable' });
+      return;
+    }
+    request.onupgradeneeded = () => {
+      sawUpgrade = true;
+      try { request.transaction?.abort(); } catch { /* abort an unexpected upgrade without creating the store */ }
+    };
+    request.onerror = () => finish({ status: 'unreadable' });
+    request.onblocked = () => finish({ status: 'unreadable' });
+    request.onsuccess = () => {
+      const database = request.result;
+      if (sawUpgrade || !database.objectStoreNames.contains(QUEUE_INDEXED_DB_STORE)) {
+        finish({ status: 'unreadable' }, database);
+        return;
+      }
+      try {
+        const transaction = database.transaction(QUEUE_INDEXED_DB_STORE, 'readonly');
+        const getRequest = transaction.objectStore(QUEUE_INDEXED_DB_STORE).get(QUEUE_INDEXED_DB_STATE_KEY);
+        let value: unknown | null = null;
+        getRequest.onsuccess = () => { value = getRequest.result ?? null; };
+        getRequest.onerror = () => finish({ status: 'unreadable' }, database);
+        transaction.oncomplete = () => finish({ status: 'available', databaseExists: true, raw: value }, database);
+        transaction.onerror = () => finish({ status: 'unreadable' }, database);
+        transaction.onabort = () => finish({ status: 'unreadable' }, database);
+      } catch {
+        finish({ status: 'unreadable' }, database);
+      }
+    };
   });
 };
 
@@ -242,52 +301,7 @@ const getActiveWriteError = (writes: PersistedWrite[]) => {
   return `${latestFailure.context}: ${latestFailure.errorMessage || 'Falha ao gravar no Firestore.'}`;
 };
 
-const newestDate = (left: string | null, right: string | null) => (
-  parseTime(left) >= parseTime(right) ? left : right
-);
-
-const mergePersistedQueues = (
-  primary: PersistedQueueSnapshot,
-  secondary: PersistedQueueSnapshot
-): PersistedQueueSnapshot => {
-  const writesById = new Map<string, PersistedWrite>();
-  [...secondary.writes, ...primary.writes].forEach((write) => {
-    const current = writesById.get(write.id);
-    if (!current || parseTime(write.lastUpdatedAt) >= parseTime(current.lastUpdatedAt)) {
-      writesById.set(write.id, write);
-    }
-  });
-
-  const writes = Array.from(writesById.values());
-  return {
-    writes,
-    lastQueuedAt: newestDate(primary.lastQueuedAt, secondary.lastQueuedAt),
-    lastSettledAt: newestDate(primary.lastSettledAt, secondary.lastSettledAt),
-    // lastError is active state, not a historical log. Rebuild it from failed
-    // writes so an old localStorage/IndexedDB mirror cannot resurrect a cleared error.
-    lastError: getActiveWriteError(writes),
-    failureCount: Math.max(primary.failureCount, secondary.failureCount),
-    confirmedCount: Math.max(primary.confirmedCount, secondary.confirmedCount),
-    retryCount: Math.max(primary.retryCount, secondary.retryCount),
-    persistenceFailureCount: Math.max(primary.persistenceFailureCount, secondary.persistenceFailureCount),
-    lastPersistenceError: primary.lastPersistenceError || secondary.lastPersistenceError || null,
-  };
-};
-
-const readPersistedQueue = (): PersistedQueueSnapshot => {
-  if (!canUseWindow()) return emptySnapshot();
-
-  try {
-    const raw = window.localStorage.getItem(QUEUE_STORAGE_KEY);
-    if (!raw) return emptySnapshot();
-    return normalizePersistedSnapshot(JSON.parse(raw));
-  } catch (error) {
-    console.warn('Nao foi possivel ler o estado da fila offline:', error);
-    return emptySnapshot();
-  }
-};
-
-let persistedQueue = readPersistedQueue();
+let persistedQueue = emptySnapshot();
 
 const buildQueueState = (snapshot: PersistedQueueSnapshot): FirestoreOfflineQueueState => ({
   pendingWrites: snapshot.writes.filter((write) => write.status === 'pending').length,
@@ -303,9 +317,47 @@ const buildQueueState = (snapshot: PersistedQueueSnapshot): FirestoreOfflineQueu
 });
 
 let queueState = buildQueueState(persistedQueue);
+let queueStorageAudit: OfflineQueueStorageAudit = {
+  status: 'unavailable', safeToUse: false, hasDivergence: false,
+  localStorageEntryCount: null, indexedDbEntryCount: null,
+  invalidEntryCount: 0, unknownEntryCount: 0, duplicateIdCount: 0,
+  issues: ['queue_storage_audit_pending'],
+};
 let resolveQueueReady: () => void = () => {};
 export const firestoreOfflineQueueReady = new Promise<void>((resolve) => {
   resolveQueueReady = resolve;
+});
+
+const queueStorageSafetyMessage = () => `A fila offline está preservada, mas sua consistência não pode ser confirmada (${queueStorageAudit.status}). Não é seguro alterar, reenviar ou limpar essa fila até investigação manual.`;
+
+const assertQueueStorageSafe = () => {
+  if (!canUseWindow()) return;
+  if (!queueStorageAudit.safeToUse) throw new Error(queueStorageSafetyMessage());
+};
+
+/** Caller must hold MOTOFIX_LOCAL_STATE_LOCK. Reads both raw mirrors before normalization. */
+const refreshQueueFromRawUnlocked = async () => {
+  const [localStorageRead, indexedDbRead] = await Promise.all([
+    Promise.resolve(readRawQueueFromLocalStorage()),
+    readRawQueueFromIndexedDb(),
+  ]);
+  queueStorageAudit = auditRawFirestoreOfflineQueue(localStorageRead, indexedDbRead);
+  if (!queueStorageAudit.safeToUse) {
+    queueState = { ...queueState, lastPersistenceError: queueStorageSafetyMessage() };
+    throw new Error(queueStorageSafetyMessage());
+  }
+  const localRaw = localStorageRead.status === 'available' && localStorageRead.raw !== null
+    ? JSON.parse(localStorageRead.raw) as unknown : null;
+  const indexedDbRaw = indexedDbRead.status === 'available' && indexedDbRead.databaseExists
+    ? indexedDbRead.raw : null;
+  const selectedRaw = indexedDbRaw ?? localRaw;
+  persistedQueue = selectedRaw === null ? emptySnapshot() : normalizePersistedSnapshot(selectedRaw);
+  queueState = buildQueueState(persistedQueue);
+};
+
+export const getFirestoreOfflineQueueStorageAudit = (): OfflineQueueStorageAudit => ({
+  ...queueStorageAudit,
+  issues: [...queueStorageAudit.issues],
 });
 
 const getErrorMessage = (error: unknown) => (
@@ -370,8 +422,6 @@ const markPersistenceFailed = (message: string, error?: unknown) => {
   emitQueueState();
 };
 
-let latestPersistenceAttempt = 0;
-
 const markPersistenceRecovered = () => {
   if (!queueState.lastPersistenceError) return;
   queueState = {
@@ -384,14 +434,13 @@ const markPersistenceRecovered = () => {
     lastPersistenceError: null,
     lastError: queueState.lastError,
   };
-  // Persist the cleared active error too, so it cannot return after a reload.
-  persistQueueState();
   emitQueueState();
 };
 
-const persistQueueState = () => {
-  if (!canUseWindow()) return;
-  const attempt = ++latestPersistenceAttempt;
+/** Caller must hold MOTOFIX_LOCAL_STATE_LOCK for the entire mutation and persistence. */
+const persistQueueStateUnlocked = async () => {
+  if (!canUseWindow() || !queueStorageAudit.safeToUse) return;
+  queueState = { ...queueState, lastPersistenceError: null };
   persistedQueue = {
     ...persistedQueue,
     lastQueuedAt: queueState.lastQueuedAt,
@@ -414,49 +463,34 @@ const persistQueueState = () => {
   if (!canUseIndexedDb()) {
     if (localStorageError) {
       markPersistenceFailed(getErrorMessage(localStorageError), localStorageError);
-    } else if (attempt === latestPersistenceAttempt) {
+    } else {
       markPersistenceRecovered();
     }
     return;
   }
 
-  const snapshot = persistedQueue;
-  void writePersistedQueueToIndexedDb(snapshot)
-    .then(() => {
-      if (attempt !== latestPersistenceAttempt) return;
-      if (localStorageError) {
-        console.warn('Espelho localStorage da fila offline falhou, mas IndexedDB foi salvo:', localStorageError);
-      }
-      markPersistenceRecovered();
-    })
-    .catch((indexedDbError) => {
-      if (attempt !== latestPersistenceAttempt) return;
-      const message = localStorageError
-        ? `IndexedDB: ${getErrorMessage(indexedDbError)}; localStorage: ${getErrorMessage(localStorageError)}`
-        : `IndexedDB: ${getErrorMessage(indexedDbError)}`;
-      markPersistenceFailed(message, indexedDbError);
-    });
+  try {
+    await writePersistedQueueToIndexedDb(JSON.parse(JSON.stringify(persistedQueue)) as PersistedQueueSnapshot);
+    if (localStorageError) {
+      const message = `IndexedDB foi salvo, mas o espelho LocalStorage falhou: ${getErrorMessage(localStorageError)}`;
+      markPersistenceFailed(message, localStorageError);
+      return;
+    }
+    markPersistenceRecovered();
+  } catch (indexedDbError) {
+    const message = localStorageError
+      ? `IndexedDB: ${getErrorMessage(indexedDbError)}; localStorage: ${getErrorMessage(localStorageError)}`
+      : `IndexedDB: ${getErrorMessage(indexedDbError)}`;
+    markPersistenceFailed(message, indexedDbError);
+  }
 };
 
 const persistQueueStateAndWait = async () => {
   if (!canUseWindow()) return;
+  assertQueueStorageSafe();
 
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    const snapshot = JSON.parse(JSON.stringify(persistedQueue)) as PersistedQueueSnapshot;
-    try {
-      window.localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(snapshot));
-      await writePersistedQueueToIndexedDb(snapshot);
-    } catch (error) {
-      markPersistenceFailed(getErrorMessage(error), error);
-      throw error;
-    }
-
-    // A new local write may arrive while IndexedDB is committing. Persist the
-    // newest snapshot too, so cleanup never overwrites a concurrent write.
-    if (JSON.stringify(persistedQueue) === JSON.stringify(snapshot)) return;
-  }
-
-  throw new Error('A fila mudou durante a limpeza. Tente novamente.');
+  await persistQueueStateUnlocked();
+  if (queueState.lastPersistenceError) throw new Error(queueState.lastPersistenceError);
 };
 
 const createWriteId = () => {
@@ -474,7 +508,8 @@ const refreshCounts = () => {
   };
 };
 
-const markWriteFailed = (writeId: string, context: string, error: unknown) => {
+const markWriteFailed = async (writeId: string, context: string, error: unknown) => withLocalStateMutation(async () => {
+  await refreshQueueFromRawUnlocked();
   const message = getErrorMessage(error);
   const failedWrite = persistedQueue.writes.find((write) => write.id === writeId);
   const isQuotaError = isQuotaLikeError(error);
@@ -490,20 +525,18 @@ const markWriteFailed = (writeId: string, context: string, error: unknown) => {
     lastError: getActiveWriteError(persistedQueue.writes),
     failureCount: queueState.failureCount + 1,
   };
-  persistQueueState();
-  if (!isQuotaError) {
-    emitWriteError(context, error);
-  }
+  await persistQueueStateUnlocked();
+  if (!isQuotaError) emitWriteError(context, error);
   emitTelemetry({ event: 'write_failed', writeId, context, message });
   emitQueueState();
-};
+});
 
-const trackWrite = <T>(
-  writePromise: Promise<T>,
+const trackWrite = async (
   context: string,
   replay?: FirestoreReplayDescriptor,
   explicitOwnerId?: string,
-) => {
+): Promise<string> => withLocalStateMutation(async () => {
+  await refreshQueueFromRawUnlocked();
   const writeId = createWriteId();
   const queuedAt = new Date().toISOString();
   const replayOwnerId = replay?.operation === 'batch'
@@ -523,33 +556,26 @@ const trackWrite = <T>(
   });
   refreshCounts();
   queueState = { ...queueState, lastQueuedAt: queuedAt };
-  persistQueueState();
+  await persistQueueStateUnlocked();
   emitQueueState();
-
-  writePromise
-    .then(() => {
-      const trackedWrite = persistedQueue.writes.find((write) => write.id === writeId);
-      if (!trackedWrite || trackedWrite.status !== 'pending') return;
-
-      persistedQueue.writes = persistedQueue.writes.filter((write) => write.id !== writeId);
-      refreshCounts();
-      queueState = {
-        ...queueState,
-        lastSettledAt: new Date().toISOString(),
-        lastError: getActiveWriteError(persistedQueue.writes),
-        confirmedWrites: queueState.confirmedWrites + 1,
-      };
-      persistQueueState();
-      emitQueueState();
-    })
-    .catch((error) => {
-      markWriteFailed(writeId, context, error);
-      // Firestore rolls optimistic cache writes back on rejection; refresh the in-memory view from that cache.
-      notifyFirestoreReplayMutation(replay);
-    });
-
   return writeId;
-};
+});
+
+const settleTrackedWrite = async (writeId: string) => withLocalStateMutation(async () => {
+  await refreshQueueFromRawUnlocked();
+  const trackedWrite = persistedQueue.writes.find((write) => write.id === writeId);
+  if (!trackedWrite || trackedWrite.status !== 'pending') return;
+  persistedQueue.writes = persistedQueue.writes.filter((write) => write.id !== writeId);
+  refreshCounts();
+  queueState = {
+    ...queueState,
+    lastSettledAt: new Date().toISOString(),
+    lastError: getActiveWriteError(persistedQueue.writes),
+    confirmedWrites: queueState.confirmedWrites + 1,
+  };
+  await persistQueueStateUnlocked();
+  emitQueueState();
+});
 
 type QueuedWriteResult<T> = {
   writeId: string;
@@ -574,23 +600,26 @@ export async function queueFirestoreWrite<T>(
   replay?: FirestoreReplayDescriptor,
   ownerId?: string,
 ): Promise<QueuedWriteResult<T>> {
+  await firestoreOfflineQueueReady;
+  assertQueueStorageSafe();
+  const writeId = await trackWrite(context, replay, ownerId);
   let writePromise: Promise<T>;
 
   try {
     writePromise = operation();
   } catch (error) {
-    queueState = {
-      ...queueState,
-      lastError: getActiveWriteError(persistedQueue.writes),
-      failureCount: queueState.failureCount + 1,
-    };
-    persistQueueState();
-    emitWriteError(context, error);
-    emitQueueState();
+    await markWriteFailed(writeId, context, error);
     throw error;
   }
 
-  const writeId = trackWrite(writePromise, context, replay, ownerId);
+  writePromise.then(
+    () => settleTrackedWrite(writeId),
+    async (error) => {
+      await markWriteFailed(writeId, context, error);
+      // Firestore rolls optimistic cache writes back on rejection; refresh the in-memory view from that cache.
+      notifyFirestoreReplayMutation(replay);
+    },
+  );
   notifyFirestoreReplayMutation(replay);
   const result = await Promise.race([
     writePromise.then((value) => ({ status: 'settled' as const, value })),
@@ -636,7 +665,9 @@ export const getFailedWriteCheckpoint = (userId: string) => persistedQueue.write
   })
   .map((write) => write.id);
 
-export const confirmPendingWriteCheckpoint = (writeIds: string[]) => {
+export const confirmPendingWriteCheckpoint = async (writeIds: string[]) => withLocalStateMutation(async () => {
+  await refreshQueueFromRawUnlocked();
+  assertQueueStorageSafe();
   if (writeIds.length === 0) return;
   const settledIds = new Set(writeIds);
   const confirmedCount = persistedQueue.writes.filter(
@@ -653,9 +684,9 @@ export const confirmPendingWriteCheckpoint = (writeIds: string[]) => {
     lastError: getActiveWriteError(persistedQueue.writes),
     confirmedWrites: queueState.confirmedWrites + confirmedCount,
   };
-  persistQueueState();
+  await persistQueueStateUnlocked();
   emitQueueState();
-};
+});
 
 const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -676,6 +707,9 @@ export async function confirmPendingWriteCheckpointRemotely(
   waitForRemoteWrites: () => Promise<void>,
   timeoutMs = REMOTE_CONFIRMATION_TIMEOUT_MS
 ): Promise<boolean> {
+  await firestoreOfflineQueueReady;
+  await withLocalStateMutation(refreshQueueFromRawUnlocked);
+  assertQueueStorageSafe();
   if (writeIds.length === 0) return true;
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
 
@@ -689,7 +723,7 @@ export async function confirmPendingWriteCheckpointRemotely(
       (write) => writeIds.includes(write.id) && write.status === 'failed'
     );
     if (hasFailedWrite) return false;
-    confirmPendingWriteCheckpoint(writeIds);
+    await confirmPendingWriteCheckpoint(writeIds);
     return true;
   } catch {
     return false;
@@ -719,8 +753,19 @@ export const getFailedWrites = (currentUserId?: string | null): FailedFirestoreW
   });
 
 /** Returns a serializable copy of the durable queue for local recovery archives. */
-export const exportFirestoreOfflineQueueSnapshot = async (userId: string) => {
-  await firestoreOfflineQueueReady;
+export const readAuditedFirestoreOfflineQueueSnapshot = async (userId: string) => {
+  const [localStorageRead, indexedDbRead] = await Promise.all([
+    Promise.resolve(readRawQueueFromLocalStorage()),
+    readRawQueueFromIndexedDb(),
+  ]);
+  const audit = auditRawFirestoreOfflineQueue(localStorageRead, indexedDbRead);
+  if (!audit.safeToUse) return { audit, queue: null, allWrites: [] as PersistedWrite[] };
+  const localRaw = localStorageRead.status === 'available' && localStorageRead.raw !== null
+    ? JSON.parse(localStorageRead.raw) as unknown : null;
+  const indexedDbRaw = indexedDbRead.status === 'available' && indexedDbRead.databaseExists
+    ? indexedDbRead.raw : null;
+  const selectedRaw = indexedDbRaw ?? localRaw;
+  const snapshot = selectedRaw === null ? emptySnapshot() : normalizePersistedSnapshot(selectedRaw);
   const belongsToUser = (write: PersistedWrite) => {
     if (write.ownerId === userId) return true;
     const mutations = write.replay
@@ -728,17 +773,21 @@ export const exportFirestoreOfflineQueueSnapshot = async (userId: string) => {
       : [];
     return mutations.some((mutation) => mutation.path[1] === userId);
   };
-  return JSON.parse(JSON.stringify({
-    writes: persistedQueue.writes.filter(belongsToUser),
-    lastQueuedAt: persistedQueue.lastQueuedAt,
-    lastSettledAt: persistedQueue.lastSettledAt,
-    lastError: persistedQueue.lastError,
-    failureCount: persistedQueue.failureCount,
-    confirmedCount: persistedQueue.confirmedCount,
-    retryCount: persistedQueue.retryCount,
-    persistenceFailureCount: persistedQueue.persistenceFailureCount,
-    lastPersistenceError: persistedQueue.lastPersistenceError,
-  })) as PersistedQueueSnapshot;
+  return {
+    audit,
+    allWrites: JSON.parse(JSON.stringify(snapshot.writes)) as PersistedWrite[],
+    queue: JSON.parse(JSON.stringify({
+      ...snapshot,
+      writes: snapshot.writes.filter(belongsToUser),
+    })) as PersistedQueueSnapshot,
+  };
+};
+
+export const exportFirestoreOfflineQueueSnapshot = async (userId: string) => {
+  await firestoreOfflineQueueReady;
+  const result = await readAuditedFirestoreOfflineQueueSnapshot(userId);
+  if (!result.audit.safeToUse || !result.queue) throw new Error(queueStorageSafetyMessage());
+  return result.queue;
 };
 
 export const discardFailedFirestoreWrites = async (
@@ -747,6 +796,10 @@ export const discardFailedFirestoreWrites = async (
 ): Promise<number> => {
   await firestoreOfflineQueueReady;
   if (!currentUserId) throw new Error('Entre na conta da oficina para limpar as falhas locais.');
+
+  return withLocalStateMutation(async () => {
+  await refreshQueueFromRawUnlocked();
+  assertQueueStorageSafe();
 
   const requestedIds = new Set(writeIds.filter((writeId) => typeof writeId === 'string' && writeId.length > 0));
   const removedWrites = persistedQueue.writes.filter((write) => (
@@ -785,13 +838,14 @@ export const discardFailedFirestoreWrites = async (
       ...queueState,
       lastError: getActiveWriteError(persistedQueue.writes),
     };
-    persistQueueState();
+    await persistQueueStateUnlocked();
     emitQueueState();
     throw new Error('Não foi possível salvar a limpeza no armazenamento local. As falhas foram restauradas na fila.');
   }
 
   emitQueueState();
   return removedWrites.length;
+  });
 };
 
 const validateReplayPath = (path: string[]) => {
@@ -820,7 +874,8 @@ const replayFirestoreWrite = async (descriptor: FirestoreReplayDescriptor) => {
   notifyFirestoreReplayMutation(descriptor);
 };
 
-const completeRetriedWrite = (writeId: string, context: string) => {
+const completeRetriedWrite = async (writeId: string, context: string) => withLocalStateMutation(async () => {
+  await refreshQueueFromRawUnlocked();
   const trackedWrite = persistedQueue.writes.find((write) => write.id === writeId);
   if (!trackedWrite) return;
 
@@ -832,12 +887,13 @@ const completeRetriedWrite = (writeId: string, context: string) => {
     lastError: getActiveWriteError(persistedQueue.writes),
     confirmedWrites: queueState.confirmedWrites + 1,
   };
-  persistQueueState();
+  await persistQueueStateUnlocked();
   emitTelemetry({ event: 'retry_succeeded', writeId, context });
   emitQueueState();
-};
+});
 
-const completeReconciledWrite = (writeId: string, context: string) => {
+const completeReconciledWrite = async (writeId: string, context: string) => withLocalStateMutation(async () => {
+  await refreshQueueFromRawUnlocked();
   const trackedWrite = persistedQueue.writes.find((write) => write.id === writeId);
   if (!trackedWrite) return;
 
@@ -849,10 +905,10 @@ const completeReconciledWrite = (writeId: string, context: string) => {
     lastError: getActiveWriteError(persistedQueue.writes),
     confirmedWrites: queueState.confirmedWrites + 1,
   };
-  persistQueueState();
+  await persistQueueStateUnlocked();
   emitTelemetry({ event: 'write_reconciled', writeId, context });
   emitQueueState();
-};
+});
 
 const replayOwnerIds = (descriptor: FirestoreReplayDescriptor) => {
   const mutations = descriptor.operation === 'batch' ? descriptor.writes : [descriptor];
@@ -875,6 +931,9 @@ export async function reconcilePendingWriteCheckpointRemotely(
   waitForRemoteWrites: () => Promise<void>,
   timeoutMs = REMOTE_CONFIRMATION_TIMEOUT_MS,
 ): Promise<{ confirmed: number; failed: number; pending: number }> {
+  await firestoreOfflineQueueReady;
+  await withLocalStateMutation(refreshQueueFromRawUnlocked);
+  assertQueueStorageSafe();
   if (writeIds.length === 0) return { confirmed: 0, failed: 0, pending: 0 };
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     return { confirmed: 0, failed: 0, pending: writeIds.length };
@@ -908,7 +967,7 @@ export async function reconcilePendingWriteCheckpointRemotely(
     const descriptor = pendingWrite.replay;
     const ownerIds = descriptor ? replayOwnerIds(descriptor) : [];
     if (!descriptor) {
-      markWriteFailed(
+      await markWriteFailed(
         writeId,
         pendingWrite.context,
         new Error('Esta alteracao antiga nao possui dados suficientes para reenvio seguro. Revise o registro na tela de origem.'),
@@ -917,7 +976,7 @@ export async function reconcilePendingWriteCheckpointRemotely(
       continue;
     }
     if (ownerIds.length !== 1 || ownerIds[0] !== userId || (pendingWrite.ownerId && pendingWrite.ownerId !== userId)) {
-      markWriteFailed(
+      await markWriteFailed(
         writeId,
         pendingWrite.context,
         new Error('A alteracao pendente pertence a outra conta ou nao tem um proprietario seguro para sincronizar.'),
@@ -935,22 +994,27 @@ export async function reconcilePendingWriteCheckpointRemotely(
       );
       if (inspection.status === 'already-applied') {
         notifyFirestoreReplayMutation(descriptor);
-        completeReconciledWrite(writeId, pendingWrite.context);
+        await completeReconciledWrite(writeId, pendingWrite.context);
         confirmed += 1;
         continue;
       }
       if (inspection.status === 'conflict') throw new Error(inspection.reason);
 
-      if (pendingWrite.status === 'failed') {
-        pendingWrite.retryCount += 1;
-        pendingWrite.lastRetryAt = new Date().toISOString();
-        queueState = { ...queueState, retryCount: queueState.retryCount + 1 };
-      }
-      pendingWrite.status = 'pending';
-      pendingWrite.lastUpdatedAt = new Date().toISOString();
-      pendingWrite.errorMessage = null;
-      refreshCounts();
-      persistQueueState();
+      await withLocalStateMutation(async () => {
+        await refreshQueueFromRawUnlocked();
+        const currentWrite = persistedQueue.writes.find((write) => write.id === writeId);
+        if (!currentWrite) return;
+        if (currentWrite.status === 'failed') {
+          currentWrite.retryCount += 1;
+          currentWrite.lastRetryAt = new Date().toISOString();
+          queueState = { ...queueState, retryCount: queueState.retryCount + 1 };
+        }
+        currentWrite.status = 'pending';
+        currentWrite.lastUpdatedAt = new Date().toISOString();
+        currentWrite.errorMessage = null;
+        refreshCounts();
+        await persistQueueStateUnlocked();
+      });
 
       replayPromise = withTimeout(
         replayFirestoreWrite(descriptor),
@@ -958,18 +1022,18 @@ export async function reconcilePendingWriteCheckpointRemotely(
         'Tempo limite ao confirmar individualmente esta alteracao no Firestore.',
       );
       await replayPromise;
-      completeReconciledWrite(writeId, pendingWrite.context);
+      await completeReconciledWrite(writeId, pendingWrite.context);
       confirmed += 1;
     } catch (error) {
-      markWriteFailed(writeId, pendingWrite.context, error);
+      await markWriteFailed(writeId, pendingWrite.context, error);
       failed += 1;
       const failedSnapshot = persistedQueue.writes.find((write) => write.id === writeId);
       const failedAt = failedSnapshot?.lastUpdatedAt;
       if (replayPromise && failedAt && /Tempo limite/.test(getErrorMessage(error))) {
-        void replayPromise.then(() => {
+        void replayPromise.then(async () => {
           const timedOutWrite = persistedQueue.writes.find((write) => write.id === writeId);
           if (timedOutWrite?.status === 'failed' && timedOutWrite.lastUpdatedAt === failedAt) {
-            completeReconciledWrite(writeId, pendingWrite.context);
+          await completeReconciledWrite(writeId, pendingWrite.context);
           }
         }).catch(() => undefined);
       }
@@ -984,11 +1048,29 @@ export async function reconcilePendingWriteCheckpointRemotely(
 
 export async function retryFailedWrite(writeId: string): Promise<void> {
   await firestoreOfflineQueueReady;
-  const failedWrite = persistedQueue.writes.find(
-    (write) => write.id === writeId && write.status === 'failed'
-  );
+  const failedWrite = await withLocalStateMutation(async () => {
+    await refreshQueueFromRawUnlocked();
+    assertQueueStorageSafe();
+    const found = persistedQueue.writes.find((write) => write.id === writeId && write.status === 'failed');
+    if (!found) return null;
+    if (!found.replay) throw new Error('Esta operacao exige correcao manual e nao pode ser repetida com seguranca.');
+    const ownerId = found.replay.operation === 'batch' ? found.replay.writes[0]?.path[1] : found.replay.path[1];
+    if (!ownerId) throw new Error('Não foi possível identificar a conta dona desta gravação.');
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) throw new Error('Conecte-se a internet para tentar novamente.');
+    const retryStartedAt = new Date().toISOString();
+    found.status = 'pending';
+    found.lastUpdatedAt = retryStartedAt;
+    found.lastRetryAt = retryStartedAt;
+    found.retryCount += 1;
+    found.errorMessage = null;
+    refreshCounts();
+    queueState = { ...queueState, lastError: getActiveWriteError(persistedQueue.writes), retryCount: queueState.retryCount + 1 };
+    await persistQueueStateUnlocked();
+    emitTelemetry({ event: 'retry_started', writeId, context: found.context });
+    emitQueueState();
+    return { ...found, replay: JSON.parse(JSON.stringify(found.replay)) as FirestoreReplayDescriptor };
+  });
   if (!failedWrite) throw new Error('Escrita com falha nao encontrada.');
-  if (!failedWrite.replay) throw new Error('Esta operacao exige correcao manual e nao pode ser repetida com seguranca.');
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     throw new Error('Conecte-se a internet para tentar novamente.');
   }
@@ -997,21 +1079,7 @@ export async function retryFailedWrite(writeId: string): Promise<void> {
     : failedWrite.replay.path[1];
   if (!ownerId) throw new Error('Não foi possível identificar a conta dona desta gravação.');
 
-  const retryStartedAt = new Date().toISOString();
-  failedWrite.status = 'pending';
-  failedWrite.lastUpdatedAt = retryStartedAt;
-  failedWrite.lastRetryAt = retryStartedAt;
-  failedWrite.retryCount += 1;
-  failedWrite.errorMessage = null;
-  refreshCounts();
-  queueState = {
-    ...queueState,
-    lastError: getActiveWriteError(persistedQueue.writes),
-    retryCount: queueState.retryCount + 1,
-  };
-  persistQueueState();
-  emitTelemetry({ event: 'retry_started', writeId, context: failedWrite.context });
-  emitQueueState();
+  const retryStartedAt = failedWrite.lastRetryAt || new Date().toISOString();
 
   let replayPromise: Promise<void> | null = null;
   try {
@@ -1036,32 +1104,30 @@ export async function retryFailedWrite(writeId: string): Promise<void> {
       );
     });
     await replayPromise;
-    if (alreadyApplied) completeReconciledWrite(writeId, failedWrite.context);
-    else completeRetriedWrite(writeId, failedWrite.context);
+    if (alreadyApplied) await completeReconciledWrite(writeId, failedWrite.context);
+    else await completeRetriedWrite(writeId, failedWrite.context);
   } catch (error) {
     const message = getErrorMessage(error);
-    const failed = persistedQueue.writes.find((write) => write.id === writeId);
-    if (failed) {
-      failed.status = 'failed';
-      failed.lastUpdatedAt = new Date().toISOString();
-      failed.errorMessage = message;
-    }
-    refreshCounts();
-    queueState = {
-      ...queueState,
-      lastSettledAt: new Date().toISOString(),
-      lastError: getActiveWriteError(persistedQueue.writes),
-      failureCount: queueState.failureCount + 1,
-    };
-    persistQueueState();
+    await withLocalStateMutation(async () => {
+      await refreshQueueFromRawUnlocked();
+      const failed = persistedQueue.writes.find((write) => write.id === writeId);
+      if (failed) {
+        failed.status = 'failed';
+        failed.lastUpdatedAt = new Date().toISOString();
+        failed.errorMessage = message;
+      }
+      refreshCounts();
+      queueState = { ...queueState, lastSettledAt: new Date().toISOString(), lastError: getActiveWriteError(persistedQueue.writes), failureCount: queueState.failureCount + 1 };
+      await persistQueueStateUnlocked();
+    });
     emitWriteError(failedWrite.context, error);
     emitTelemetry({ event: 'retry_failed', writeId, context: failedWrite.context, message });
     emitQueueState();
     if (message === 'Tempo limite ao repetir a escrita no Firestore.' && replayPromise) {
-      void replayPromise.then(() => {
+      void replayPromise.then(async () => {
         const timedOutWrite = persistedQueue.writes.find((write) => write.id === writeId);
         if (timedOutWrite?.lastRetryAt === retryStartedAt) {
-          completeRetriedWrite(writeId, failedWrite.context);
+          await completeRetriedWrite(writeId, failedWrite.context);
         }
       }).catch(() => undefined);
     }
@@ -1120,33 +1186,44 @@ export const subscribeFirestoreOfflineQueue = (
   return () => window.removeEventListener(FIRESTORE_OFFLINE_QUEUE_EVENT, handleQueueState);
 };
 
+const refreshFirestoreOfflineQueueStorageAuditUnlocked = async (): Promise<OfflineQueueStorageAudit> => {
+  try {
+    await refreshQueueFromRawUnlocked();
+  } catch {
+    // refreshQueueFromRawUnlocked already records the precise raw-read result
+    // (including divergence, malformed, or unknown entries); do not erase it.
+    if (queueStorageAudit.issues.includes('queue_storage_audit_pending')) {
+      queueStorageAudit = {
+        status: 'unreadable', safeToUse: false, hasDivergence: false,
+        localStorageEntryCount: null, indexedDbEntryCount: null,
+        invalidEntryCount: 0, unknownEntryCount: 0, duplicateIdCount: 0,
+        issues: ['queue_storage_audit_failed'],
+      };
+    }
+    queueState = { ...queueState, lastPersistenceError: queueStorageSafetyMessage() };
+  }
+  emitQueueState();
+  return getFirestoreOfflineQueueStorageAudit();
+};
+
+export const refreshFirestoreOfflineQueueStorageAudit = async (): Promise<OfflineQueueStorageAudit> => (
+  withLocalStateMutation(refreshFirestoreOfflineQueueStorageAuditUnlocked)
+);
+
 const hydrateQueueFromIndexedDb = async () => {
   try {
-    if (!canUseIndexedDb()) {
-      // Verify/update the localStorage fallback and clear a recovered storage warning.
-      persistQueueState();
-      return;
+    await refreshFirestoreOfflineQueueStorageAudit();
+  } catch {
+    // Keep all persisted bytes untouched if the audit itself cannot complete.
+    if (queueStorageAudit.issues.includes('queue_storage_audit_pending')) {
+      queueStorageAudit = {
+        status: 'unreadable', safeToUse: false, hasDivergence: false,
+        localStorageEntryCount: null, indexedDbEntryCount: null,
+        invalidEntryCount: 0, unknownEntryCount: 0, duplicateIdCount: 0,
+        issues: ['queue_storage_audit_failed'],
+      };
     }
-    const indexedDbSnapshot = await readPersistedQueueFromIndexedDb();
-    if (indexedDbSnapshot) {
-      persistedQueue = mergePersistedQueues(indexedDbSnapshot, persistedQueue);
-    }
-    queueState = buildQueueState(persistedQueue);
-
-    try {
-      window.localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(persistedQueue));
-    } catch (error) {
-      console.warn('Nao foi possivel atualizar o espelho localStorage da fila offline:', error);
-    }
-
-    // A successful read/hydration is followed by a fresh durable write so old
-    // storage errors are cleared and both local mirrors converge on this snapshot.
-    persistQueueState();
-    emitQueueState();
-  } catch (error) {
-    console.warn('Nao foi possivel hidratar a fila offline pelo IndexedDB:', error);
-    // Keep the localStorage fallback usable even if IndexedDB cannot be opened.
-    persistQueueState();
+    queueState = { ...queueState, lastPersistenceError: queueStorageSafetyMessage() };
   } finally {
     resolveQueueReady();
   }
@@ -1157,14 +1234,8 @@ if (canUseWindow()) {
 
   window.addEventListener('storage', (event) => {
     if (event.key !== QUEUE_STORAGE_KEY) return;
-    persistedQueue = mergePersistedQueues(readPersistedQueue(), persistedQueue);
-    queueState = buildQueueState(persistedQueue);
-    if (canUseIndexedDb()) {
-      void writePersistedQueueToIndexedDb(persistedQueue).catch((error) => {
-        console.warn('Nao foi possivel sincronizar a fila offline com IndexedDB:', error);
-      });
-    }
-    emitQueueState();
+    // Cross-tab changes are audited read-only. Never merge one mirror over the other.
+    void refreshFirestoreOfflineQueueStorageAudit();
   });
 } else {
   resolveQueueReady();

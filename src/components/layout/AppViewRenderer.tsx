@@ -158,7 +158,6 @@ type AppViewRendererUi = {
   setSettings: Dispatch<SetStateAction<Settings>>;
   setView: Dispatch<SetStateAction<AppView>>;
   onColorModeChange: (mode: ColorMode) => void;
-  onSyncForBackup: () => Promise<{ updatedDocuments: number }>;
   view: AppView;
 };
 
@@ -785,7 +784,6 @@ export const AppViewRenderer = ({
           isResettingOperationalData={settingsActions.isResettingOperationalData}
           offlineSyncStatus={offlineSyncStatus}
           operationalLogs={operationalLogs}
-          onSyncForBackup={ui.onSyncForBackup}
         />
       );
     }

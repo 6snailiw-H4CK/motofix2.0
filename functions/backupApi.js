@@ -3,6 +3,7 @@ const admin = require('firebase-admin');
 const crypto = require('node:crypto');
 const { FieldPath, GeoPoint, Timestamp } = require('firebase-admin/firestore');
 const { createFirestoreBackupDestinationAdapter } = require('./backupImportDestination');
+const { MOTOFIX_OWNER_UID } = require('./profileAccess');
 
 const FULL_BACKUP_FORMAT = 'motofix-full-backup';
 const RESTORE_CONFIRMATION = 'RESTAURAR';
@@ -162,6 +163,27 @@ const authenticate = async (req, res) => {
 const assertDestinationWorkshopAdmin = (user, res) => {
   if (user.claims.admin !== true || user.profile.role !== 'admin' || user.profile.isActive !== true) {
     sendError(res, 403, 'A restauração exige um administrador ativo autenticado no projeto Firebase de destino.');
+    return false;
+  }
+  return true;
+};
+
+const assertFullBackupExportAdmin = (req, user, res) => {
+  const requestedWorkshopId = typeof req.query.workshopId === 'string' ? req.query.workshopId : null;
+  if (requestedWorkshopId && requestedWorkshopId !== user.uid) {
+    sendError(res, 403, 'A exportação só pode acessar a oficina vinculada à sessão autenticada.');
+    return false;
+  }
+  const ownerAuthorized = user.uid === MOTOFIX_OWNER_UID
+    && user.profile.role === 'master_admin'
+    && user.profile.isActive === true
+    && user.profile.ownerAccess?.enabled === true
+    && user.profile.ownerAccess?.permanent === true;
+  const workshopAdminAuthorized = user.claims.admin === true
+    && user.profile.role === 'admin'
+    && user.profile.isActive === true;
+  if (!ownerAuthorized && !workshopAdminAuthorized) {
+    sendError(res, 403, 'A exportação completa exige o proprietário ou um administrador ativo autorizado da própria oficina.');
     return false;
   }
   return true;
@@ -356,6 +378,9 @@ exports.backupApi = onRequest({
       const result = await adapter.finalize(req.body || {});
       return res.status(200).json(result);
     }
+    if (req.method === 'GET' && pathname.endsWith('/full')
+      && (req.query.meta === '1' || req.query.signature === '1' || typeof req.query.collection === 'string')
+      && !assertFullBackupExportAdmin(req, user, res)) return;
     if (req.method === 'GET' && pathname.endsWith('/full') && req.query.meta === '1') {
       return await handleMeta(res, user.uid, user.profile);
     }

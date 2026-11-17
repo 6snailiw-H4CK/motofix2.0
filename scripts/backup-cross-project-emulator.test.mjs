@@ -104,7 +104,10 @@ const request = async (path, token, body) => fetch(`${destinationBase}/api/backu
 const run = async () => {
   const sourceRef = sourceDb.collection('users').doc(sourceUid);
   await Promise.all([
-    sourceRef.collection('clients').doc('client-1').set({ id: 'client-1', userId: sourceUid, name: 'Cliente de origem', deletedAt: null }),
+    sourceRef.collection('clients').doc('client-1').set({
+      id: 'client-1', userId: sourceUid, name: 'Cliente de origem', deletedAt: null,
+      role: 'mechanic', adminRoleLabel: 'service advisor', tokenizedDescription: 'commercial note',
+    }),
     sourceRef.collection('clients').doc('client-old').set({ id: 'client-old', userId: sourceUid, name: 'Cliente arquivado', deletedAt: Timestamp.fromMillis(1_700_000_000_000) }),
     sourceRef.collection('products').doc('product-1').set({ id: 'product-1', userId: sourceUid, description: 'Óleo', stockQuantity: 3 }),
     sourceRef.collection('cash_launches').doc('os-paid').set({
@@ -172,6 +175,10 @@ const run = async () => {
   assert.notEqual(plan.sourceProjectId, plan.destinationProjectId);
   assert.equal(plan.excludedProfileSnapshot, true);
   assert.equal(plan.excludedLocalRecovery, true);
+  const plannedClient = plan.documents.find((document) => document.collection === 'clients' && document.id === 'client-1');
+  assert.equal(plannedClient.data.role, 'mechanic');
+  assert.equal(plannedClient.data.adminRoleLabel, 'service advisor');
+  assert.equal(plannedClient.data.tokenizedDescription, 'commercial note');
 
   const adapter = createFirebaseFunctionDestinationAdapter({
     projectId: destinationProjectId,
@@ -450,7 +457,7 @@ const run = async () => {
 
   const forbiddenChunk = await request('/chunk', signedIn.idToken, {
     importId: 'a'.repeat(64), sourceWorkshopId: sourceUid, sourceProjectId, dataSha256: plan.dataSha256,
-    chunkIndex: 0, collection: 'clients', documents: [{ id: 'forbidden', userId: destinationUid, role: 'master_admin' }],
+    chunkIndex: 0, collection: 'clients', documents: [{ id: 'forbidden', userId: destinationUid, ownerAccess: { permanent: true } }],
   });
   assert.equal(forbiddenChunk.status, 400, 'A API rejeita campos de privilégio no lote de negócio.');
   console.log(`Cross-project backup import emulator test passed: ${sourceProjectId} -> ${destinationProjectId}; ${plan.totalDocuments} verified documents.`);

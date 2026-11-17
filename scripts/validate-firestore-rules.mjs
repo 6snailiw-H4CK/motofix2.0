@@ -17,6 +17,10 @@ const userDataReadFunctionBody = rules.match(/function canReadUserData\(userId\)
 const projectionFunctionBody = rules.match(/function accessProjectionValid\(userId\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] || '';
 const profileCreateFunctionBody = rules.match(/function validUserProfileCreate\(userId\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] || '';
 const entitlementFunctionBody = rules.match(/function userProfileHasAllowedBillingStatus\(userId\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] || '';
+const stockOperationPairBody = rules.match(/function stockOperationDataPair\(userId, productId, productData, isCreate\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] || '';
+const stockMovementCreateBody = rules.match(/function validOwnerStockMovementCreate\(userId, movementId\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] || '';
+const cashLaunchMovementLinkBody = rules.match(/function cashLaunchMovementLinkValid\(userId, launchId, launchData, expectedType\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] || '';
+const cashLaunchStockTransitionBody = rules.match(/function cashLaunchStockTransitionValid\(userId, launchId\)\s*\{([\s\S]*?)\n\s*\}/)?.[1] || '';
 const operationalRules = rules.slice(
   rules.indexOf('match /users/{userId}/clients/'),
   rules.indexOf('match /users/{userId}/{document=**}'),
@@ -147,13 +151,15 @@ const checks = [
   ['nested user collections are deny-by-default', rules.includes('match /users/{userId}/{document=**}') && rules.includes('allow read, write: if false;')],
   ['product stock changes require a matching atomic stock operation', rules.includes("'stockMovementId'")
     && rules.includes('function validStockOperationPair(userId, productId, productData, isCreate)')
-    && rules.includes('stockOperationDataPair(userId, productId, productData, isCreate)')
-    && rules.includes('validOwnerStockMovementCreate(userId, movementId)')
-    && rules.includes("product.get('stockMovementId', '') == movementId")
+    && stockOperationPairBody.includes('existsAfter(operationPath)')
+    && stockOperationPairBody.includes('change.nextQuantity == productData.stockQuantity')
+    && stockOperationPairBody.includes('change.previousQuantity == resource.data.get(\'stockQuantity\', 0)')
+    && stockMovementCreateBody.includes('existsAfter(productPath)')
+    && stockMovementCreateBody.includes("productAfter.get('stockMovementId', '') == movementId")
     && rules.includes('function validOwnerProductDataUpdate(userId)')],
   ['O.S. links its exact sale or reversal movement atomically', rules.includes('function cashLaunchMovementLinkValid(userId, launchId, launchData, expectedType)')
-    && rules.includes('movementAfter.cashLaunchId == launchId')
-    && rules.includes('function stockMovementCashLaunchLinkValid(userId, movementId, movementData)')
+    && cashLaunchMovementLinkBody.includes('movementAfter.cashLaunchId == launchId')
+    && cashLaunchStockTransitionBody.includes("request.resource.data, 'estorno_os'")
     && rules.includes('cashLaunchStockTransitionValid(userId, launchId)')
     && rules.includes("'stockMovementId'")],
   ['variation stock quantities reject negative direct SDK writes', rules.includes('function validVariationStocks(variations)')

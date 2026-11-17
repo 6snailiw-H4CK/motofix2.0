@@ -117,11 +117,25 @@ const run = async () => {
   assert.equal(preflight.targetEmpty, true);
   assert.equal(preflight.importable, true);
   assert.equal(preflight.writesPerformed, false);
+  let interruptedAfterFirstChunk = false;
+  await assert.rejects(adapter.import(plan, 'IMPORTAR NO DESTINO', (progress) => {
+    if (!interruptedAfterFirstChunk && progress.completed === 1) {
+      interruptedAfterFirstChunk = true;
+      throw new Error('Interrupção simulada após o primeiro lote confirmado.');
+    }
+  }), /Interrupção simulada/);
+  assert.equal(interruptedAfterFirstChunk, true, 'O teste precisa interromper após ao menos um lote persistido.');
+  const resumablePreflight = await adapter.inspect(plan);
+  assert.equal(resumablePreflight.resumable, true, 'A mesma sessão e o mesmo plano devem poder retomar.');
   const result = await adapter.import(plan, 'IMPORTAR NO DESTINO');
   assert.equal(result.status, 'completed');
   assert.equal(result.verified, true);
   assert.equal(result.documentsVerified, expectedTotal);
   assert.equal(originAttempts, 0, 'The destination importer did not attempt to contact the source project.');
+
+  const repeatedResult = await adapter.import(plan, 'IMPORTAR NO DESTINO');
+  assert.equal(repeatedResult.status, 'completed', 'Repetir a mesma sessão e o mesmo arquivo não deve duplicar documentos.');
+  assert.equal(repeatedResult.documentsVerified, expectedTotal);
 
   const actualDocuments = [];
   for (const { collection: collectionName, id, data } of plan.documents) {
@@ -132,16 +146,29 @@ const run = async () => {
     actualDocuments.push({ collection: collectionName, id, data: actual });
   }
   assert.equal(actualDocuments.length, plan.totalDocuments);
+  assert.equal(plan.counts.whatsapp_automations, 0, 'A coleção vazia está explicitamente no plano.');
+  assert.equal((await userRef.collection('whatsapp_automations').get()).size, 0);
 
   const order = (await userRef.collection('cash_launches').doc('os-paid').get()).data();
   assert.deepEqual(order.paymentEntries, [{ method: 'Débito', amount: 80 }, { method: 'Crédito', amount: 120.75 }]);
   assert.equal(order.date.toMillis(), Date.parse('2026-10-21T12:30:00.000Z'));
-  assert.equal((await userRef.collection('expenses').doc('expense-1').get()).data().amount, 53.4);
+  const unpaidExpense = (await userRef.collection('expenses').doc('expense-1').get()).data();
+  assert.equal(unpaidExpense.amount, 53.4);
+  assert.deepEqual(unpaidExpense.settlementEntries, [], 'Despesa ainda não liquidada permanece sem pagamentos.');
+  const partialExpense = (await userRef.collection('expenses').doc('expense-partial').get()).data();
+  assert.equal(partialExpense.settlementEntries.reduce((sum, entry) => sum + entry.amount, 0), 60.25);
+  assert.equal(partialExpense.settlementEntries[0].settledAt.toMillis(), Date.parse('2026-10-25T12:30:00.000Z'));
+  const settledExpense = (await userRef.collection('expenses').doc('expense-settled').get()).data();
+  assert.equal(settledExpense.settlementEntries.reduce((sum, entry) => sum + entry.amount, 0), settledExpense.amount);
+  assert.deepEqual(settledExpense.settlementEntries.map((entry) => entry.amount), [55.5, 34.4]);
   assert.equal((await userRef.collection('cash_launches').doc('os-pending').get()).data().status, 'Pendente');
   assert.equal((await userRef.collection('cash_launches').doc('os-cancelled').get()).data().status, 'Cancelado');
   assert.equal((await userRef.collection('stock_movements').doc('movement-1').get()).data().sourceRef.path, `users/${destinationUid}/cash_launches/os-paid`);
   assert.equal((await userRef.collection('settings').doc('config').get()).data().businessName, 'Oficina E2E');
   assert.equal((await userRef.collection('operational_logs').doc('log-1').get()).data().action, 'O.S. finalizada');
+  assert.equal((await userRef.collection('clients').doc('client-1').collection('unlisted-private-subcollection').get()).size, 0, 'Subcoleções arbitrárias permanecem fora do escopo do backup.');
+  assert.equal((await userRef.collection('clients').get()).size, manifest.counts.clients, 'A repetição da sessão não criou clientes duplicados.');
+  assert.equal((await userRef.collection('expenses').get()).size, manifest.counts.expenses, 'A repetição da sessão não criou despesas duplicadas.');
   const profileAfter = (await userRef.get()).data();
   assert.equal(profileAfter.destinationMarker, 'keep-destination-identity');
   assert.equal(profileAfter.role, 'admin');
@@ -170,7 +197,7 @@ const run = async () => {
   const audit = (await userRef.collection('backup_imports').get()).docs.find((item) => item.id !== '_active')?.data();
   assert.equal(audit?.status, 'completed');
   assert.equal(audit?.permissionsImported, false);
-  console.log(`PASS destino independente: ${result.documentsVerified} documentos comparados; ${moduleCollections.length} módulos consultados pelo SDK cliente; projeto de origem ${manifest.sourceProjectId} inacessível ao adaptador.`);
+  console.log(`PASS destino independente: ${result.documentsVerified} documentos comparados depois de interrupção/retomada e repetição; sem duplicatas ou sobrescrita da identidade do destino; ${moduleCollections.length} módulos consultados pelo SDK cliente; projeto de origem ${manifest.sourceProjectId} inacessível ao adaptador.`);
   console.log(`Módulos: ${JSON.stringify(moduleCounts)}`);
 };
 

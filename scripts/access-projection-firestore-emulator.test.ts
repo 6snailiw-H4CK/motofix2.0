@@ -85,13 +85,9 @@ test("Firestore Emulator transaction writes only a policy-revalidated projection
   skip: !isLocalEmulator,
 }, async () => {
   const { adapter, ownerUid, candidateUid } = await makeFixture();
-  const candidate = {
-    uid: candidateUid,
-    role: "user",
-    isActive: true,
-    updatedAt: Timestamp.fromMillis(1_790_000_000_000),
-    migrationScopeMarker: "preserve",
-  };
+  const candidateSnapshot = await db.collection("users").doc(candidateUid).get();
+  assert.ok(candidateSnapshot.exists);
+  const candidate = candidateSnapshot.data() as Record<string, unknown>;
   const expected = calculateApplicationAccess(candidate, Date.now(), candidateUid, ownerUid);
 
   assert.equal(await adapter.validateOwner(ownerUid), true);

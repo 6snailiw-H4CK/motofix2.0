@@ -134,6 +134,8 @@ const projectionReasons = new Set([
   "account_inactive",
   "owner_entitlement",
   "manual_entitlement",
+  "manual_access_required",
+  "manual_access_expired",
   "subscription_active",
   "subscription_inactive",
 ]);
@@ -186,7 +188,13 @@ const projectionSemanticsValid = (projection: {
   if (!projection.allowed) {
     return projection.source === "none"
       && projection.validUntil === null
-      && ["profile_missing", "account_inactive", "subscription_inactive"].includes(projection.reason);
+      && [
+        "profile_missing",
+        "account_inactive",
+        "manual_access_required",
+        "manual_access_expired",
+        "subscription_inactive",
+      ].includes(projection.reason);
   }
   if (projection.source === "owner") {
     return projection.reason === "owner_entitlement" && projection.validUntil === null;
@@ -215,7 +223,13 @@ const projectionPartialSemanticsValid = (value: Record<string, unknown>) => {
       && (!hasExpiry || value.validUntil === null)
       && (!hasReason || (
         typeof value.reason === "string"
-        && ["profile_missing", "account_inactive", "subscription_inactive"].includes(value.reason)
+        && [
+          "profile_missing",
+          "account_inactive",
+          "manual_access_required",
+          "manual_access_expired",
+          "subscription_inactive",
+        ].includes(value.reason)
       ));
   }
   if (value.source === "none") return false;

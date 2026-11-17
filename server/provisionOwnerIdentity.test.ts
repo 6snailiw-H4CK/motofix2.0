@@ -8,14 +8,16 @@ import {
   type OwnerIdentityProvisionDatabase,
   type OwnerIdentityProvisionTransaction,
 } from "./provisionOwnerIdentity";
+import { MOTOFIX_OWNER_UID } from "./ownerIdentity";
 
 const expectedPrincipal = "provisioner@appmotofix.iam.gserviceaccount.com";
+const ownerUid = MOTOFIX_OWNER_UID;
 class FakeAuth implements OwnerIdentityProvisionAuth {
   customClaims: Record<string, unknown> = {
     unrelated_claim: "preserve-me",
     motofix_owner: true,
   };
-  userUid = "confirmed-owner-uid";
+  userUid = ownerUid;
   onSecondRead?: () => void;
   private userReads = 0;
 
@@ -33,8 +35,8 @@ const validOptions = (db: OwnerIdentityProvisionDatabase, auth = new FakeAuth())
   credentialProjectId: "appmotofix",
   expectedExecutionPrincipal: expectedPrincipal,
   credentialPrincipal: expectedPrincipal,
-  ownerUid: "confirmed-owner-uid",
-  independentlyConfirmedOwnerUid: "confirmed-owner-uid",
+  ownerUid,
+  independentlyConfirmedOwnerUid: ownerUid,
   externalReferencesConfirmation: OWNER_IDENTITY_REFERENCES_CONFIRMATION,
   operationConfirmation: OWNER_IDENTITY_PROVISION_CONFIRMATION,
   identityValidationReference: "IDENTITY-VERIFICATION-456",
@@ -55,8 +57,8 @@ class FakeFirestore implements OwnerIdentityProvisionDatabase {
     if (initialOwnerUid !== undefined) {
       this.documents.set("system/access_config", { ownerUid: initialOwnerUid });
     }
-    this.documents.set("users/confirmed-owner-uid", {
-      uid: "confirmed-owner-uid",
+    this.documents.set(`users/${ownerUid}`, {
+      uid: ownerUid,
       role: "master_admin",
       isActive: true,
       ownerAccess: { enabled: true, permanent: true },
@@ -167,7 +169,7 @@ test("updates only ownerUid when the config document exists without an identity"
   const result = await provisionOwnerIdentity(validOptions(db));
   assert.deepEqual(db.get("system/access_config"), {
     unrelatedSetting: "preserved",
-    ownerUid: "confirmed-owner-uid",
+    ownerUid,
   });
   assert.equal(result.syncStatus, "synced");
 });
@@ -196,8 +198,8 @@ test("provisions identity and projection without changing any existing claims", 
   const auth = new FakeAuth();
   const claimsBefore = { ...auth.customClaims };
   const result = await provisionOwnerIdentity(validOptions(db, auth));
-  assert.equal(db.get("system/access_config")?.ownerUid, "confirmed-owner-uid");
-  const profile = db.get("users/confirmed-owner-uid")!;
+  assert.equal(db.get("system/access_config")?.ownerUid, ownerUid);
+  const profile = db.get(`users/${ownerUid}`)!;
   assert.deepEqual(profile.accessProjection && {
     allowed: (profile.accessProjection as Record<string, unknown>).allowed,
     source: (profile.accessProjection as Record<string, unknown>).source,
@@ -221,7 +223,7 @@ test("provisions identity and projection without changing any existing claims", 
     operatorAttestedExternalReferences: true,
     before: { ownerUid: null, accessProjection: null },
     after: {
-      ownerUid: "confirmed-owner-uid",
+      ownerUid,
       accessProjection: profile.accessProjection,
     },
     timestamp: "server-timestamp",
@@ -261,7 +263,7 @@ test("does not report synchronization complete if the owner claim changes during
     provisionOwnerIdentity(validOptions(db, auth)),
     { message: "owner_identity_sync_failed" },
   );
-  assert.equal(db.get("system/access_config")?.ownerUid, "confirmed-owner-uid");
+  assert.equal(db.get("system/access_config")?.ownerUid, ownerUid);
   assert.equal(db.get("audit_events/audit-provision-1")?.ownerIdentitySyncStatus, "failed");
   assert.equal(db.get("audit_events/audit-provision-1")?.ownerIdentityClaimVerifiedAt, null);
   assert.equal(auth.customClaims.unrelated_claim, "preserve-me");
@@ -269,7 +271,7 @@ test("does not report synchronization complete if the owner claim changes during
 
 test("rejects a profile whose UID diverges from the confirmed canonical owner", async () => {
   const db = new FakeFirestore();
-  db.seed("users/confirmed-owner-uid", {
+  db.seed(`users/${ownerUid}`, {
     uid: "different-owner",
     role: "master_admin",
     isActive: true,
@@ -295,8 +297,8 @@ test("records partial synchronization failure and does not report success", asyn
     provisionOwnerIdentity(validOptions(db)),
     { message: "owner_identity_sync_failed" },
   );
-  assert.equal(db.get("system/access_config")?.ownerUid, "confirmed-owner-uid");
-  assert.equal((db.get("users/confirmed-owner-uid")?.accessProjection as Record<string, unknown>).source, "owner");
+  assert.equal(db.get("system/access_config")?.ownerUid, ownerUid);
+  assert.equal((db.get(`users/${ownerUid}`)?.accessProjection as Record<string, unknown>).source, "owner");
   assert.equal(db.get("audit_events/audit-provision-1")?.ownerIdentitySyncStatus, "failed");
   assert.equal(db.get("audit_events/audit-provision-1")?.ownerIdentitySyncError, "owner_identity_sync_failed");
 });
@@ -316,25 +318,25 @@ test("retry after partial failure completes the same operation idempotently", as
 });
 
 test("repeated successful synchronization leaves the already correct claim unchanged", async () => {
-  const db = new FakeFirestore("confirmed-owner-uid");
+  const db = new FakeFirestore(ownerUid);
   const auth = new FakeAuth();
   const claimsBefore = { ...auth.customClaims };
   const options = validOptions(db, auth);
 
   await provisionOwnerIdentity(options);
-  const profileBeforeRetry = db.get("users/confirmed-owner-uid")?.accessProjection;
+  const profileBeforeRetry = db.get(`users/${ownerUid}`)?.accessProjection;
   await provisionOwnerIdentity(options);
 
   assert.deepEqual(auth.customClaims, claimsBefore);
-  assert.deepEqual(db.get("users/confirmed-owner-uid")?.accessProjection, profileBeforeRetry);
+  assert.deepEqual(db.get(`users/${ownerUid}`)?.accessProjection, profileBeforeRetry);
   assert.equal(db.get("audit_events/audit-provision-1")?.ownerIdentitySyncStatus, "synced");
   assert.equal(db.get("audit_events/audit-provision-1")?.ownerIdentitySyncAttempts, 2);
 });
 
 test("repairs an owner projection that omits the required explicit null expiry", async () => {
-  const db = new FakeFirestore("confirmed-owner-uid");
-  db.seed("users/confirmed-owner-uid", {
-    uid: "confirmed-owner-uid",
+  const db = new FakeFirestore(ownerUid);
+  db.seed(`users/${ownerUid}`, {
+    uid: ownerUid,
     role: "master_admin",
     isActive: true,
     ownerAccess: { enabled: true, permanent: true },
@@ -351,7 +353,7 @@ test("repairs an owner projection that omits the required explicit null expiry",
   await provisionOwnerIdentity(validOptions(db, auth));
 
   assert.equal(
-    (db.get("users/confirmed-owner-uid")?.accessProjection as Record<string, unknown>).validUntil,
+    (db.get(`users/${ownerUid}`)?.accessProjection as Record<string, unknown>).validUntil,
     null,
   );
 });

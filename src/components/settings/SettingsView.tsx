@@ -58,7 +58,6 @@ type SettingsViewProps = {
   onSaveSettingsPatch: (patch: Partial<Settings>) => Promise<void> | void;
   onExportClientsBackup: () => void;
   onExportFullBackup: (password: string, onProgress: (progress: BackupProgress) => void, allowIncomplete?: boolean) => Promise<{ filename: string; summary: PortableBackupSummary; complete?: boolean; incompleteReasons?: string[] }>;
-  onSyncForBackup: () => Promise<{ updatedDocuments: number }>;
   onValidateFullBackup: (file: File, password: string) => Promise<{ summary: PortableBackupSummary; preflight: FullBackupPreflight }>;
   onPrepareRestoreBackup: (file: File, password: string, onProgress: (progress: BackupProgress) => void) => Promise<{ filename: string; summary: PortableBackupSummary }>;
   onImportFullBackup: (file: File, password: string, confirmation: string, safetyBackupFilename: string | null, onProgress: (progress: BackupProgress) => void) => Promise<FullBackupRestoreResponse>;
@@ -87,7 +86,6 @@ export const SettingsView = ({
   onSaveSettingsPatch,
   onExportClientsBackup,
   onExportFullBackup,
-  onSyncForBackup,
   onValidateFullBackup,
   onPrepareRestoreBackup,
   onImportFullBackup,
@@ -134,32 +132,13 @@ export const SettingsView = ({
     setBackupMessage(null);
     setBackupProgress({ stage: 'Iniciando backup geral...' });
     try {
-      let inventory: LocalBackupInventory = await systemBackupApi.inspectLocalBackupState(currentUserId);
+      const inventory: LocalBackupInventory = await systemBackupApi.inspectLocalBackupState(currentUserId);
       if (!inventory.storageReadable) {
-        throw new Error('O MotoFix não conseguiu ler com segurança a fila ou todos os rascunhos locais. Corrija o armazenamento do navegador antes de exportar. Nenhuma fila foi limpa.');
+        throw new Error(`O backup está bloqueado: a fila/armazenamento local não passou na verificação (${inventory.queueAuditStatus}). Nenhum registro local foi normalizado, sincronizado ou apagado. Preserve os dados deste navegador para investigação.`);
       }
 
-      const hasQueuedWrites = inventory.pendingWrites + inventory.failedWrites + inventory.unknownPendingWrites > 0;
-      if (hasQueuedWrites) {
-        const details = inventory.incompleteReasons.join('; ');
-        if (!window.confirm(`Há alterações locais ainda não confirmadas (${details}). Deseja tentar sincronizar todas as coleções e conferir a fila antes de gerar o arquivo?`)) {
-          setBackupMessage('Exportação cancelada. As alterações locais continuam preservadas no aparelho.');
-          return;
-        }
-        try {
-          setBackupProgress({ stage: 'Enviando alterações locais e atualizando as coleções para conferência.' });
-          await onSyncForBackup();
-        } catch (error) {
-          setBackupMessage(`A sincronização não foi confirmada: ${error instanceof Error ? error.message : 'falha desconhecida'}. A fila foi preservada.`);
-        }
-        inventory = await systemBackupApi.inspectLocalBackupState(currentUserId);
-      }
-
-      if (!inventory.storageReadable) {
-        throw new Error('O armazenamento local não ficou legível após a sincronização. Nenhum arquivo foi gerado.');
-      }
       const allowIncomplete = inventory.incompleteReasons.length > 0;
-      if (allowIncomplete && !window.confirm(`O arquivo não poderá ser considerado completo. Ainda há: ${inventory.incompleteReasons.join('; ')}. Esses dados serão incluídos somente como material local de recuperação e não serão reaplicados automaticamente. Gerar a cópia parcial mesmo assim?`)) {
+      if (allowIncomplete && !window.confirm(`O BACKUP COMPLETO ESTÁ BLOQUEADO. Há dados locais ainda não confirmados: ${inventory.incompleteReasons.join('; ')}. Nenhuma sincronização será iniciada e nada será apagado. Se continuar, será gerado um arquivo PARCIAL; esses dados ficarão protegidos no arquivo apenas como material de recuperação e não serão reaplicados automaticamente. Deseja criar a cópia parcial?`)) {
         setBackupMessage(`Nenhum arquivo gerado. As alterações locais permanecem salvas no navegador: ${inventory.incompleteReasons.join('; ')}.`);
         return;
       }
@@ -644,7 +623,7 @@ export const SettingsView = ({
             <div className="grid gap-3 xl:grid-cols-2">
               <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-4">
                 <h4 className="text-sm font-bold text-white">Backup completo criptografado</h4>
-                <p className="mt-1 text-xs text-slate-400">Lê as coleções confirmadas no Firebase, confere uma assinatura antes e depois da leitura e salva um arquivo portátil .motofix. A conferência detecta mudanças observáveis durante a exportação; o Firestore não oferece uma fotografia transacional única entre todas as coleções.</p>
+                <p className="mt-1 text-xs text-slate-400">Lê as coleções comerciais confirmadas no Firebase e baixa o arquivo criptografado .motofix diretamente neste computador; o arquivo não é enviado a nenhum serviço. Antes de exportar, confere fila, falhas, rascunhos e dados locais; se houver pendências, o backup completo fica bloqueado e você pode cancelar ou escolher explicitamente uma cópia PARCIAL. Nenhuma fila é sincronizada ou apagada. O manifesto criptografado lista as coleções, inclusive vazias, exclusões e contagens. Contas, senhas, tokens e privilégios administrativos não são copiados. O Firestore não oferece uma fotografia transacional única entre todas as coleções: a checagem antes/depois detecta mudanças observáveis, mas não é um bloqueio global. Limite do arquivo: 300 MB.</p>
                 <div className="mt-3 grid gap-2">
                   <input
                     type="password"
@@ -663,7 +642,7 @@ export const SettingsView = ({
                     className="h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-white outline-none focus:border-primary"
                   />
                   <button type="button" disabled={isFullBackupBusy || backupPassword.length < 12 || !backupPasswordConfirmation} onClick={() => void handleFullBackupExport()} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-3 text-xs font-bold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
-                    <Download className="h-4 w-4" /> {isFullBackupBusy ? 'Preparando...' : 'Criar backup criptografado'}
+                    <Download className="h-4 w-4" /> {isFullBackupBusy ? 'Preparando...' : 'Criar backup local criptografado'}
                   </button>
                 </div>
               </div>

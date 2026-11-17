@@ -1116,15 +1116,40 @@ test("apply requires an approved dry-run and owner revalidation before any write
 
 test("write revalidation rejects changed profile and owner identity", () => {
   const validProfile = profile({
-    billing: { status: "active", currentPeriodEnd: new Date(future.toMillis()).toISOString() },
+    manualAccess: { enabled: true, expiresAt: future },
   });
   const expected = calculateApplicationAccess(validProfile, now, "tenant-user", ownerUid);
   assert.equal(revalidateProjection(validProfile, "tenant-user", ownerUid, expected, now).result, "updated");
   assert.equal(ownerIdentityMatches(ownerUid, "rotated-owner"), false);
   assert.equal(revalidateProjection({
     ...validProfile,
-    billing: { status: "canceled", currentPeriodEnd: new Date(future.toMillis()).toISOString() },
+    manualAccess: { enabled: true, expiresAt: past },
   }, "tenant-user", ownerUid, expected, now).result, "stale");
+});
+
+test("manual access required and expired projections revalidate as denied decisions", () => {
+  const cases = [
+    {
+      label: "manual access required",
+      profile: profile(),
+      reason: "manual_access_required",
+    },
+    {
+      label: "manual access expired",
+      profile: profile({ manualAccess: { enabled: true, expiresAt: past } }),
+      reason: "manual_access_expired",
+    },
+  ];
+
+  for (const item of cases) {
+    const expected = calculateApplicationAccess(item.profile, now, "tenant-user", ownerUid);
+    const result = revalidateProjection(item.profile, "tenant-user", ownerUid, expected, now);
+    assert.equal(expected.allowed, false, item.label);
+    assert.equal(expected.reason, item.reason, item.label);
+    assert.equal(result.result, "updated", item.label);
+    assert.equal(result.projection?.allowed, false, item.label);
+    assert.equal(result.projection?.reason, item.reason, item.label);
+  }
 });
 
 test("operational authorization verifies a scoped Ed25519 signature and fails closed without a trust anchor", () => {

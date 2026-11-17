@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createPortableBackupPayload } from '../src/services/portableBackup';
+import { createPortableBackupPayload, hashPortableBackupData } from '../src/services/portableBackup';
 import { createPortableImportPlan } from '../src/services/portableImportPlan';
 
 const sourceUid = 'source-workshop-uid';
@@ -69,16 +69,18 @@ test('bloqueia referências quebradas e propriedade de outra oficina antes da gr
   assert.ok(foreignPlan.issues.some((issue) => issue.code === 'foreign_owner'));
 });
 
-test('bloqueia campos privilegiados, referências fora da oficina e projeto inválido', async () => {
+test('bloqueia campos de privilégio explícitos, referências fora da oficina e projeto inválido', async () => {
   const unsafe = await makePayload({
     collections: {
-      clients: [{ id: 'client-1', userId: sourceUid, role: 'master_admin' }],
+      clients: [{ id: 'client-1', userId: sourceUid, ownerAccess: { permanent: true } }],
       stock_movements: [{
         id: 'movement-1', userId: sourceUid,
         ref: { __motofixType: 'document-reference', path: 'access_requests/another-user' },
       }],
     },
   });
+  unsafe.data.collections.clients[0].ownerAccess = { permanent: true };
+  unsafe.manifest.dataSha256 = await hashPortableBackupData(unsafe.data);
   const plan = await createPortableImportPlan(unsafe, { projectId: 'bad', uid: targetUid });
   assert.equal(plan.canImport, false);
   assert.ok(plan.issues.some((issue) => issue.code === 'privileged_field'));
@@ -101,4 +103,21 @@ test('bloqueia campos privilegiados, referências fora da oficina e projeto inv�
   invalidSourceProject.manifest.sourceProjectId = '../untrusted';
   const invalidSourcePlan = await createPortableImportPlan(invalidSourceProject, { projectId: 'motofix-destination-test', uid: targetUid });
   assert.ok(invalidSourcePlan.issues.some((issue) => issue.code === 'invalid_source_project'));
+});
+
+test('preserva campos comerciais exatos e nomes com termos semelhantes no plano de importação', async () => {
+  const payload = await makePayload({
+    collections: {
+      clients: [{
+        id: 'client-1', userId: sourceUid, role: 'mechanic',
+        adminRoleLabel: 'service advisor', tokenizedDescription: 'tokenized note',
+      }],
+    },
+  });
+  const plan = await createPortableImportPlan(payload, { projectId: 'motofix-destination-test', uid: targetUid });
+  assert.equal(plan.canImport, true);
+  const client = plan.documents.find((document) => document.collection === 'clients')?.data;
+  assert.equal(client?.role, 'mechanic');
+  assert.equal(client?.adminRoleLabel, 'service advisor');
+  assert.equal(client?.tokenizedDescription, 'tokenized note');
 });

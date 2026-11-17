@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "sensitiveFieldNames": [
+    "password", "passwd", "passwordHash", "passwordSalt", "token", "apiToken", "accessToken", "access_token",
+    "refreshToken", "refresh_token", "idToken", "id_token", "authToken", "auth_token", "bearerToken", "sessionToken",
+    "privateToken", "tokenSecret", "oauthToken", "oauthSecret", "clientSecret", "client_secret", "apiSecret", "secretKey", "signingSecret", "secret",
+    "secrets", "credential", "credentials", "authorization", "cookie", "privateKey",
+    "apiKey", "webhookSecret", "webhookToken", "encryptionKey", "serviceAccountKey", "serviceAccountJson",
+    "sessionCookie", "qrCode", "qrData", "sessionData", "authState", "certificateBase64", "certificatePassword",
+    "certificatePrivateKey", "focusApiToken", "claims", "customClaims",
+    "adminClaims", "adminPrivileges", "masterAdmin", "master_admin", "isAdmin", "isMasterAdmin", "adminRole",
+    "ownerAccess", "ownerRole", "isOwner", "accessProjection", "manualAccess", "stripeCustomerId",
+    "stripeSubscriptionId", "paymentMethodId"
+  ],
+  "sensitivePathsByCollection": {
+    "clients": [],
+    "maintenances": [],
+    "warranties": [],
+    "appointments": [],
+    "expenses": [],
+    "products": [],
+    "stock_movements": [],
+    "cash_launches": [],
+    "settings": [],
+    "message_logs": [],
+    "operational_logs": [],
+    "fiscal_companies": [
+      "certificateBase64",
+      "certificatePassword",
+      "focusApiToken"
+    ],
+    "fiscal_invoices": [],
+    "fiscal_logs": [],
+    "fiscal_invoice_files": [],
+    "whatsapp_sessions": [],
+    "whatsapp_messages": [],
+    "whatsapp_contacts": [],
+    "whatsapp_automations": []
+  }
+}

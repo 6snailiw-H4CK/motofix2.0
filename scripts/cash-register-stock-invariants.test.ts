@@ -23,8 +23,8 @@ const { isCashLaunchFinancial } = await import('../src/lib/cashPayments.ts');
 
 const testEnv = await initializeTestEnvironment({
   projectId: 'motofix-stock-invariants-test',
-  // Keep this suite focused on production repository transactions. The current
-  // production rules are exercised separately by the rules emulator suites.
+  // This suite verifies repository transaction behavior. The focused Rules
+  // suite exercises these same writes against firestore.rules separately.
   firestore: { rules: `rules_version = '2'; service cloud.firestore { match /databases/{database}/documents { match /users/{userId}/{document=**} { allow read, write: if request.auth != null && request.auth.uid == userId; } } }` },
 });
 
@@ -118,9 +118,29 @@ const seed = async (products: ReturnType<typeof makeProduct>[], launches: Array<
 
 const session = <T,>(operation: () => Promise<T>) => network.withFirestoreNetworkSession(userId, operation);
 
+const withBrowserOnlineState = async <T,>(online: boolean, task: () => Promise<T>) => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { onLine: online },
+  });
+  try {
+    return await task();
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'navigator', original);
+    else Reflect.deleteProperty(globalThis, 'navigator');
+  }
+};
+
 const readProduct = async (id: string) => session(async () => (await firestore.getDoc(docPath('products', id))).data());
 const readLaunch = async (id: string) => session(async () => (await firestore.getDoc(docPath('cash_launches', id))).data());
-type TestMovement = { id: string; type?: string; batchId?: string; cashLaunchId?: string };
+type TestMovement = {
+  id: string;
+  type?: string;
+  batchId?: string;
+  cashLaunchId?: string;
+  changes?: Record<string, { previousQuantity: number; nextQuantity: number }>;
+};
 const readMovements = async (): Promise<TestMovement[]> => session(async () => (await firestore.getDocs(firestore.collection(firebase.db, 'users', userId, 'stock_movements'))).docs.map((snapshot) => ({ id: snapshot.id, ...snapshot.data() } as TestMovement)));
 
 const failures: string[] = [];
@@ -135,6 +155,71 @@ const run = async (name: string, operation: () => Promise<void>) => {
 };
 
 try {
+  await run('finalizacao com rede do Firestore fechada abre sessao e usa o saldo atual do servidor', async () => {
+    const productId = `fresh-server-stock-${randomUUID()}`;
+    const requestedLaunchId = `fresh-server-stock-${randomUUID()}`;
+    await seed([makeProduct(productId, 5)]);
+
+    // Warm this client's cache with an older quantity, then simulate a change
+    // made by another client while this app's Firestore network gate is closed.
+    await readProduct(productId);
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const adminDb = context.firestore();
+      await firestore.updateDoc(firestore.doc(adminDb, 'users', userId, 'products', productId), {
+        stockQuantity: 8,
+      });
+    });
+    const cachedProduct = await firestore.getDocFromCache(docPath('products', productId));
+    assert.equal(cachedProduct.data()?.stockQuantity, 5, 'a leitura local deve continuar demonstrando o saldo antigo');
+    assert.equal(network.isFirestoreNetworkEnabled(), false);
+
+    const saved = await withBrowserOnlineState(true, () => cashRegisterRepository.create(
+      userId,
+      makeLaunch(requestedLaunchId, [makeItem(productId, 3)], 'Finalizado'),
+    ));
+    const [product, launch, movements] = await Promise.all([
+      readProduct(productId),
+      readLaunch(saved.id!),
+      readMovements(),
+    ]);
+    assert.equal(product?.stockQuantity, 5, 'a baixa deve partir do saldo remoto 8, não do cache 5');
+    assert.equal(launch?.status, 'Finalizado');
+    assert.equal(launch?.stockDeducted, true);
+    assert.equal(movements.length, 1);
+    assert.equal(movements[0].changes?.[productId]?.previousQuantity, 8);
+    assert.equal(movements[0].changes?.[productId]?.nextQuantity, 5);
+    assert.equal(network.isFirestoreNetworkEnabled(), false, 'a sessão deve fechar após concluir a finalizacao');
+  });
+
+  await run('finalizacao sem conexao nao cria O.S., baixa ou movimento local', async () => {
+    const productId = `offline-finalize-${randomUUID()}`;
+    const requestedLaunchId = `offline-finalize-${randomUUID()}`;
+    await seed([makeProduct(productId, 5)]);
+
+    await withBrowserOnlineState(false, async () => {
+      await assert.rejects(
+        cashRegisterRepository.create(
+          userId,
+          makeLaunch(requestedLaunchId, [makeItem(productId, 2)], 'Finalizado'),
+        ),
+        /nao foi finalizada.*conexao com o Firebase/i,
+      );
+    });
+
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      const adminDb = context.firestore();
+      const [product, launch, movements] = await Promise.all([
+        firestore.getDoc(firestore.doc(adminDb, 'users', userId, 'products', productId)),
+        firestore.getDoc(firestore.doc(adminDb, 'users', userId, 'cash_launches', requestedLaunchId)),
+        firestore.getDocs(firestore.collection(adminDb, 'users', userId, 'stock_movements')),
+      ]);
+      assert.equal(product.data()?.stockQuantity, 5);
+      assert.equal(launch.exists(), false);
+      assert.equal(movements.size, 0);
+    });
+    assert.equal(network.isFirestoreNetworkEnabled(), false);
+  });
+
   await run('ajuste de mercadoria abre uma sessão online e lê o saldo atual do servidor', async () => {
     const productId = `product-save-${randomUUID()}`;
     await seed([makeProduct(productId, 3)]);
@@ -223,6 +308,75 @@ try {
     assert.equal((await readMovements()).length, 2, 'repetir cancelamento nao pode criar outro estorno');
   });
 
+  await run('cancelar O.S. paga restaura estoque, limpa pagamento ativo e preserva o historico', async () => {
+    const productId = `paid-cancel-product-${randomUUID()}`;
+    const requestedLaunchId = `paid-cancel-${randomUUID()}`;
+    await seed([makeProduct(productId, 4)]);
+    const draft = makeLaunch(requestedLaunchId, [makeItem(productId, 2)]);
+    const paidAt = now();
+    const paymentEntry = {
+      id: `receipt-${randomUUID()}`,
+      amount: draft.total,
+      method: 'Pix' as const,
+      receivedAt: paidAt,
+    };
+    const paidLaunch = {
+      ...draft,
+      status: 'Finalizado' as const,
+      statusPagamento: 'Pago' as const,
+      valorPago: draft.total,
+      saldoDevedor: 0,
+      paidAt,
+      invoiced: true,
+      paymentMethod: 'Pix' as const,
+      accountingVersion: 1 as const,
+      paymentEntries: [paymentEntry],
+    };
+    const saved = await session(() => cashRegisterRepository.create(userId, paidLaunch as never));
+    const launchId = saved.id!;
+    const finalized = await readLaunch(launchId);
+    assert.equal(finalized?.status, 'Finalizado');
+    assert.equal(finalized?.stockDeducted, true);
+    assert.equal((await readProduct(productId))?.stockQuantity, 2);
+
+    await session(() => cashRegisterRepository.update(userId, launchId, {
+      ...finalized,
+      status: 'Cancelado',
+      statusPagamento: 'Pendente',
+      valorPago: 0,
+      saldoDevedor: draft.total,
+      paidAt: null,
+      invoiced: false,
+      updatedAt: now(),
+    } as never));
+
+    const [cancelled, restoredProduct, movements] = await Promise.all([
+      readLaunch(launchId),
+      readProduct(productId),
+      readMovements(),
+    ]);
+    assert.equal(cancelled?.status, 'Cancelado');
+    assert.equal(cancelled?.stockDeducted, false);
+    assert.equal(cancelled?.invoiced, false);
+    assert.equal(cancelled?.statusPagamento, 'Pendente');
+    assert.equal(cancelled?.valorPago, 0);
+    assert.equal(cancelled?.saldoDevedor, draft.total);
+    assert.equal(cancelled?.paidAt, null);
+    assert.deepEqual(cancelled?.paymentEntries, [paymentEntry], 'o historico original de recebimento nao deve ser apagado');
+    assert.equal(isCashLaunchFinancial({ status: cancelled!.status }), false, 'O.S. cancelada nao deve compor faturamento');
+    assert.equal(restoredProduct?.stockQuantity, 4, 'cancelamento deve devolver exatamente o que foi baixado');
+    assert.equal(movements.filter((movement) => movement.type === 'saida_os').length, 1);
+    assert.equal(movements.filter((movement) => movement.type === 'estorno_os').length, 1);
+
+    await session(() => cashRegisterRepository.update(userId, launchId, {
+      ...cancelled,
+      status: 'Cancelado',
+      updatedAt: now(),
+    } as never));
+    assert.equal((await readProduct(productId))?.stockQuantity, 4, 'repetir cancelamento nao deve devolver estoque novamente');
+    assert.equal((await readMovements()).filter((movement) => movement.type === 'estorno_os').length, 1);
+  });
+
   await run('reabrir O.S. parcial devolve somente a baixa, sai dos totais e permite finalizar apos reposicao', async () => {
     const availableId = `reopen-available-${randomUUID()}`;
     const shortId = `reopen-short-${randomUUID()}`;
@@ -262,7 +416,7 @@ try {
     assert.equal(launch?.stockDeducted, false);
     assert.equal(isCashLaunchFinancial({ status: launch!.status }), false, 'O.S. pendente nao deve compor receita financeira');
 
-    await session(() => firestore.updateDoc(docPath('products', shortId), { stockQuantity: 3, updatedAt: now() }));
+    await session(() => productRepository.save(userId, makeProduct(shortId, 3), shortId));
     await session(() => cashRegisterRepository.update(
       userId,
       launchId,
@@ -293,7 +447,7 @@ try {
     assert.equal(launch?.status, 'Cancelado');
     assert.equal(launch?.stockDeducted, false);
     assert.equal(isCashLaunchFinancial({ status: 'Cancelado' }), false);
-    assert.equal((await readMovements()).length, 4, 'baixa, estorno da reabertura, nova baixa e cancelamento devem ser rastreados');
+    assert.equal((await readMovements()).length, 5, 'baixa, estorno da reabertura, reposicao, nova baixa e cancelamento devem ser rastreados');
   });
 
   await run('produto controlado inexistente bloqueia a finalizacao', async () => {
@@ -321,10 +475,11 @@ try {
   await run('finalizacoes concorrentes de uma O.S. pendente nao duplicam a baixa', async () => {
     const productId = `concurrent-${randomUUID()}`;
     const requestedLaunchId = `concurrent-${randomUUID()}`;
-    await seed([makeProduct(productId, 5)]);
     const draft = makeLaunch(requestedLaunchId, [makeItem(productId, 2)]);
-    const saved = await session(() => cashRegisterRepository.create(userId, draft));
-    const launchId = saved.id!;
+    // Seed the pending document directly so this invariant isolates the two
+    // concurrent finalization transactions from the browser-only offline queue.
+    await seed([makeProduct(productId, 5)], [{ id: requestedLaunchId, data: draft }]);
+    const launchId = requestedLaunchId;
     const previous = await readLaunch(launchId);
     await session(async () => {
       const finalize = () => cashRegisterRepository.update(userId, launchId, {
