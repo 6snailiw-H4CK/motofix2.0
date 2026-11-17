@@ -33,16 +33,12 @@ import { FailedWritesPanel } from './FailedWritesPanel';
 import { canonicalServiceType, getServiceTypeKey, normalizeServiceTypeOptions } from '../../lib/serviceTypes';
 import { cn } from '../../lib/utils';
 import { isAdminRole, type ColorMode, type OperationalLog, type Settings, type UserProfile } from '../../types';
-import type { BackupProgress, FullBackupPreflight, FullBackupRestoreResponse, LocalBackupInventory } from '../../services/systemBackupApi';
-import { systemBackupApi } from '../../services/systemBackupApi';
-import type { PortableBackupSummary } from '../../services/portableBackup';
 import {
   choosePwaLocalBackupDirectory,
   createPwaLocalBackup,
   getPwaLocalBackupStatus,
   subscribePwaLocalBackupStatus,
 } from '../../services/pwaLocalBackup';
-import { CrossProjectBackupRestore } from './CrossProjectBackupRestore';
 
 type SettingsViewProps = {
   currentUserId: string;
@@ -57,10 +53,6 @@ type SettingsViewProps = {
   onSaveSettings: () => Promise<void> | void;
   onSaveSettingsPatch: (patch: Partial<Settings>) => Promise<void> | void;
   onExportClientsBackup: () => void;
-  onExportFullBackup: (password: string, onProgress: (progress: BackupProgress) => void, allowIncomplete?: boolean) => Promise<{ filename: string; summary: PortableBackupSummary; complete?: boolean; incompleteReasons?: string[] }>;
-  onValidateFullBackup: (file: File, password: string) => Promise<{ summary: PortableBackupSummary; preflight: FullBackupPreflight }>;
-  onPrepareRestoreBackup: (file: File, password: string, onProgress: (progress: BackupProgress) => void) => Promise<{ filename: string; summary: PortableBackupSummary }>;
-  onImportFullBackup: (file: File, password: string, confirmation: string, safetyBackupFilename: string | null, onProgress: (progress: BackupProgress) => void) => Promise<FullBackupRestoreResponse>;
   onImportClientsBackup: (file: File) => Promise<void> | void;
   isImportingClients: boolean;
   onExportProductsBackup: () => void;
@@ -85,10 +77,6 @@ export const SettingsView = ({
   onSaveSettings,
   onSaveSettingsPatch,
   onExportClientsBackup,
-  onExportFullBackup,
-  onValidateFullBackup,
-  onPrepareRestoreBackup,
-  onImportFullBackup,
   onImportClientsBackup,
   isImportingClients,
   onExportProductsBackup,
@@ -106,134 +94,9 @@ export const SettingsView = ({
   const [resetConfirmation, setResetConfirmation] = useState('');
   const [resetBackupReady, setResetBackupReady] = useState(false);
   const [isLocalBackupBusy, setIsLocalBackupBusy] = useState(false);
-  const [isFullBackupBusy, setIsFullBackupBusy] = useState(false);
-  const [backupProgress, setBackupProgress] = useState<BackupProgress | null>(null);
-  const [backupMessage, setBackupMessage] = useState<string | null>(null);
-  const [backupPassword, setBackupPassword] = useState('');
-  const [backupPasswordConfirmation, setBackupPasswordConfirmation] = useState('');
-  const [restorePassword, setRestorePassword] = useState('');
-  const [restoreConfirmation, setRestoreConfirmation] = useState('');
-  const [restoreFile, setRestoreFile] = useState<File | null>(null);
-  const [restoreSummary, setRestoreSummary] = useState<PortableBackupSummary | null>(null);
-  const [restorePreflight, setRestorePreflight] = useState<FullBackupPreflight | null>(null);
-  const [restoreSafetyFilename, setRestoreSafetyFilename] = useState<string | null>(null);
-  const [restoreSafetyConfirmed, setRestoreSafetyConfirmed] = useState(false);
   const [localBackupStatus, setLocalBackupStatus] = useState(() => getPwaLocalBackupStatus(currentUserId));
   const clientImportInputRef = useRef<HTMLInputElement | null>(null);
   const productImportInputRef = useRef<HTMLInputElement | null>(null);
-  const fullBackupImportInputRef = useRef<HTMLInputElement | null>(null);
-
-  const handleFullBackupExport = async () => {
-    if (backupPassword !== backupPasswordConfirmation) {
-      setBackupMessage('As duas senhas digitadas não coincidem.');
-      return;
-    }
-    setIsFullBackupBusy(true);
-    setBackupMessage(null);
-    setBackupProgress({ stage: 'Iniciando backup geral...' });
-    try {
-      const inventory: LocalBackupInventory = await systemBackupApi.inspectLocalBackupState(currentUserId);
-      if (!inventory.storageReadable) {
-        throw new Error(`O backup está bloqueado: a fila/armazenamento local não passou na verificação (${inventory.queueAuditStatus}). Nenhum registro local foi normalizado, sincronizado ou apagado. Preserve os dados deste navegador para investigação.`);
-      }
-
-      const allowIncomplete = inventory.incompleteReasons.length > 0;
-      if (allowIncomplete && !window.confirm(`O BACKUP COMPLETO ESTÁ BLOQUEADO. Há dados locais ainda não confirmados: ${inventory.incompleteReasons.join('; ')}. Nenhuma sincronização será iniciada e nada será apagado. Se continuar, será gerado um arquivo PARCIAL; esses dados ficarão protegidos no arquivo apenas como material de recuperação e não serão reaplicados automaticamente. Deseja criar a cópia parcial?`)) {
-        setBackupMessage(`Nenhum arquivo gerado. As alterações locais permanecem salvas no navegador: ${inventory.incompleteReasons.join('; ')}.`);
-        return;
-      }
-
-      const result = await onExportFullBackup(backupPassword, setBackupProgress, allowIncomplete);
-      const recordCount = Object.values(result.summary.counts).reduce((sum, count) => sum + count, 0);
-      setBackupMessage(result.complete === false
-        ? `CÓPIA PARCIAL criada: ${result.filename} · ${recordCount} registro(s). Não representa todas as alterações locais; consulte o material de recuperação no arquivo.`
-        : `Arquivo criptografado conferido: ${result.filename} · ${recordCount} registro(s).`);
-      setBackupPassword('');
-      setBackupPasswordConfirmation('');
-    } catch (error) {
-      setBackupMessage(error instanceof Error ? error.message : 'Não foi possível criar o backup geral.');
-    } finally {
-      setIsFullBackupBusy(false);
-      setBackupProgress(null);
-    }
-  };
-
-  const handleValidateFullBackup = async () => {
-    if (!restoreFile) return;
-    setIsFullBackupBusy(true);
-    setBackupMessage(null);
-    setBackupProgress({ stage: 'Abrindo arquivo e validando senha, estrutura e integridade...' });
-    setRestoreSummary(null);
-    setRestorePreflight(null);
-    setRestoreSafetyFilename(null);
-    setRestoreSafetyConfirmed(false);
-    try {
-      const result = await onValidateFullBackup(restoreFile, restorePassword);
-      setRestoreSummary(result.summary);
-      setRestorePreflight(result.preflight);
-      setBackupMessage('Arquivo validado. Nenhum dado foi alterado.');
-    } catch (error) {
-      setBackupMessage(error instanceof Error ? error.message : 'Não foi possível validar o arquivo.');
-    } finally {
-      setIsFullBackupBusy(false);
-      setBackupProgress(null);
-    }
-  };
-
-  const handlePrepareRestoreBackup = async () => {
-    if (!restoreFile || !restoreSummary || !restorePreflight || restorePreflight.target !== 'existing') return;
-    setIsFullBackupBusy(true);
-    setBackupMessage(null);
-    setBackupProgress({ stage: 'Criando uma cópia criptografada do destino atual.' });
-    setRestoreSafetyConfirmed(false);
-    try {
-      const result = await onPrepareRestoreBackup(restoreFile, restorePassword, setBackupProgress);
-      setRestoreSafetyFilename(result.filename);
-      setBackupMessage(`Cópia de segurança criada para download: ${result.filename}. Confira o arquivo antes de continuar.`);
-    } catch (error) {
-      setBackupMessage(error instanceof Error ? error.message : 'Não foi possível criar a cópia de segurança anterior.');
-    } finally {
-      setIsFullBackupBusy(false);
-      setBackupProgress(null);
-    }
-  };
-
-  const handleFullBackupRestore = async () => {
-    if (!restoreFile || !restoreSummary || !restorePreflight || restoreConfirmation !== 'RESTAURAR') return;
-    setIsFullBackupBusy(true);
-    setBackupMessage(null);
-    setBackupProgress({ stage: 'Preparando a restauração...' });
-    try {
-      const result = await onImportFullBackup(restoreFile, restorePassword, restoreConfirmation, restoreSafetyFilename, setBackupProgress);
-      setBackupMessage(result.verified
-        ? `Restauração verificada: ${result.restoredTotal} registro(s) confirmados no Firebase.${result.preRestoreBackupFilename ? ` Cópia anterior: ${result.preRestoreBackupFilename}.` : ''}`
-        : 'A restauração terminou com divergências na verificação. Não considere todos os dados recuperados.');
-      setRestoreFile(null);
-      setRestoreSummary(null);
-      setRestorePreflight(null);
-      setRestorePassword('');
-      setRestoreConfirmation('');
-      setRestoreSafetyFilename(null);
-      setRestoreSafetyConfirmed(false);
-      if (!result.verified) sonnerToast.warning('A restauração requer revisão. Consulte o relatório de verificação.');
-      else sonnerToast.success('Restauração verificada no Firebase.');
-    } catch (error) {
-      setBackupMessage(error instanceof Error ? error.message : 'A restauração falhou. Verifique o relatório antes de tentar novamente.');
-    } finally {
-      setIsFullBackupBusy(false);
-      setBackupProgress(null);
-    }
-  };
-
-  const backupCollectionLabel = (name: string) => ({
-    clients: 'clientes', maintenances: 'manutenções', warranties: 'garantias', appointments: 'agendamentos',
-    expenses: 'gastos', products: 'mercadorias', stock_movements: 'movimentos de estoque',
-    cash_launches: 'ordens de serviço e caixa', settings: 'configurações', message_logs: 'avisos enviados',
-    operational_logs: 'histórico operacional', fiscal_companies: 'empresas fiscais', fiscal_invoices: 'notas fiscais',
-    fiscal_logs: 'logs fiscais', fiscal_invoice_files: 'arquivos fiscais', whatsapp_sessions: 'sessões WhatsApp',
-    whatsapp_messages: 'mensagens WhatsApp', whatsapp_contacts: 'contatos WhatsApp',
-    whatsapp_automations: 'automações WhatsApp',
-  } as Record<string, string>)[name] || name.replace(/_/g, ' ');
 
   useEffect(() => subscribePwaLocalBackupStatus(currentUserId, setLocalBackupStatus), [currentUserId]);
 
@@ -420,20 +283,6 @@ export const SettingsView = ({
     }
   };
 
-  const handleFullBackupImportFile = (file?: File) => {
-    if (!file) return;
-    setRestoreFile(file);
-    setRestoreSummary(null);
-    setRestorePreflight(null);
-    setRestoreConfirmation('');
-    setRestoreSafetyFilename(null);
-    setRestoreSafetyConfirmed(false);
-    setBackupMessage(null);
-    if (fullBackupImportInputRef.current) {
-      fullBackupImportInputRef.current.value = '';
-    }
-  };
-
   const handleResetOperationalData = async () => {
     if (resetConfirmation !== 'ZERAR' || !resetBackupReady) return;
     const completed = await onResetOperationalData();
@@ -567,7 +416,7 @@ export const SettingsView = ({
                 <h3 className="text-sm font-semibold text-white">Backup e restauracao</h3>
               </div>
             </div>
-            <p className="text-xs leading-relaxed text-slate-400">O arquivo .motofix reúne os dados de negócio confirmados no Firebase, protegido por senha. Antes da exportação, o MotoFix verifica a fila e os rascunhos locais e pode sincronizar as coleções para conferência. Se restarem alterações locais, só gera arquivo parcial após confirmação. A fila e os rascunhos ficam apenas como material de recuperação; não são reaplicados automaticamente.</p>
+            <p className="text-xs leading-relaxed text-slate-400">A cópia local parcial do navegador e as exportações específicas de clientes e mercadorias estão disponíveis abaixo. O backup completo criptografado e a restauração entre projetos estão temporariamente indisponíveis.</p>
 
             <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
               <div className="flex items-start gap-3">
@@ -620,134 +469,9 @@ export const SettingsView = ({
               </div>
             </div>
 
-            <div className="grid gap-3 xl:grid-cols-2">
-              <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 p-4">
-                <h4 className="text-sm font-bold text-white">Backup completo criptografado</h4>
-                <p className="mt-1 text-xs text-slate-400">Lê as coleções comerciais confirmadas no Firebase e baixa o arquivo criptografado .motofix diretamente neste computador; o arquivo não é enviado a nenhum serviço. Antes de exportar, confere fila, falhas, rascunhos e dados locais; se houver pendências, o backup completo fica bloqueado e você pode cancelar ou escolher explicitamente uma cópia PARCIAL. Nenhuma fila é sincronizada ou apagada. O manifesto criptografado lista as coleções, inclusive vazias, exclusões e contagens. Contas, senhas, tokens e privilégios administrativos não são copiados. O Firestore não oferece uma fotografia transacional única entre todas as coleções: a checagem antes/depois detecta mudanças observáveis, mas não é um bloqueio global. Limite do arquivo: 300 MB.</p>
-                <div className="mt-3 grid gap-2">
-                  <input
-                    type="password"
-                    autoComplete="new-password"
-                    value={backupPassword}
-                    onChange={(event) => setBackupPassword(event.target.value)}
-                    placeholder="Senha do backup (mínimo 12 caracteres)"
-                    className="h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-white outline-none focus:border-primary"
-                  />
-                  <input
-                    type="password"
-                    autoComplete="new-password"
-                    value={backupPasswordConfirmation}
-                    onChange={(event) => setBackupPasswordConfirmation(event.target.value)}
-                    placeholder="Confirme a senha"
-                    className="h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-white outline-none focus:border-primary"
-                  />
-                  <button type="button" disabled={isFullBackupBusy || backupPassword.length < 12 || !backupPasswordConfirmation} onClick={() => void handleFullBackupExport()} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-3 text-xs font-bold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50">
-                    <Download className="h-4 w-4" /> {isFullBackupBusy ? 'Preparando...' : 'Criar backup local criptografado'}
-                  </button>
-                </div>
-              </div>
-
-              <div className="hidden" aria-hidden="true">
-                <h4 className="text-sm font-bold text-white">Validar ou restaurar arquivo</h4>
-                <p className="mt-1 text-xs text-slate-400">A validação funciona sem conexão e não altera dados. A restauração exige conexão e confirmação.</p>
-                <div className="mt-3 grid gap-2">
-                  <button type="button" disabled={isFullBackupBusy} onClick={() => fullBackupImportInputRef.current?.click()} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-700 px-3 text-xs font-semibold text-slate-200 transition hover:bg-slate-800 disabled:opacity-50">
-                    <Upload className="h-4 w-4" /> {restoreFile ? restoreFile.name : 'Selecionar arquivo .motofix'}
-                  </button>
-                  <input
-                    type="password"
-                    autoComplete="current-password"
-                    value={restorePassword}
-                    onChange={(event) => {
-                      setRestorePassword(event.target.value);
-                      setRestoreSummary(null);
-                      setRestorePreflight(null);
-                      setRestoreSafetyFilename(null);
-                      setRestoreSafetyConfirmed(false);
-                    }}
-                    placeholder="Senha usada para criar este arquivo"
-                    className="h-10 rounded-lg border border-slate-700 bg-slate-950 px-3 text-xs text-white outline-none focus:border-primary"
-                  />
-                  <button type="button" disabled={isFullBackupBusy || !restoreFile || restorePassword.length < 12} onClick={() => void handleValidateFullBackup()} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 text-xs font-bold text-sky-200 transition hover:bg-sky-500/15 disabled:cursor-not-allowed disabled:opacity-50">
-                    {isFullBackupBusy ? 'Validando...' : 'Validar arquivo e destino'}
-                  </button>
-                </div>
-              </div>
+            <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 text-xs text-amber-100">
+              O backup completo criptografado (.motofix) e a restauração entre projetos estão temporariamente indisponíveis nesta versão. A cópia local do navegador abaixo é parcial e não substitui um backup completo. As exportações de clientes e mercadorias continuam disponíveis.
             </div>
-
-            {(backupProgress || backupMessage) && (
-              <div className={cn('rounded-lg border p-3 text-xs', backupMessage && /falhou|não foi|inválid|divergências|bloquead/i.test(backupMessage)
-                ? 'border-red-500/30 bg-red-500/10 text-red-200'
-                : 'border-sky-500/25 bg-sky-500/5 text-sky-100')}>
-                {backupProgress && <p className="font-semibold">{backupProgress.stage}{typeof backupProgress.completed === 'number' && typeof backupProgress.total === 'number' ? ` · ${backupProgress.completed}/${backupProgress.total}` : ''}</p>}
-                {backupMessage && <p className={backupProgress ? 'mt-1' : ''}>{backupMessage}</p>}
-              </div>
-            )}
-
-            {false && restoreSummary && restorePreflight && (
-              <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <h4 className="text-sm font-bold text-emerald-100">Arquivo íntegro e senha confirmada</h4>
-                    <p className="mt-1 text-xs text-slate-300">Oficina: {restoreSummary.workshopName || 'sem nome'} · gerado em {formatSyncDate(restoreSummary.generatedAt)} · {restoreSummary.totalRecords} registro(s).</p>
-                  </div>
-                  <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 text-[11px] font-bold text-amber-100">
-                    {restorePreflight.target === 'empty' ? 'Destino sem registros' : `Destino existente: ${restorePreflight.totalExisting} registro(s)`}
-                  </span>
-                </div>
-                <div className="mt-3 grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
-                  {Object.entries(restoreSummary.counts).map(([name, count]) => (
-                    <p key={name} className="rounded-md border border-slate-700/60 bg-slate-950/40 px-2.5 py-1.5 text-[11px] text-slate-300">
-                      {backupCollectionLabel(name)}: <strong className="text-white">{count}</strong>
-                      {(restorePreflight.conflictCounts[name] || 0) > 0 ? ` · ${restorePreflight.conflictCounts[name]} ID(s) serão atualizados` : ''}
-                    </p>
-                  ))}
-                </div>
-                {restorePreflight.warning && <p className="mt-3 text-[11px] text-amber-200">{restorePreflight.warning}</p>}
-                {restoreSummary.notes.length > 0 && (
-                  <ul className="mt-2 list-disc space-y-1 pl-4 text-[11px] text-slate-400">
-                    {restoreSummary.notes.map((note) => <li key={note}>{note}</li>)}
-                  </ul>
-                )}
-                {restorePreflight.target === 'existing' && (
-                  <div className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/5 p-3">
-                    {!restoreSafetyFilename ? (
-                      <>
-                        <p className="text-[11px] font-semibold text-amber-200">Antes de gravar, baixe uma cópia criptografada da base atual com a senha deste arquivo.</p>
-                        <button type="button" disabled={isFullBackupBusy} onClick={() => void handlePrepareRestoreBackup()} className="mt-2 inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-amber-500/30 px-3 text-xs font-bold text-amber-100 transition hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-50">
-                          <Download className="h-4 w-4" /> {isFullBackupBusy ? 'Preparando cópia...' : 'Baixar cópia do destino antes de restaurar'}
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-[11px] font-semibold text-emerald-200">Arquivo de segurança preparado: {restoreSafetyFilename}</p>
-                        <label className="mt-2 flex cursor-pointer items-start gap-2 text-[11px] text-slate-300">
-                          <input type="checkbox" checked={restoreSafetyConfirmed} onChange={(event) => setRestoreSafetyConfirmed(event.target.checked)} className="mt-0.5 accent-emerald-500" />
-                          Confirme que encontrou o arquivo criptografado na pasta de downloads e que guardará uma cópia.
-                        </label>
-                      </>
-                    )}
-                  </div>
-                )}
-                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_auto]">
-                  <input
-                    value={restoreConfirmation}
-                    onChange={(event) => setRestoreConfirmation(event.target.value.trim().toUpperCase())}
-                    placeholder="Digite RESTAURAR para confirmar"
-                    className="h-10 rounded-lg border border-amber-500/30 bg-slate-950 px-3 text-xs text-white outline-none focus:border-amber-400"
-                  />
-                  <button type="button" disabled={isFullBackupBusy || restoreConfirmation !== 'RESTAURAR' || (restorePreflight.target === 'existing' && (!restoreSafetyFilename || !restoreSafetyConfirmed))} onClick={() => void handleFullBackupRestore()} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-amber-600 px-4 text-xs font-bold text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50">
-                    {isFullBackupBusy ? 'Restaurando...' : 'Restaurar dados'}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="rounded-lg border border-sky-500/25 bg-sky-500/5 p-3 text-xs text-sky-100">
-              Para recuperar uma oficina em outro projeto Firebase, use exclusivamente o fluxo abaixo. A restauração antiga na mesma conta foi retirada da tela porque poderia sobrescrever documentos e não remapeava a identidade para um novo projeto.
-            </div>
-            <CrossProjectBackupRestore />
-
             <div className="mt-4 grid gap-3 xl:grid-cols-2">
               <div className="rounded-xl border border-slate-700/60 bg-slate-900/45 px-4 py-3 w-full min-w-0">
                 <div className="grid gap-3">
@@ -966,14 +690,6 @@ export const SettingsView = ({
         className="hidden"
         onChange={(event) => handleProductImportFile(event.target.files?.[0])}
       />
-      <input
-        ref={fullBackupImportInputRef}
-        type="file"
-        accept=".motofix,application/vnd.motofix.backup+json,application/json"
-        className="hidden"
-        onChange={(event) => handleFullBackupImportFile(event.target.files?.[0])}
-      />
-
       <section id="settings-whatsapp" className="settings-whatsapp order-4 rounded-lg border border-slate-800 bg-slate-900/50 p-4 space-y-4">
         <div className="flex items-center gap-2 mb-1">
           <MessageSquare className="w-4 h-4 text-primary" />

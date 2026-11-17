@@ -1,5 +1,4 @@
 import { lazy, Suspense, useState, type Dispatch, type SetStateAction } from 'react';
-import { toast as sonnerToast } from 'sonner';
 import {
   isAdminRole,
   isMasterAdminRole,
@@ -38,7 +37,6 @@ import { getCashReceivableAmount } from '../../lib/cashPayments';
 import type { useWarrantyActions } from '../../hooks/useWarrantyActions';
 import type { useWhatsAppReminderActions } from '../../hooks/useWhatsAppReminderActions';
 import { downloadProductsWorkbook } from '../../services/productSpreadsheet';
-import { systemBackupApi } from '../../services/systemBackupApi';
 
 const MasterAdminView = lazy(() => import('../admin/MasterAdminView').then((module) => ({ default: module.MasterAdminView })));
 const AppointmentsView = lazy(() => import('../appointments/AppointmentsView').then((module) => ({ default: module.AppointmentsView })));
@@ -276,62 +274,6 @@ export const AppViewRenderer = ({
   pendingOrders.forEach((launch) => addPendingPaymentClient(launch.clientId, launch.clientName, launch.id));
   const pendingPaymentCount = pendingPaymentClientKeys.size;
   const [cashLaunchToOpenId, setCashLaunchToOpenId] = useState<string | null>(null);
-
-  const exportFullBackup = async (password: string, onProgress: (progress: { stage: string; completed?: number; total?: number }) => void, allowIncomplete = false) => {
-    try {
-      const result = await systemBackupApi.downloadFullBackup(password, onProgress, allowIncomplete);
-      if (result.complete) sonnerToast.success(`Backup geral conferido: ${result.filename}`);
-      else sonnerToast.warning(`Cópia parcial exportada: ${result.filename}`, { description: result.incompleteReasons.join('; ') });
-      return result;
-    } catch (error) {
-      sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel exportar o backup geral.');
-      throw error;
-    }
-  };
-
-  const validateFullBackup = async (file: File, password: string) => {
-    try {
-      const inspected = await systemBackupApi.inspectFullBackup(file, password);
-      const preflight = await systemBackupApi.preflightFullBackup(inspected.payload);
-      return { summary: inspected.summary, preflight };
-    } catch (error) {
-      sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel validar o backup geral.');
-      throw error;
-    }
-  };
-
-  const prepareRestoreSafetyBackup = async (
-    file: File,
-    password: string,
-    onProgress: (progress: { stage: string; completed?: number; total?: number }) => void,
-  ) => {
-    try {
-      const result = await systemBackupApi.prepareRestoreSafetyBackup(file, password, onProgress);
-      sonnerToast.success(`Cópia de segurança do destino baixada: ${result.filename}`);
-      return result;
-    } catch (error) {
-      sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel criar a copia anterior a restauracao.');
-      throw error;
-    }
-  };
-
-  const importFullBackup = async (
-    file: File,
-    password: string,
-    confirmation: string,
-    safetyBackupFilename: string | null,
-    onProgress: (progress: { stage: string; completed?: number; total?: number }) => void,
-  ) => {
-    try {
-      const result = await systemBackupApi.restoreFullBackup(file, password, confirmation, safetyBackupFilename, onProgress);
-      if (result.verified) sonnerToast.success(`Backup restaurado e verificado: ${result.restoredTotal} registro(s).`);
-      else sonnerToast.warning('A restauração teve divergências na verificação final.');
-      return result;
-    } catch (error) {
-      sonnerToast.error(error instanceof Error ? error.message : 'Nao foi possivel restaurar o backup geral.');
-      throw error;
-    }
-  };
 
   const renderedView = (() => {
     if (view === 'dashboard') {
@@ -771,10 +713,6 @@ export const AppViewRenderer = ({
           onSaveSettings={settingsActions.saveSettings}
           onSaveSettingsPatch={settingsActions.saveSettingsPatch}
           onExportClientsBackup={clientActions.exportClientsBackup}
-          onExportFullBackup={exportFullBackup}
-          onValidateFullBackup={validateFullBackup}
-          onPrepareRestoreBackup={prepareRestoreSafetyBackup}
-          onImportFullBackup={importFullBackup}
           onImportClientsBackup={clientActions.importClientsBackup}
           isImportingClients={clientActions.isImportingClients}
           onExportProductsBackup={() => downloadProductsWorkbook(productCatalog)}

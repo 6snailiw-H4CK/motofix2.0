@@ -37,13 +37,6 @@
     ],
     "rewrites": [
       {
-        "source": "/api/backup/**",
-        "function": {
-          "functionId": "backupApi",
-          "region": "us-central1"
-        }
-      },
-      {
         "source": "**",
         "destination": "/index.html"
       }
